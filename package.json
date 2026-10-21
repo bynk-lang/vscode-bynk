@@ -2,7 +2,7 @@
   "name": "bynk-vscode",
   "displayName": "Bynk",
   "description": "Language support for Bynk (.bynk) source files.",
-  "version": "0.375.0",
+  "version": "0.379.1",
   "publisher": "bynk-lang",
   "license": "MIT OR Apache-2.0",
   "icon": "assets/bynk-icon.png",
@@ -10,7 +10,7 @@
     "url": "https://github.com/bynk-lang/bynk"
   },
   "//bynkServerVersion": "The bynkc-lsp release this extension build provisions (see src/server.ts): the last shipped release, not the workspace version. release.yml's server-pin job moves it when a release is published (#1673).",
-  "bynkServerVersion": "v0.371.3",
+  "bynkServerVersion": "v0.377.2",
   "engines": {
     "vscode": "^1.140.0"
   },
@@ -173,6 +173,11 @@
       {
         "command": "bynk.downloadServer",
         "title": "Download Language Server",
+        "category": "Bynk"
+      },
+      {
+        "command": "bynk.installToolchain",
+        "title": "Install Toolchain (bynk, bynkc)",
         "category": "Bynk"
       },
       {
@@ -341,6 +346,10 @@
         },
         {
           "command": "bynk.downloadServer",
+          "when": "(editorLangId == bynk || bynk.hasProject) && !isWeb"
+        },
+        {
+          "command": "bynk.installToolchain",
           "when": "(editorLangId == bynk || bynk.hasProject) && !isWeb"
         },
         {
@@ -763,7 +772,12 @@
         "bynk.bynkPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the `bynk` driver used by the `bynkc: check` build task, the Test Explorer, and the debug session (`bynk check`/`bynk test`/`bynk dev`). When empty, `bynk` is taken from PATH."
+          "description": "Path to the `bynk` driver used by the `bynkc: check` build task, the Test Explorer, and the debug session (`bynk check`/`bynk test`/`bynk dev`). When empty, `bynk` is taken from PATH, then from the toolchain the extension downloaded (see `bynk.toolchain.autoInstall`)."
+        },
+        "bynk.toolchain.autoInstall": {
+          "type": "boolean",
+          "default": true,
+          "description": "Download the `bynk` driver and `bynkc` compiler (checksum-verified, from the matching GitHub Release) when neither `bynk.bynkPath` nor PATH provides a `bynk`, and put them on the PATH of integrated terminals. Turn off to manage the toolchain yourself; `Bynk: Install Toolchain` still works on demand."
         },
         "bynk.debug.semanticValues": {
           "type": "boolean",
