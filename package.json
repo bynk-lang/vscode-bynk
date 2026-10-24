@@ -2,7 +2,7 @@
   "name": "bynk-vscode",
   "displayName": "Bynk",
   "description": "Language support for Bynk (.bynk) source files.",
-  "version": "0.403.0",
+  "version": "0.403.3",
   "publisher": "bynk-lang",
   "license": "MIT OR Apache-2.0",
   "icon": "assets/bynk-icon.png",
@@ -1009,7 +1009,7 @@
     "typescript": "^7.0.2"
   },
   "overrides": {
-    "serialize-javascript": "^7.0.5",
+    "serialize-javascript": "^7.1.4",
     "diff": "^8.0.3",
     "brace-expansion": "^5.0.8"
   }
