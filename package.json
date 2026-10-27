@@ -2,7 +2,7 @@
   "name": "bynk-vscode",
   "displayName": "Bynk",
   "description": "Language support for Bynk (.bynk) source files.",
-  "version": "0.428.0",
+  "version": "0.434.0",
   "publisher": "bynk-lang",
   "license": "MIT OR Apache-2.0",
   "icon": "assets/bynk-icon.png",
@@ -10,7 +10,7 @@
     "url": "https://github.com/bynk-lang/bynk"
   },
   "//bynkServerVersion": "The bynkc-lsp release this extension build provisions (see src/server.ts): the last shipped release, not the workspace version. release.yml's server-pin job moves it when a release is published (#1673).",
-  "bynkServerVersion": "v0.405.4",
+  "bynkServerVersion": "v0.434.0",
   "engines": {
     "vscode": "^1.140.0"
   },
@@ -1515,6 +1515,8 @@
     "build:wasm": "BYNK_WASM_OUT_DIR=\"$PWD/wasm\" bash ../scripts/build-wasm.sh --release",
     "build:web": "node scripts/build-web.mjs",
     "check": "tsc -p . --noEmit",
+    "check:contract": "node scripts/check-contract.mjs",
+    "test:contract": "node --test scripts/contract-lib.test.mjs",
     "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap --watch",
     "package": "npm run build && npx @vscode/vsce package",
     "compile-tests": "tsc -p tsconfig.test.json",
