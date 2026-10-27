@@ -61,10 +61,11 @@ describe("Playground link (#2480)", () => {
 });
 
 describe("Cross-file names in a selection (#2480, DECISION B)", () => {
-  // examples/hello-world/src/hello/web.bynk: `uses` brings `greeting` and
+  // test/fixtures/hello-web.bynk, a copy of the compiler repository's
+  // examples/hello-world/src/hello/web.bynk at v0.434.0: `uses` brings `greeting` and
   // `Subject` in unqualified, so the service block names nothing of `hello.text`.
   const web = readFileSync(
-    resolve(__dirname, "../../../../examples/hello-world/src/hello/web.bynk"),
+    resolve(__dirname, "../../../test/fixtures/hello-web.bynk"),
     "utf8",
   );
   const service = web.slice(web.indexOf("service api"));

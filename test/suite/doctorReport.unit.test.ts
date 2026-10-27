@@ -17,8 +17,11 @@ import {
   renderDoctorHtml,
 } from "../../src/doctorReport";
 
+// A copy of the compiler repository's bynk/tests/golden/doctor.json at v0.434.0
+// (the driver's `bynk doctor --json` output). Refresh it when the pin moves to a
+// release that changes the report's shape.
 const GOLDEN = fs.readFileSync(
-  path.resolve(__dirname, "../../../../bynk/tests/golden/doctor.json"),
+  path.resolve(__dirname, "../../../test/fixtures/doctor.golden.json"),
   "utf8",
 );
 
