@@ -100,8 +100,9 @@ if (args[0] === "book") {
   process.stderr.write("fake bynk: refusing a real sweep in tests\n");
   process.exit(3);
 } else if (args[0] === "doctor") {
-  // The driver's own golden report (bynk/tests/golden/doctor.json).
-  const golden = require("path").join(__dirname, "..", "..", "..", "..", "bynk", "tests", "golden", "doctor.json");
+  // The driver's own golden report (bynk/tests/golden/doctor.json in the
+  // compiler repository), copied beside this directory.
+  const golden = require("path").join(__dirname, "..", "doctor.golden.json");
   process.stdout.write(fs.readFileSync(golden, "utf8"));
   process.exit(args.includes("--only") ? 1 : 0);
 } else if (args[0] === "test" && (args.includes("json") || args.includes("ndjson"))) {
