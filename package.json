@@ -2,7 +2,7 @@
   "name": "bynk-vscode",
   "displayName": "Bynk",
   "description": "Language support for Bynk (.bynk) source files.",
-  "version": "0.421.1",
+  "version": "0.423.0",
   "publisher": "bynk-lang",
   "license": "MIT OR Apache-2.0",
   "icon": "assets/bynk-icon.png",
@@ -427,6 +427,16 @@
     ],
     "commands": [
       {
+        "command": "bynk.copyPlaygroundLink",
+        "title": "Copy Playground Link",
+        "category": "Bynk"
+      },
+      {
+        "command": "bynk.openInPlayground",
+        "title": "Open in Playground",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.restartServer",
         "title": "Restart Language Server",
         "category": "Bynk"
@@ -654,6 +664,14 @@
     "menus": {
       "commandPalette": [
         {
+          "command": "bynk.copyPlaygroundLink",
+          "when": "editorLangId == bynk"
+        },
+        {
+          "command": "bynk.openInPlayground",
+          "when": "editorLangId == bynk"
+        },
+        {
           "command": "bynk.newProject",
           "when": "!isWeb"
         },
@@ -848,6 +866,16 @@
         }
       ],
       "editor/context": [
+        {
+          "command": "bynk.copyPlaygroundLink",
+          "when": "editorLangId == bynk",
+          "group": "bynk@4"
+        },
+        {
+          "command": "bynk.openInPlayground",
+          "when": "editorLangId == bynk",
+          "group": "bynk@5"
+        },
         {
           "command": "bynk.runTests",
           "when": "editorLangId == bynk && !isWeb",
