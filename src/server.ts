@@ -45,21 +45,11 @@ export function serverVersion(context: vscode.ExtensionContext): string {
   return v;
 }
 
-/** `<owner>/<repo>` parsed from package.json `repository.url`.
- *
- * Parsed with linear string ops rather than a single regex: a
- * `github\.com[/:]([^/]+\/…)` match backtracks polynomially on adversarial
- * input (CodeQL js/polynomial-redos). indexOf + split has no such blowup. */
-function repoSlug(context: vscode.ExtensionContext): string {
-  const fallback = "bynk-lang/bynk";
-  const url: string = context.extension.packageJSON.repository?.url ?? "";
-  const host = url.indexOf("github.com");
-  if (host === -1) return fallback;
-  const after = url.slice(host + "github.com".length).replace(/^[/:]/, "");
-  const [owner, repoRaw] = after.split("/");
-  const repo = repoRaw?.replace(/\.git$/, "");
-  return owner && repo ? `${owner}/${repo}` : fallback;
-}
+/** The repository whose GitHub Releases provision the server and toolchain:
+ *  the compiler's, not this extension's. It used to be read from package.json's
+ *  `repository.url`, which is only right while the extension lives in the
+ *  compiler's repository. */
+export const COMPILER_REPO = "bynk-lang/bynk";
 
 /** Map the host to the Rust target triple used by the release assets, or
  *  undefined when no prebuilt server is published for this platform. */
@@ -265,8 +255,7 @@ async function downloadTools(
     );
   }
   const version = serverVersion(context);
-  const slug = repoSlug(context);
-  const base = `https://github.com/${slug}/releases/download/${version}`;
+  const base = `https://github.com/${COMPILER_REPO}/releases/download/${version}`;
   const log = tools.includes("bynkc-lsp") ? "[server]" : "[toolchain]";
 
   return vscode.window.withProgress(
@@ -381,7 +370,7 @@ export function readServerVersion(serverPath: string): string | undefined {
  * Deliberately not an unanchored `/(\d+)\.(\d+)\.(\d+)/` match: `s` is the
  * stdout of an external `bynkc-lsp --version` process (untrusted input), and
  * that shape backtracks polynomially on adversarial input (CodeQL
- * js/polynomial-redos) — the same hazard `repoSlug` above avoids. Splitting
+ * js/polynomial-redos) — the same hazard the old `repoSlug` avoided. Splitting
  * on a lone `\d+` has no such ambiguity (a digit run matches only one way),
  * so scanning the alternating non-digit/digit parts it produces stays linear. */
 export function parseVersion(
