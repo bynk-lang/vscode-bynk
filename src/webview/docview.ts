@@ -1,6 +1,7 @@
+// @webview-entry
 // #847: the documentation webview's bundle entry (`out/docview.js`, a separate
 // esbuild target from the extension host's `out/extension.js` and #846's
-// `out/webview.js` — see `package.json`'s `build` script). Runs inside the
+// `out/webview.js` — see scripts/build.mjs). Runs inside the
 // webview's browser context: no `vscode` module, only `acquireVsCodeApi()`.
 //
 // Reads the `DocPayload` the host embeds as `window.__BYNK_DOC_MODEL__` and

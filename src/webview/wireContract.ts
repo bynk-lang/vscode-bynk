@@ -1,7 +1,7 @@
+// @webview-entry
 // #855: the wire-contract peek's own bundle entry (`out/wireContract.js`, a
-// fifth esbuild target alongside `out/webview.js` (#846), `out/docview.js`
-// (#847) and `out/architecture.js` (#851) — see `package.json`'s `build`
-// script). Runs inside the webview's browser context, never the extension
+// an esbuild target alongside `out/webview.js` (#846), `out/docview.js`
+// (#847) and `out/architecture.js` (#851) — see scripts/build.mjs). Runs inside the webview's browser context, never the extension
 // host: only `acquireVsCodeApi()`, no `vscode` module.
 //
 // Reads the `WcPayload` the extension host embeds as
