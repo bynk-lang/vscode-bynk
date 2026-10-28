@@ -1,10 +1,17 @@
 // #2478: Explorer file decorations — a short badge naming each `.bynk` file's
-// owning context, and a red tint on files whose tests failed in the last run.
-// Each is switched by a setting (`bynk.fileDecorations.*`).
+// owning context, a red tint on files whose tests failed in the last run, and
+// (#2519) a warning tint on files with a contract break. Each is switched by a
+// setting (`bynk.fileDecorations.*`).
 //
 // Desktop only: the tint reads the Test Explorer's results, which the web
 // entry does not have, and the web entry does not register this provider.
-// The marker for contract breaks waits on the contract diagnostics (#2467).
+//
+// A contract break is read from the diagnostics the language server already
+// publishes (`bynk.event.non_additive_schema_change`,
+// `bynk.agent.non_additive_state_change`, see `CONTRACT_BREAK_CODES`), so it
+// follows the editor's own state and clears when the lock is updated or the
+// change is undone. A decoration has no command, so the tooltip names
+// **Bynk: Show Contract Diff** rather than linking to it.
 //
 // The owning context comes from the same header scan the project sidebar
 // (#2097) uses (`parseUnitHeader`), kept per file and updated from a file
@@ -17,6 +24,7 @@ import {
   type BadgeMode,
   type ScannedFile,
   contextBadge,
+  hasContractBreak,
   testFailures,
 } from "./fileDecorationsCore";
 import { parseUnitHeader } from "./projectModel";
@@ -58,6 +66,11 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
         if (e.affectsConfiguration(SECTION)) this.changed.fire(undefined);
       }),
       testFailures.onDidChange((uris) => this.changed.fire(uris.map((u) => vscode.Uri.parse(u)))),
+      vscode.languages.onDidChangeDiagnostics((e) => {
+        // Only a `.bynk` file can carry a break; refreshing the rest is wasted work.
+        const uris = e.uris.filter((u) => u.path.endsWith(".bynk"));
+        if (uris.length > 0) this.changed.fire(uris);
+      }),
     );
     void this.scan();
   }
@@ -73,20 +86,32 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
     }
     const badge = contextBadge(this.files, key, config.get<BadgeMode>("contextBadge", "auto"));
     const failed = config.get<boolean>("failedTests", true) && testFailures.hasFailures(key);
-    if (!badge && !failed) return undefined;
+    const broken =
+      config.get<boolean>("contractBreaks", true) &&
+      uri.path.endsWith(".bynk") &&
+      hasContractBreak(vscode.languages.getDiagnostics(uri));
+    if (!badge && !failed && !broken) return undefined;
     const tooltip = [
       badge && `Bynk context ${badge.context}`,
       failed && "Tests failed in the last run",
+      broken && "Contract break against bynk.schema.lock (Bynk: Show Contract Diff)",
     ]
       .filter(Boolean)
       .join(" · ");
+    // A file's context badge wins the badge slot; a break with none gets `!`, so
+    // it is not shown by colour alone.
     const decoration = new vscode.FileDecoration(
-      badge?.badge,
+      badge?.badge ?? (broken ? "!" : undefined),
       tooltip,
-      failed ? new vscode.ThemeColor("bynk.testFailedForeground") : undefined,
+      // A failed test is the louder signal, so its red wins when both apply.
+      failed
+        ? new vscode.ThemeColor("bynk.testFailedForeground")
+        : broken
+          ? new vscode.ThemeColor("bynk.contractBreakForeground")
+          : undefined,
     );
     // A tinted folder shows where to look; a badge on a folder would not mean anything.
-    decoration.propagate = failed;
+    decoration.propagate = failed || broken;
     return decoration;
   }
 
@@ -95,9 +120,15 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   }
 
   /** The decoration state of a file, for the integration test. */
-  snapshot(uri: vscode.Uri): { badge?: string; tooltip?: string; failed: boolean } {
+  snapshot(uri: vscode.Uri): { badge?: string; tooltip?: string; failed: boolean; contractBreak: boolean } {
     const d = this.provideFileDecoration(uri);
-    return { badge: d?.badge, tooltip: d?.tooltip, failed: d?.color !== undefined };
+    const color = (d?.color as vscode.ThemeColor | undefined)?.id;
+    return {
+      badge: d?.badge,
+      tooltip: d?.tooltip,
+      failed: color === "bynk.testFailedForeground",
+      contractBreak: color === "bynk.contractBreakForeground" || (d?.tooltip?.includes("Contract break") ?? false),
+    };
   }
 
   private async scan(): Promise<void> {

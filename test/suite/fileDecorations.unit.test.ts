@@ -7,6 +7,7 @@ import {
   FailureTracker,
   abbreviate,
   contextBadge,
+  hasContractBreak,
   type ScannedFile,
 } from "../../src/fileDecorationsCore";
 
@@ -97,6 +98,30 @@ describe("file decorations (#2478)", () => {
       t.retain(new Set(["b"]));
       assert.ok(!t.hasFailures("f"));
       assert.ok(t.hasFailures("g"));
+    });
+  });
+
+  describe("hasContractBreak (#2519)", () => {
+    it("recognises both boundary-break codes", () => {
+      assert.strictEqual(hasContractBreak([{ code: "bynk.event.non_additive_schema_change" }]), true);
+      assert.strictEqual(hasContractBreak([{ code: "bynk.agent.non_additive_state_change" }]), true);
+    });
+    it("reads a code that carries a documentation link", () => {
+      assert.strictEqual(
+        hasContractBreak([{ code: { value: "bynk.event.non_additive_schema_change", target: {} } }]),
+        true,
+      );
+    });
+    it("ignores other diagnostics, numeric codes and missing codes", () => {
+      assert.strictEqual(hasContractBreak([]), false);
+      assert.strictEqual(hasContractBreak([{}, { code: 12 }, { code: "bynk.type.mismatch" }]), false);
+      assert.strictEqual(hasContractBreak([{ code: { value: 7 } }]), false);
+    });
+    it("finds one among others", () => {
+      assert.strictEqual(
+        hasContractBreak([{ code: "bynk.type.mismatch" }, { code: "bynk.agent.non_additive_state_change" }]),
+        true,
+      );
     });
   });
 });
