@@ -9,6 +9,9 @@
 // the click applies it, nothing applies it silently.
 // DECISION C: answers end with the sources the toolchain gave, or say they
 // have none.
+// DECISION D (#2516): `/fix` and `/learn` compile what they show before showing
+// it (see `chatCore.ts` and `chatCheck.ts`); the button says when the edit was
+// not checked.
 //
 // It needs the native language server and the CLI behind those tools, so it is
 // desktop-only (`!isWeb` in the manifest); the web entry doesn't register it.
@@ -24,7 +27,9 @@ import {
   type ModelPart,
   runCommand,
 } from "./chatCore";
+import { checkInProject, checkScratch } from "./chatCheck";
 import { relPath } from "./lmToolsCore";
+import { projectRootFor } from "./projectRoots";
 
 const PARTICIPANT_ID = "bynk.chat";
 export const APPLY_FIX_COMMAND = "bynk.chat.applyFix";
@@ -108,7 +113,14 @@ function toApiMessage(m: ChatMsg): vscode.LanguageModelChatMessage {
 }
 
 function depsFor(request: vscode.ChatRequest, token: vscode.CancellationToken): ChatDeps {
+  // The file the checks compile against, taken now like the fix's own target.
+  const active = vscode.window.activeTextEditor?.document;
+  const activeBynk = active?.languageId === "bynk" && active.uri.scheme === "file" ? active.uri : undefined;
   return {
+    checkInProject: activeBynk
+      ? (_file, text) => checkInProject(activeBynk, text, token, projectRootFor)
+      : undefined,
+    checkScratch: (source) => checkScratch(source, token),
     model: modelLike(request.model, token),
     editor: editorContext(),
     async invokeTool(name, input) {
@@ -143,10 +155,12 @@ async function handle(
     );
     if (outcome.fix) {
       if (fixUri) {
-        stream.button({ command: APPLY_FIX_COMMAND, title: "Apply fix", arguments: [fixUri, outcome.fix] });
+        // A fix the toolchain accepted says so; one it could not check is labelled.
+        const title = outcome.checked === "verified" ? "Apply fix" : "Apply unchecked fix";
+        stream.button({ command: APPLY_FIX_COMMAND, title, arguments: [fixUri, outcome.fix] });
       }
     }
-    return { metadata: { command: outcome.command, fixed: outcome.fix !== undefined } };
+    return { metadata: { command: outcome.command, fixed: outcome.fix !== undefined, checked: outcome.checked } };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     stream.markdown(`I could not complete that: ${message}\n`);
