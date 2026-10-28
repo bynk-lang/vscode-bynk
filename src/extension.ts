@@ -29,40 +29,22 @@ import {
   type ResolvedServer,
 } from "./server";
 import { newContext, newProject } from "./scaffold";
-import { registerTasks } from "./tasks";
 import { registerTesting } from "./testing";
 import { registerTestCodeLens } from "./testCodeLens";
-import { registerDebug } from "./debug";
-import { registerDevServer } from "./devServer";
-import { registerDependencies } from "./dependencies";
-import { registerDeploy } from "./deploy";
 import { registerApproveRequirements } from "./approveRequirements";
-import { registerDoctor } from "./doctor";
 import { provideCodeLenses } from "./codelens";
 import { registerSequenceDiagram } from "./sequenceDiagram";
 import { registerDocumentationView } from "./documentationView";
-import { capabilityPathClientFeature, registerCapabilityPath } from "./capabilityPath";
-import { explainClientFeature, registerExplainView } from "./explainView";
-import { registerChatParticipant } from "./chatParticipant";
-import {
-  refinedExplorerClientFeature,
-  registerRefinedExplorer,
-  trustExplorerLink,
-} from "./refinedExplorer";
-import { registerLmTools } from "./lmTools";
-import { registerToolchain } from "./toolchain";
+import { capabilityPathClientFeature } from "./capabilityPath";
+import { explainClientFeature } from "./explainView";
+import { refinedExplorerClientFeature, trustExplorerLink } from "./refinedExplorer";
 import { registerArchitectureMap } from "./architectureMap";
 import { registerAgentStateView } from "./agentStateView";
 import { registerContractDiff } from "./contractDiff";
-import { registerEmittedOutput } from "./emittedOutput";
 import { registerWireContract } from "./wireContract";
-import { registerInlineDocRendering } from "./inlineDocRendering";
-import { registerPlaygroundCommands } from "./playgroundCommands";
-import { registerTomlRecommendation } from "./tomlRecommendation";
+import { registerFeatures } from "./features";
 import { ViewRefresh } from "./viewRefresh";
-import { registerViewsCodeLens } from "./viewsCodeLens";
 import { registerProjectTree } from "./projectTree";
-import { registerFileDecorations } from "./fileDecorations";
 import type { LivePanel } from "./livePanel";
 
 let client: LanguageClient | undefined;
@@ -105,13 +87,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("bynk.newProject", () => newProject()),
   );
 
-  // The `bynk` driver + `bynkc` compiler: fetched beside the server unless the
-  // user already has them, so nothing needs `cargo install`.
-  registerToolchain(context, output);
-
-  // B-2: the `bynkc: check` build task (errors → Problems via `$bynkc`).
-  registerTasks(context);
-
   // #2093: the model views share one refresh hub — it turns saves/edits
   // (`bynk.views.refresh`) and the server's round-committed signal (the
   // `handleDiagnostics` middleware below) into refreshes, and caches model
@@ -121,30 +96,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   viewRefresh = new ViewRefresh(() => client);
   context.subscriptions.push(viewRefresh);
 
+  // The features that need only the context, the hub, the client getter or the
+  // output channel: see features.ts (add new ones there, not here).
+  registerFeatures({ context, output, viewRefresh, client: () => client });
+
   // v0.59: the Test Explorer — runs `bynkc test --format json`. v0.78: also discovers
   // eagerly and exposes case locations for the Test CodeLens. #2269: its Watch toggle
   // reruns on the hub's change signal, so the hub is built first.
   const testApi = registerTesting(context, viewRefresh);
-
-  // v0.72: one-click debugging — the `bynk` debug type delegates to VS Code's
-  // JavaScript debugger via the `--inspect` CLIs (ADR 0104).
-  registerDebug(context);
-
-  // #2094: run and manage `bynk dev` — the `bynk: dev` task, start/stop/
-  // restart commands, and a status-bar item with each context's URL.
-  registerDevServer(context);
-
-  // #2101: plan-first deploy — a `--dry-run` plan view, then the real
-  // `bynk deploy` in a terminal with the driver's own confirmation.
-  registerDeploy(context);
-
-  // #2472: dependencies and the registry — Add Dependency…, Fetch Dependencies,
-  // upgrade lenses in `bynk.toml`, and a plan-first Publish…, all through `bynk`.
-  registerDependencies(context);
-
-  // #2095: "Bynk: Doctor" — the `bynk doctor` readiness checklist with
-  // one-click remedies; offered by failures elsewhere, never run on activation.
-  registerDoctor(context);
 
   // #2473: review and approve the npm packages dependencies' adapters ask for;
   // pending ones are found in `check`/`dev`/`deploy` output, and badge the
@@ -169,15 +128,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // from agent to agent and highlights the handler under it.
     bynkAgentState: registerAgentStateView(context, viewRefresh) as LivePanel<unknown>,
   };
-  // DECISION D: the opt-in `Wire contract` handler lens (beside the server's
-  // own `Show Sequence` lens).
-  registerViewsCodeLens(context, viewRefresh);
   // #2097: the Bynk activity-bar project tree — units, `consumes` edges and
   // declarations — on the same refresh hub and model cache as the views.
   registerProjectTree(context, viewRefresh, approvals);
-  // #2478: Explorer badges for each file's owning context, and a tint on files
-  // whose tests failed in the last run.
-  registerFileDecorations(context);
   // Test seams for the integration suite (not contributed, so never in the
   // palette): read a view's state, pin it, and drive the reload path.
   context.subscriptions.push(
@@ -193,40 +146,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         liveViews[viewType]?.restore(panel, state),
     ),
   );
-
-  // #2471: "Show Compiled Output" — the generated TypeScript beside the source,
-  // highlighted both ways through the emitter's source map.
-  registerEmittedOutput(context, viewRefresh);
-
-  // #2098: "Explain Diagnostic Code…" and the server's "Explain …" quick fix —
-  // the installed toolchain's own explanation of a code, offline, in a panel.
-  registerExplainView(context, () => client);
-  registerRefinedExplorer(context, () => client);
-
-  // #2469: the server's "Show capability path" action on a `given` entry opens
-  // the editor's references peek over every chain to the capability's use.
-  registerCapabilityPath(context);
-
-  // #2463: the toolchain's answers as language-model tools, so a chat agent
-  // can ask (explain a code, read diagnostics, documentation, architecture, a
-  // wire contract, run `bynk check`) instead of guessing at a young language.
-  registerLmTools(context, () => client, viewRefresh);
-
-  // #2465: `@bynk` in the Chat view, orchestrating those tools.
-  registerChatParticipant(context);
-
-  // #849: in-editor doc-comment rendering — heading colour, bold, italic applied
-  // in place to `--- … ---` blocks. Client-side decorations only; independent of
-  // the language server, so it works even while the server is still starting.
-  registerInlineDocRendering(context);
-
-  // #2480: share a selection or a single-file program as a playground link.
-  registerPlaygroundCommands(context);
-
-  // #2096: `bynk.toml` editing support comes from the JSON Schema that
-  // `contributes.tomlValidation` associates with it, which a TOML extension
-  // reads; suggest one, once, if none is installed. Server-independent.
-  registerTomlRecommendation(context);
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => updateProjectItem()),

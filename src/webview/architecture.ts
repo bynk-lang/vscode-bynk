@@ -1,3 +1,4 @@
+// @webview-entry
 // #851: the architecture-map webview's own bundle entry (`out/architecture.js`,
 // a fourth esbuild target alongside `out/webview.js` (#846) and `out/docview.js`
 // (#847) — see `package.json`'s `build` script). Runs inside the webview's

@@ -1,3 +1,4 @@
+// @webview-entry
 // #2470: the "Refined Type" explorer's bundle entry (`out/refinedExplorer.js`,
 // a separate esbuild target). Runs in the webview's browser context: no
 // `vscode` module, only `acquireVsCodeApi()`. Renders the model the host embeds

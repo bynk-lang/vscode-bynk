@@ -1,3 +1,4 @@
+// @webview-entry
 // #847: the documentation webview's bundle entry (`out/docview.js`, a separate
 // esbuild target from the extension host's `out/extension.js` and #846's
 // `out/webview.js` — see `package.json`'s `build` script). Runs inside the

@@ -1,3 +1,4 @@
+// @webview-entry
 // #2196: the agent state view's bundle entry (`out/state.js`). Runs in the
 // webview's browser context.
 //

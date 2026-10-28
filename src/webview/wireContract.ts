@@ -1,3 +1,4 @@
+// @webview-entry
 // #855: the wire-contract peek's own bundle entry (`out/wireContract.js`, a
 // fifth esbuild target alongside `out/webview.js` (#846), `out/docview.js`
 // (#847) and `out/architecture.js` (#851) — see `package.json`'s `build`

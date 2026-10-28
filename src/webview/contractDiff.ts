@@ -1,3 +1,4 @@
+// @webview-entry
 // #2467: the contract-diff view's bundle entry (`out/contractDiff.js`). Runs in
 // the webview's browser context: only `acquireVsCodeApi()`, no `vscode` module.
 // Reads the `CdPayload` the host embeds as `window.__BYNK_CONTRACT_DIFF__`.

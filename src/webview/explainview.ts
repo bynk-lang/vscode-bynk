@@ -1,3 +1,4 @@
+// @webview-entry
 // #2098: the "Bynk: Explanation" webview's bundle entry (`out/explainview.js`,
 // a separate esbuild target, like `docview.js`). Runs in the webview's browser
 // context: no `vscode` module, only `acquireVsCodeApi()`. Renders the payload
