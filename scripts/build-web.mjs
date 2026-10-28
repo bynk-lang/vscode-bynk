@@ -2,9 +2,9 @@
 // its language-server worker (`out/web/server.js`), and the `bynk-wasm` module
 // the worker fetches (`out/web/bynk_wasm_bg.wasm`).
 //
-// The wasm glue + module come from `npm run build:wasm`, which runs the
-// repo's scripts/build-wasm.sh into `wasm/` (gitignored). They are a build
-// artefact, never committed, the same as the playground's `src/vendor/`.
+// The wasm glue + module come from `npm run fetch:wasm`, which downloads
+// them from the pinned compiler release into `wasm/` (gitignored). They are a
+// build artefact, never committed, the same as the playground's `src/vendor/`.
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 
 import * as esbuild from "esbuild";
@@ -15,8 +15,7 @@ const module = `${root}wasm/bynk_wasm_bg.wasm`;
 
 if (!existsSync(glue) || !existsSync(module)) {
   console.error(
-    "build:web needs the bynk-wasm glue in wasm/. Run `npm run build:wasm` first " +
-      "(needs the wasm32-unknown-unknown target and wasm-bindgen-cli).",
+    "build:web needs the bynk-wasm glue in wasm/. Run `npm run fetch:wasm` first.",
   );
   process.exit(1);
 }

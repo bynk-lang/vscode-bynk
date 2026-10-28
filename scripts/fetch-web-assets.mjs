@@ -1,7 +1,7 @@
 // Stage the bynk-wasm module + glue from the pinned release into `wasm/`, where
-// `build-web.mjs` expects them, instead of building them from the compiler's
-// source (`npm run build:wasm`, which needs the compiler's repository, a Rust
-// toolchain with the wasm32 target, and wasm-bindgen-cli). The release's
+// `build-web.mjs` expects them, rather than building them from the compiler's
+// source, which would need the compiler's repository, a Rust toolchain with the
+// wasm32 target, and wasm-bindgen-cli. The release's
 // `bynk-web-<tag>.tar.gz` is the same artefact the playground builds from.
 //
 //   node scripts/fetch-web-assets.mjs

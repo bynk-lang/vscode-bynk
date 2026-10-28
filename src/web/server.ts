@@ -22,7 +22,7 @@ import {
 } from "vscode-languageserver/browser";
 import { TextDocument } from "vscode-languageserver-textdocument";
 
-// Resolved by esbuild to the wasm-bindgen glue `npm run build:wasm` stages in
+// Resolved by esbuild to the wasm-bindgen glue `npm run fetch:wasm` stages in
 // `wasm/` (see src/web/bynk-wasm.d.ts and the `build:web` script).
 import initWasm, {
   bynk_analyze,
