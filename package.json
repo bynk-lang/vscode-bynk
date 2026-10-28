@@ -1423,6 +1423,11 @@
           "default": true,
           "description": "Tint a file red in the Explorer (and the folders above it) when a test in it failed in the last run. A run that passes the failing tests clears the tint."
         },
+        "bynk.fileDecorations.contractBreaks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mark a file in the Explorer (and the folders above it) when the language server reports a contract break in it against `bynk.schema.lock`: an event schema or agent state changed non-additively. The marker is a `!` badge, unless the file has a context badge, and a warning tint. `Bynk: Show Contract Diff` shows what changed."
+        },
         "bynk.viewsCodeLens": {
           "type": "boolean",
           "default": false,
@@ -1436,6 +1441,16 @@
       }
     },
     "colors": [
+      {
+        "id": "bynk.contractBreakForeground",
+        "description": "Explorer colour of a file with a contract break against bynk.schema.lock (bynk.fileDecorations.contractBreaks).",
+        "defaults": {
+          "light": "list.warningForeground",
+          "dark": "list.warningForeground",
+          "highContrast": "list.warningForeground",
+          "highContrastLight": "list.warningForeground"
+        }
+      },
       {
         "id": "bynk.testFailedForeground",
         "description": "Explorer colour of a file whose tests failed in the last run (bynk.fileDecorations.failedTests).",

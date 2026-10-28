@@ -18,6 +18,9 @@ interface Decoration {
   badge?: string;
   tooltip?: string;
   failed: boolean;
+  contractBreak: boolean;
+  tint?: "failed" | "contractBreak";
+  propagate: boolean;
 }
 
 const decoration = (file: string): Thenable<Decoration> =>
@@ -112,6 +115,23 @@ describe("Bynk Explorer file decorations (#2478)", () => {
       await vscode.commands.executeCommand("bynk.runTestsInFile", textFile);
       await waitFor(() => decoration(textFile.fsPath), (d) => d.failed, "the failed run to tint the file", 45_000);
 
+      // A file that both failed and breaks the contract: the failure's red wins
+      // the colour, the break still shows in the badge and tooltip, and both carry
+      // up to the folders.
+      const server = vscode.languages.createDiagnosticCollection("bynk-both-test");
+      try {
+        const brk = new vscode.Diagnostic(new vscode.Range(0, 0, 0, 1), "not additive", vscode.DiagnosticSeverity.Error);
+        brk.code = "bynk.agent.non_additive_state_change";
+        server.set(textFile, [brk]);
+        const both = await waitFor(() => decoration(textFile.fsPath), (d) => d.contractBreak, "the break beside the failure");
+        assert.strictEqual(both.tint, "failed", "the failure's colour wins");
+        assert.strictEqual(both.failed, true);
+        assert.strictEqual(both.propagate, true);
+        assert.ok(both.tooltip?.includes("Tests failed") && both.tooltip.includes("Contract break"), both.tooltip ?? "");
+      } finally {
+        server.dispose();
+      }
+
       await vscode.workspace.getConfiguration("bynk.fileDecorations").update("failedTests", false, true);
       await waitFor(() => decoration(textFile.fsPath), (d) => !d.failed, "the setting to turn the tint off");
       await vscode.workspace.getConfiguration("bynk.fileDecorations").update("failedTests", undefined, true);
@@ -125,6 +145,56 @@ describe("Bynk Explorer file decorations (#2478)", () => {
       delete process.env.BYNK_FAKE_TEST_DOC;
       await fake.restore();
       fs.rmSync(docDir, { recursive: true, force: true });
+    }
+  });
+
+  it("marks a file the server reports a contract break in, and clears it (#2519)", async function () {
+    this.timeout(60_000);
+    const config = vscode.workspace.getConfiguration("bynk.fileDecorations");
+    // A stand-in for the language server: the decoration reads the editor's
+    // diagnostics, whoever published them.
+    const server = vscode.languages.createDiagnosticCollection("bynk-contract-break-test");
+    const uri = vscode.Uri.file(billing);
+    const range = new vscode.Range(0, 0, 0, 1);
+    const publish = (code: vscode.Diagnostic["code"]) => {
+      const d = new vscode.Diagnostic(range, "not additive", vscode.DiagnosticSeverity.Error);
+      d.code = code;
+      server.set(uri, [d]);
+    };
+    try {
+      await config.update("contextBadge", "never", true);
+      await waitFor(() => decoration(billing), (d) => d.badge === undefined, "the badge to switch off");
+
+      publish("bynk.type.mismatch");
+      assert.strictEqual((await decoration(billing)).contractBreak, false, "another diagnostic is not a break");
+
+      publish("bynk.event.non_additive_schema_change");
+      const marked = await waitFor(() => decoration(billing), (d) => d.contractBreak, "the break to be marked");
+      assert.strictEqual(marked.badge, "!");
+      assert.strictEqual(marked.tint, "contractBreak");
+      // The tint carries up to the folders above the file.
+      assert.strictEqual(marked.propagate, true);
+      assert.ok(marked.tooltip?.includes("Show Contract Diff"), marked.tooltip ?? "");
+
+      // A context badge keeps its slot; the break stays in the tooltip and tint.
+      await config.update("contextBadge", "always", true);
+      const both = await waitFor(() => decoration(billing), (d) => d.badge === "BI" && d.contractBreak, "badge and break");
+      assert.ok(both.tooltip?.includes("Bynk context billing"), both.tooltip ?? "");
+
+      await config.update("contractBreaks", false, true);
+      await waitFor(() => decoration(billing), (d) => !d.contractBreak, "the setting to turn the marker off");
+      await config.update("contractBreaks", undefined, true);
+      await waitFor(() => decoration(billing), (d) => d.contractBreak, "the setting to bring it back");
+
+      publish({ value: "bynk.agent.non_additive_state_change", target: vscode.Uri.parse("https://bynk-lang.org") });
+      await waitFor(() => decoration(billing), (d) => d.contractBreak, "a linked code to count");
+
+      server.delete(uri);
+      await waitFor(() => decoration(billing), (d) => !d.contractBreak, "the marker to clear with the diagnostic");
+    } finally {
+      server.dispose();
+      await config.update("contractBreaks", undefined, true);
+      await config.update("contextBadge", undefined, true);
     }
   });
 });
