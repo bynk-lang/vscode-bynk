@@ -8,9 +8,24 @@
 // (`request.model`); the extension holds no keys and makes no choice.
 // DECISION B: `/fix` returns its edit as a proposal (`FixProposal`) that the
 // caller shows as a diff behind a button; nothing here changes a file.
+// DECISION D (#2516): Bynk code is checked before it is shown as working. A
+// `/fix` edit is compiled against the project with the edit applied, and a
+// `/learn` example in a scratch project; the model gets one round to repair what
+// fails, and what still fails is not offered (`/fix`) or not shown as code
+// (`/learn`). Both replies are held back until checked. If the toolchain can't
+// run the check, the answer says it is unchecked rather than implying it passed.
 // DECISION C: every answer cites its sources. They are collected from the
 // toolchain's own output (Book links, `path:line` locations), not taken from
 // the model's say-so, and an answer with none says so.
+
+import { type CompileDiagnostic, describeDiagnostic, diagnosticKey } from "./richDiagnostics";
+
+/** What compiling some text said: it compiles, it has these errors, or the
+ *  check could not run (no toolchain, no project), which is no verdict at all. */
+export type CheckOutcome =
+  | { kind: "ok" }
+  | { kind: "errors"; errors: CompileDiagnostic[] }
+  | { kind: "unavailable"; reason: string };
 
 /** One part of a model's streamed reply. */
 export type ModelPart =
@@ -64,6 +79,11 @@ export interface ChatDeps {
   /** The Bynk tools offered to the model for its own calls. */
   modelTools: readonly string[];
   isCancelled(): boolean;
+  /** Compile the active file's project with `text` as that file's contents.
+   *  Absent where there is no way to check (the answer then says so). */
+  checkInProject?(file: string, text: string): Promise<CheckOutcome>;
+  /** Compile `source` as the only unit of a throwaway project. */
+  checkScratch?(source: string): Promise<CheckOutcome>;
 }
 
 /** An edit `/fix` proposes: replace 1-based lines `startLine..endLine`. */
@@ -79,6 +99,8 @@ export interface ChatOutcome {
   /** Markdown to stream, in order. */
   markdown: string[];
   fix?: FixProposal;
+  /** For a `fix`: whether the toolchain accepted it, or could not check it. */
+  checked?: "verified" | "unchecked";
   /** The command that produced it, for follow-up suggestions. */
   command: string;
   sources: string[];
@@ -105,7 +127,8 @@ const COMMAND_TASKS: Record<string, string> = {
   explain:
     "Explain the diagnostic(s) or code in the MATERIAL to a learner: what it means, why it happened here, and how to resolve it.",
   learn:
-    "Teach the topic as a short lesson (a few paragraphs and one small example) using only the Book material given.",
+    "Teach the topic as a short lesson (a few paragraphs and one small example) using only the Book material given. " +
+    "Fence every Bynk example as ```bynk and make it a complete unit that compiles on its own: it is compiled before you are shown.",
   architecture:
     "Walk through this project's architecture: its contexts, services, agents and how they connect. Start with the shape, then the details.",
   fix: [
@@ -263,6 +286,121 @@ export function firstCodeBlock(reply: string): string | undefined {
   return m ? m[1] : undefined;
 }
 
+/** Every ```bynk block in a reply: its code, and where the whole fence sits. */
+export function bynkBlocks(reply: string): { code: string; start: number; end: number }[] {
+  const blocks: { code: string; start: number; end: number }[] = [];
+  for (const m of reply.matchAll(/```bynk[ \t]*\r?\n([\s\S]*?)\r?\n?```/g)) {
+    blocks.push({ code: m[1], start: m.index, end: m.index + m[0].length });
+  }
+  return blocks;
+}
+
+const UNIT_HEADER = /^\s*(?:context|commons|adapter|suite)\s+\w/m;
+
+/** Check one example: as given if it declares its own unit, else inside a
+ *  `commons` and then a `context`, the first that compiles. */
+async function checkSnippet(deps: ChatDeps, code: string): Promise<CheckOutcome> {
+  if (!deps.checkScratch) return { kind: "unavailable", reason: "this build has no way to compile an example" };
+  const attempts = UNIT_HEADER.test(code) ? [code] : [`commons example\n\n${code}`, `context example\n\n${code}`];
+  let best: CheckOutcome | undefined;
+  for (const source of attempts) {
+    const outcome = await deps.checkScratch(source);
+    if (outcome.kind !== "errors") return outcome;
+    if (!best || (best.kind === "errors" && outcome.errors.length < best.errors.length)) best = outcome;
+  }
+  return best as CheckOutcome;
+}
+
+/** Take the first diagnostics for a message to the model or the user. */
+function listErrors(errors: readonly CompileDiagnostic[], limit = 5): string {
+  return errors.slice(0, limit).map((e) => `- ${describeDiagnostic(e)}`).join("\n");
+}
+
+/** Outcome of checking each ```bynk block in a lesson. */
+async function checkExamples(deps: ChatDeps, reply: string): Promise<CheckOutcome[]> {
+  const results: CheckOutcome[] = [];
+  for (const b of bynkBlocks(reply)) results.push(await checkSnippet(deps, b.code));
+  return results;
+}
+
+/** A lesson with every example that failed to compile replaced by a notice. */
+function withoutFailedExamples(reply: string, results: readonly CheckOutcome[]): string {
+  const blocks = bynkBlocks(reply);
+  let out = "";
+  let at = 0;
+  blocks.forEach((b, i) => {
+    out += reply.slice(at, b.start);
+    const r = results[i];
+    if (r?.kind === "errors") {
+      out += `> Example omitted: it did not compile with the Bynk toolchain (${describeDiagnostic(r.errors[0])}).`;
+    } else {
+      out += reply.slice(b.start, b.end);
+    }
+    at = b.end;
+  });
+  return out + reply.slice(at);
+}
+
+/** What checking a `/fix` edit found. */
+type FixVerdict =
+  | { kind: "verified" }
+  | { kind: "unchecked"; reason: string }
+  | { kind: "rejected"; errors: CompileDiagnostic[]; targetRemains: boolean };
+
+/** The project as it is, compiled once: the diagnostic to fix as the compiler
+ *  reports it, and the errors the project already had. */
+type FixBaseline =
+  | { kind: "unchecked"; reason: string }
+  | { kind: "ready"; target: CompileDiagnostic; known: ReadonlySet<string> };
+
+/** The file's text with 1-based lines `start..end` replaced. */
+function applyReplacement(lines: readonly string[], start: number, end: number, replacement: string): string {
+  return [...lines.slice(0, start - 1), ...replacement.split("\n"), ...lines.slice(end)].join("\n");
+}
+
+async function fixBaseline(deps: ChatDeps, diag: EditorDiagnostic): Promise<FixBaseline> {
+  const { file, lines } = deps.editor;
+  if (!deps.checkInProject || !file || !lines) {
+    return { kind: "unchecked", reason: "this build has no way to compile the project" };
+  }
+  const before = await deps.checkInProject(file, lines.join("\n"));
+  if (before.kind === "unavailable") return { kind: "unchecked", reason: before.reason };
+  if (before.kind === "ok") {
+    return { kind: "unchecked", reason: "the compiler reports no error in the project as it is, so it has nothing to check the edit against" };
+  }
+  const target =
+    before.errors.find((e) => e.code === diag.code && e.message === diag.message && e.line === diag.line) ??
+    before.errors.find((e) => e.code === diag.code && e.message === diag.message) ??
+    before.errors.find((e) => e.code === diag.code);
+  if (!target) {
+    return { kind: "unchecked", reason: "the compiler does not report this diagnostic, so the edit can't be checked against it" };
+  }
+  return { kind: "ready", target, known: new Set(before.errors.map(diagnosticKey)) };
+}
+
+/** Compile the project with the edit; it passes if the target diagnostic is gone
+ *  and it brought no error the project did not already have. */
+async function verifyFix(
+  deps: ChatDeps,
+  base: FixBaseline,
+  start: number,
+  end: number,
+  replacement: string,
+): Promise<FixVerdict> {
+  const { file, lines } = deps.editor;
+  if (base.kind === "unchecked") return base;
+  if (!deps.checkInProject || !file || !lines) {
+    return { kind: "unchecked", reason: "this build has no way to compile the project" };
+  }
+  const after = await deps.checkInProject(file, applyReplacement(lines, start, end, replacement));
+  if (after.kind === "unavailable") return { kind: "unchecked", reason: after.reason };
+  if (after.kind === "ok") return { kind: "verified" };
+  const fresh = after.errors.filter((e) => !base.known.has(diagnosticKey(e)));
+  const targetRemains = after.errors.some((e) => diagnosticKey(e) === diagnosticKey(base.target));
+  if (!targetRemains && fresh.length === 0) return { kind: "verified" };
+  return { kind: "rejected", errors: targetRemains ? [base.target, ...fresh] : fresh, targetRemains };
+}
+
 /** A unified-style diff of the replaced lines, for the response. */
 export function renderDiff(fix: FixProposal): string {
   const old = fix.original.split("\n").map((l) => `- ${l}`);
@@ -303,7 +441,39 @@ export async function runCommand(
       say(renderSources(sources));
       return done();
     }
-    await converse(deps, buildMessages(command, material, prompt), sources, say);
+    // Held back, like /fix: the examples are compiled before anyone reads them.
+    const messages = buildMessages(command, material, prompt);
+    let reply = await converse(deps, messages, sources, () => {});
+    if (deps.isCancelled()) return done();
+    let results = await checkExamples(deps, reply);
+    const failing = (rs: readonly CheckOutcome[]) =>
+      rs.flatMap((r) => (r.kind === "errors" ? r.errors : []));
+    if (failing(results).length > 0) {
+      // One round to repair, with what the compiler said.
+      messages.push({ role: "assistant", text: reply });
+      messages.push({
+        role: "user",
+        text:
+          "These examples do not compile with the Bynk toolchain:\n" +
+          `${listErrors(failing(results))}\n\n` +
+          "Rewrite the lesson with corrected examples, using only the MATERIAL and tool results. " +
+          "If you cannot make an example compile, leave it out.",
+      });
+      reply = await converse(deps, messages, sources, () => {});
+      if (deps.isCancelled()) return done();
+      results = await checkExamples(deps, reply);
+    }
+    say(withoutFailedExamples(reply, results).trim() + "\n");
+    const omitted = results.filter((r) => r.kind === "errors").length;
+    const unavailable = results.find((r) => r.kind === "unavailable");
+    if (omitted > 0) {
+      say(`\n*${omitted === 1 ? "An example was" : `${omitted} examples were`} left out because ${omitted === 1 ? "it" : "they"} did not compile.*\n`);
+    }
+    if (unavailable?.kind === "unavailable") {
+      say(`\n*Examples were not checked: ${unavailable.reason}.*\n`);
+    } else if (results.length > 0 && omitted < results.length) {
+      say("\n*Examples checked with `bynk compile`.*\n");
+    }
     say(renderSources(sources));
     return done();
   }
@@ -338,8 +508,10 @@ export async function runCommand(
       parts.push(explained);
     }
     // The reply is held back: the user sees the diff, not raw model output.
-    const reply = await converse(deps, buildMessages(command, parts.join("\n\n"), prompt), sources, () => {});
-    const replacement = firstCodeBlock(reply);
+    const messages = buildMessages(command, parts.join("\n\n"), prompt);
+    let reply = await converse(deps, messages, sources, () => {});
+    if (deps.isCancelled()) return done();
+    let replacement = firstCodeBlock(reply);
     const prose = reply.replace(/```[\s\S]*?```/g, "").trim();
     if (prose) say(`${prose}\n\n`);
     if (replacement === undefined) {
@@ -347,10 +519,44 @@ export async function runCommand(
       say(renderSources(sources));
       return done();
     }
+    const base = await fixBaseline(deps, diag);
+    let verdict = await verifyFix(deps, base, start, end, replacement);
+    if (verdict.kind === "rejected") {
+      // One round to repair, with what the compiler said about the edit.
+      messages.push({ role: "assistant", text: reply });
+      messages.push({
+        role: "user",
+        text:
+          (verdict.targetRemains ? "That edit does not remove the error" : "That edit introduces new errors") +
+          ` when the project is compiled with it:\n${listErrors(verdict.errors)}\n\n` +
+          "Reply with one corrected fenced ```bynk block replacing the same lines.",
+      });
+      reply = await converse(deps, messages, sources, () => {});
+      if (deps.isCancelled()) return done();
+      const again = firstCodeBlock(reply);
+      if (again !== undefined) {
+        replacement = again;
+        verdict = await verifyFix(deps, base, start, end, again);
+      }
+    }
     const fix: FixProposal = { path: diag.path, startLine: start, endLine: end, replacement, original };
+    if (verdict.kind === "rejected") {
+      say(
+        "The edit I came up with does not compile cleanly, so I am not offering it:\n" +
+          `${listErrors(verdict.errors)}\n\n`,
+      );
+      say(`Rejected:\n${renderDiff(fix)}\n`);
+      say(renderSources(sources));
+      return done();
+    }
     say(`${renderDiff(fix)}\n`);
+    if (verdict.kind === "verified") {
+      say("\n*Checked: `bynk compile` accepts this edit, and the diagnostic is gone.*\n");
+    } else {
+      say(`\n*Not checked: ${verdict.reason}.*\n`);
+    }
     say(renderSources(sources));
-    return done({ fix });
+    return done({ fix, checked: verdict.kind });
   }
 
   // /explain, and a bare `@bynk` message (treated as /explain when the editor
