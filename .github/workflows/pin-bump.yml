@@ -1,14 +1,17 @@
 name: Move the server pin
 
-# A compiler release was published (the compiler repository dispatches
-# `bynk-release`): open a PR moving `bynkServerVersion` to it. It is a PR, not a
+# A compiler release was published: the org canary (bynk-lang/.github,
+# canary/README.md) fans a `bynk-canary` dispatch out to every enrolled
+# repository, this one included, carrying the bare version. It also sends one
+# weekly, so a missed release catches up; a pin already at or past it is a
+# no-op. Open a PR moving `bynkServerVersion` to it. It is a PR, not a
 # push to main, because under independent versions a pin bump is an ordinary
 # change worth CI — the full suite, including the contract check, runs against
 # the new release before it merges.
 
 on:
   repository_dispatch:
-    types: [bynk-release]
+    types: [bynk-canary]
   workflow_dispatch:
     inputs:
       tag:
@@ -24,7 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TAG: ${{ github.event.client_payload.tag || inputs.tag }}
+      # The canary sends a bare version ("0.435.0"); the pin is a tag.
+      TAG: ${{ inputs.tag || format('v{0}', github.event.client_payload.version) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
