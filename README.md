@@ -374,11 +374,9 @@ and packages it with [`@vscode/vsce`](https://github.com/microsoft/vscode-vsce)
 re-run `npm run build` after changing a webview under `src/webview/`.
 `npm run check` type-checks and `npm test` runs the extension tests.
 
-The web extension needs the `bynk-wasm` module, built from the repository with
-the `wasm32-unknown-unknown` Rust target and
-[`wasm-bindgen-cli`](https://crates.io/crates/wasm-bindgen-cli) (the version in
-the workspace `Cargo.lock`): `npm run build:wasm` stages it in `wasm/`, and
-`npm run build:web` bundles `out/web/`. `npm run package` runs both bundles, so
+The web extension needs the `bynk-wasm` module, which `npm run fetch:wasm`
+downloads from the pinned compiler release into `wasm/`; `npm run build:web`
+then bundles `out/web/`. `npm run package` runs both bundles, so
 packaging needs the wasm staged first. `npm run test:web` runs the web smoke
 tests in a headless Chromium with
 [`@vscode/test-web`](https://github.com/microsoft/vscode-test-web) (first

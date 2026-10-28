@@ -1,6 +1,6 @@
 // The slice of the `bynk-wasm` wasm-bindgen glue the web worker uses (#2102).
 //
-// `npm run build:wasm` generates the real glue into `wasm/` (gitignored, like the
+// `npm run fetch:wasm` stages the real glue into `wasm/` (gitignored, like the
 // playground's `src/vendor/`), and `build:web` points esbuild's `bynk-wasm`
 // alias at it. Declaring it here keeps `npm run check` working without a Rust
 // toolchain; the generated `wasm/bynk_wasm.d.ts` is the source of truth, and the

@@ -1516,7 +1516,6 @@
     "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --minify && esbuild src/webview/main.ts --bundle --outfile=out/webview.js --format=iife --platform=browser --target=es2022 --minify && esbuild src/webview/docview.ts --bundle --outfile=out/docview.js --format=iife --platform=browser --target=es2022 --minify && esbuild src/webview/architecture.ts --bundle --outfile=out/architecture.js --format=iife --platform=browser --target=es2022 --minify && esbuild src/webview/wireContract.ts --bundle --outfile=out/wireContract.js --format=iife --platform=browser --target=es2022 --minify && esbuild src/webview/contractDiff.ts --bundle --outfile=out/contractDiff.js --format=iife --platform=browser --target=es2022 --minify && esbuild src/webview/explainview.ts --bundle --outfile=out/explainview.js --format=iife --platform=browser --target=es2022 --minify && esbuild src/webview/refinedExplorer.ts --bundle --outfile=out/refinedExplorer.js --format=iife --platform=browser --target=es2022 --minify && esbuild src/webview/state.ts --bundle --outfile=out/state.js --format=iife --platform=browser --target=es2022 --minify",
     "fetch:wasm": "node scripts/fetch-web-assets.mjs",
     "fetch:toolchain": "node scripts/fetch-toolchain.mjs",
-    "build:wasm": "BYNK_WASM_OUT_DIR=\"$PWD/wasm\" bash ../scripts/build-wasm.sh --release",
     "build:web": "node scripts/build-web.mjs",
     "check": "tsc -p . --noEmit",
     "check:contract": "node scripts/check-contract.mjs",

@@ -5,7 +5,7 @@ bynk-vscode-*.vsix
 test/fixtures/workspace/.wdbg-*/
 test/fixtures/workspace/.dbg-*/
 test/fixtures/workspace/.vwdbg-*/
-# The bynk-wasm glue + module `npm run build:wasm` stages for the web build (#2102).
+# The bynk-wasm glue + module `npm run fetch:wasm` stages for the web build (#2102).
 wasm/
 .vscode-test-web/
 # The editor contract + toolchain binaries check-contract.mjs downloads, per pin.
