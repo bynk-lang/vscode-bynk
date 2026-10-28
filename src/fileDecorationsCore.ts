@@ -132,14 +132,20 @@ export const CONTRACT_BREAK_CODES: readonly string[] = [
   "bynk.agent.non_additive_state_change",
 ];
 
+/** The title the tooltip names for the contract diff command (its `package.json`
+ *  title, held equal by a test). A decoration cannot run a command, so it names it. */
+export const CONTRACT_DIFF_TITLE = "Bynk: Show Contract Diff";
+
 /** A diagnostic's `code` as VS Code hands it over: a bare value, or `{ value, target }`
  *  when the server attaches a documentation link. */
-export type DiagnosticCode = string | number | { value: string | number; target?: unknown } | undefined;
+export type DiagnosticCode = string | number | { value: string | number; target?: unknown } | null | undefined;
 
 /** Whether any of a file's diagnostics is a contract break. */
 export function hasContractBreak(diagnostics: readonly { code?: DiagnosticCode }[]): boolean {
   return diagnostics.some((d) => {
-    const code = typeof d.code === "object" ? d.code.value : d.code;
+    // `typeof null` is "object", and a server or another extension can publish a
+    // null code despite the type.
+    const code = d.code !== null && typeof d.code === "object" ? d.code.value : d.code;
     return typeof code === "string" && CONTRACT_BREAK_CODES.includes(code);
   });
 }

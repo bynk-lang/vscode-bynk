@@ -2,9 +2,12 @@
 // (`fileDecorationsCore.ts`), `vscode`-free.
 
 import * as assert from "assert";
+import * as fs from "fs";
+import * as path from "path";
 
 import {
   FailureTracker,
+  CONTRACT_DIFF_TITLE,
   abbreviate,
   contextBadge,
   hasContractBreak,
@@ -116,6 +119,18 @@ describe("file decorations (#2478)", () => {
       assert.strictEqual(hasContractBreak([]), false);
       assert.strictEqual(hasContractBreak([{}, { code: 12 }, { code: "bynk.type.mismatch" }]), false);
       assert.strictEqual(hasContractBreak([{ code: { value: 7 } }]), false);
+    });
+    it("does not throw on a null code, which a server can publish despite the type", () => {
+      assert.strictEqual(hasContractBreak([{ code: null }]), false);
+      assert.strictEqual(
+        hasContractBreak([{ code: null }, { code: "bynk.event.non_additive_schema_change" }]),
+        true,
+      );
+    });
+    it("names the contract diff command by its package.json title", () => {
+      const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../../package.json"), "utf8"));
+      const cmd = pkg.contributes.commands.find((c: { command: string }) => c.command === "bynk.showContractDiff");
+      assert.strictEqual(CONTRACT_DIFF_TITLE, `${cmd.category}: ${cmd.title}`);
     });
     it("finds one among others", () => {
       assert.strictEqual(

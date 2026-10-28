@@ -23,6 +23,7 @@ import * as vscode from "vscode";
 import {
   type BadgeMode,
   type ScannedFile,
+  CONTRACT_DIFF_TITLE,
   contextBadge,
   hasContractBreak,
   testFailures,
@@ -50,6 +51,10 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   /** Files a watcher event updated while a full scan was running, whose newer
    *  state the scan's older snapshot must not overwrite. */
   private readonly touched = new Set<string>();
+  /** The `.bynk` files the server currently reports a contract break in. The
+   *  server republishes diagnostics on every edit, so a refresh is requested only
+   *  when a file enters or leaves this set. */
+  private readonly broken = new Set<string>();
   /** Bumped by every full scan, so a slower earlier scan does not overwrite a newer one. */
   private scanGen = 0;
 
@@ -66,17 +71,29 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
         if (e.affectsConfiguration(SECTION)) this.changed.fire(undefined);
       }),
       testFailures.onDidChange((uris) => this.changed.fire(uris.map((u) => vscode.Uri.parse(u)))),
-      vscode.languages.onDidChangeDiagnostics((e) => {
-        // Only a `.bynk` file can carry a break; refreshing the rest is wasted work.
-        const uris = e.uris.filter((u) => u.path.endsWith(".bynk"));
-        if (uris.length > 0) this.changed.fire(uris);
-      }),
+      vscode.languages.onDidChangeDiagnostics((e) => this.diagnosticsChanged(e.uris)),
     );
+    // Diagnostics published before this provider existed.
+    this.diagnosticsChanged(vscode.languages.getDiagnostics().map(([uri]) => uri), false);
     void this.scan();
   }
 
-  provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+  /** What a file is decorated with, before it is turned into a decoration. */
+  private stateOf(uri: vscode.Uri): {
+    badge?: { badge: string; context: string };
+    failed: boolean;
+    contractBreak: boolean;
+  } {
     const config = vscode.workspace.getConfiguration(SECTION);
+    const key = uri.toString();
+    return {
+      badge: contextBadge(this.files, key, config.get<BadgeMode>("contextBadge", "auto")),
+      failed: config.get<boolean>("failedTests", true) && testFailures.hasFailures(key),
+      contractBreak: config.get<boolean>("contractBreaks", true) && this.broken.has(key),
+    };
+  }
+
+  provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
     const key = uri.toString();
     // A file no scan or watcher event has reported yet (just created, or the
     // watcher is late): read it now, which re-decorates it, and its project.
@@ -84,34 +101,29 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
       this.probed.add(key);
       void this.fileChanged(uri);
     }
-    const badge = contextBadge(this.files, key, config.get<BadgeMode>("contextBadge", "auto"));
-    const failed = config.get<boolean>("failedTests", true) && testFailures.hasFailures(key);
-    const broken =
-      config.get<boolean>("contractBreaks", true) &&
-      uri.path.endsWith(".bynk") &&
-      hasContractBreak(vscode.languages.getDiagnostics(uri));
-    if (!badge && !failed && !broken) return undefined;
+    const { badge, failed, contractBreak } = this.stateOf(uri);
+    if (!badge && !failed && !contractBreak) return undefined;
     const tooltip = [
       badge && `Bynk context ${badge.context}`,
       failed && "Tests failed in the last run",
-      broken && "Contract break against bynk.schema.lock (Bynk: Show Contract Diff)",
+      contractBreak && `Contract break (${CONTRACT_DIFF_TITLE})`,
     ]
       .filter(Boolean)
       .join(" · ");
     // A file's context badge wins the badge slot; a break with none gets `!`, so
-    // it is not shown by colour alone.
+    // it is not shown by colour alone. A failed test is the louder signal, so its
+    // red wins the colour when both apply; the `!` and the tooltip still say so.
     const decoration = new vscode.FileDecoration(
-      badge?.badge ?? (broken ? "!" : undefined),
+      badge?.badge ?? (contractBreak ? "!" : undefined),
       tooltip,
-      // A failed test is the louder signal, so its red wins when both apply.
       failed
         ? new vscode.ThemeColor("bynk.testFailedForeground")
-        : broken
+        : contractBreak
           ? new vscode.ThemeColor("bynk.contractBreakForeground")
           : undefined,
     );
     // A tinted folder shows where to look; a badge on a folder would not mean anything.
-    decoration.propagate = failed || broken;
+    decoration.propagate = failed || contractBreak;
     return decoration;
   }
 
@@ -120,15 +132,40 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   }
 
   /** The decoration state of a file, for the integration test. */
-  snapshot(uri: vscode.Uri): { badge?: string; tooltip?: string; failed: boolean; contractBreak: boolean } {
+  snapshot(uri: vscode.Uri): {
+    badge?: string;
+    tooltip?: string;
+    failed: boolean;
+    contractBreak: boolean;
+    tint?: "failed" | "contractBreak";
+    propagate: boolean;
+  } {
+    const { failed, contractBreak } = this.stateOf(uri);
     const d = this.provideFileDecoration(uri);
-    const color = (d?.color as vscode.ThemeColor | undefined)?.id;
     return {
       badge: d?.badge,
       tooltip: d?.tooltip,
-      failed: color === "bynk.testFailedForeground",
-      contractBreak: color === "bynk.contractBreakForeground" || (d?.tooltip?.includes("Contract break") ?? false),
+      failed,
+      contractBreak,
+      tint: failed ? "failed" : contractBreak ? "contractBreak" : undefined,
+      propagate: d?.propagate ?? false,
     };
+  }
+
+  /** Re-read which of `uris` carry a contract break, and refresh the files whose
+   *  answer changed. Only a `.bynk` file can carry one. */
+  private diagnosticsChanged(uris: readonly vscode.Uri[], refresh = true): void {
+    const changed: vscode.Uri[] = [];
+    for (const uri of uris) {
+      if (!uri.path.endsWith(".bynk")) continue;
+      const key = uri.toString();
+      const now = hasContractBreak(vscode.languages.getDiagnostics(uri));
+      if (now === this.broken.has(key)) continue;
+      if (now) this.broken.add(key);
+      else this.broken.delete(key);
+      changed.push(uri);
+    }
+    if (refresh && changed.length > 0) this.changed.fire(changed);
   }
 
   private async scan(): Promise<void> {
