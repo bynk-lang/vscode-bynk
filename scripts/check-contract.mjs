@@ -2,7 +2,9 @@
 // server release `bynkServerVersion` pins:
 //   - every reserved keyword is highlighted by the TextMate grammar;
 //   - the custom semantic-token types/modifiers match package.json;
-//   - every snippet still parses (`bynkc fmt -` as the parse oracle).
+//   - every snippet still parses (`bynkc fmt -` as the parse oracle);
+//   - the fixture copies of `bynk doctor --json` and `bynk status --json` equal
+//     the compiler's goldens (a contract from before they were shipped skips this).
 // The checks live in contract-lib.mjs. This script fetches the inputs.
 //
 //   node scripts/check-contract.mjs [--contract FILE] [--bynkc FILE]
@@ -14,6 +16,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  GOLDEN_FIXTURES,
+  goldenMismatches,
   legendMismatches,
   missingKeywords,
   snippetSkeletons,
@@ -52,6 +56,14 @@ if (missing.length)
   );
 
 failures.push(...legendMismatches(contract, pkg).map((m) => `package.json ${m}`));
+
+const fixtures = Object.fromEntries(
+  Object.entries(GOLDEN_FIXTURES).map(([key, file]) => [key, JSON.parse(read(file))]),
+);
+const golden = goldenMismatches(contract, fixtures);
+if (golden === null)
+  console.warn("warning: this contract predates `goldens`; the doctor/status fixtures were not checked");
+else failures.push(...golden);
 
 let bynkc = arg("--bynkc", "BYNKC");
 if (!bynkc) {

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import {
+  GOLDEN_FIXTURES,
+  goldenMismatches,
   grammarPatterns,
   legendMismatches,
   parseSums,
@@ -100,4 +102,22 @@ test("the real snippet catalogue yields a skeleton per snippet", () => {
   const skeletons = snippetSkeletons(snippets);
   assert.equal(skeletons.length, Object.keys(snippets).length);
   for (const [, source] of skeletons) assert.doesNotMatch(source, /\$\d|\$\{/);
+});
+
+test("golden fixtures: equal ones pass, whatever the key order", () => {
+  const goldens = { doctor: { a: 1, b: [2] }, migrateStatus: { classes: [] } };
+  const same = { doctor: { b: [2], a: 1 }, migrateStatus: { classes: [] } };
+  assert.deepEqual(goldenMismatches({ goldens }, same), []);
+});
+
+test("golden fixtures: a differing copy names its file", () => {
+  const goldens = { doctor: { a: 1 }, migrateStatus: { classes: [] } };
+  const out = goldenMismatches({ goldens }, { doctor: { a: 2 }, migrateStatus: { classes: [] } });
+  assert.equal(out.length, 1);
+  assert.ok(out[0].includes(GOLDEN_FIXTURES.doctor));
+});
+
+test("golden fixtures: a missing key is reported, an older contract is skipped", () => {
+  assert.match(goldenMismatches({ goldens: { doctor: {} } }, { doctor: {} }).join(), /no `goldens\.migrateStatus`/);
+  assert.equal(goldenMismatches({}, {}), null);
 });

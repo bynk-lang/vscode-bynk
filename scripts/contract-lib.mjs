@@ -4,6 +4,8 @@
 // (`textmate_keywords`, `legend_drift`, `scaffolds_compile`), which only work
 // while the extension lives in the compiler's repository. No I/O here: see
 // check-contract.mjs for fetching, and contract-lib.test.mjs for the tests.
+import { isDeepStrictEqual } from "node:util";
+
 
 /** Whether `word` occurs as a whole word (alphanumeric/`_` boundaries) in `text`. */
 export function wholeWordPresent(text, word) {
@@ -90,6 +92,36 @@ export function legendMismatches(contract, pkg) {
     const have = new Set(declaredIds(pkg, key));
     for (const id of want) if (!have.has(id)) out.push(`${key}: the server emits \`${id}\` but package.json does not declare it`);
     for (const id of have) if (!want.has(id)) out.push(`${key}: package.json declares \`${id}\` but the server does not emit it`);
+  }
+  return out;
+}
+
+// -- goldens ------------------------------------------------------------------
+// The contract carries the compiler's golden `bynk doctor --json` and
+// `bynk status --json` outputs, which this repository keeps fixture copies of.
+
+/** Which fixture copy answers to which `contract.goldens` key. */
+export const GOLDEN_FIXTURES = {
+  doctor: "test/fixtures/doctor.golden.json",
+  migrateStatus: "test/fixtures/migrate-status.json",
+};
+
+/**
+ * What differs between the contract's goldens and `fixtures` (key -> parsed
+ * fixture). `null` when the contract predates the section (an older pinned
+ * release): nothing can be checked, and the caller should say so. Compared as
+ * parsed JSON, so formatting and key order don't matter.
+ */
+export function goldenMismatches(contract, fixtures) {
+  if (!contract.goldens) return null;
+  const out = [];
+  for (const key of Object.keys(GOLDEN_FIXTURES)) {
+    if (!(key in contract.goldens)) out.push(`the contract has no \`goldens.${key}\``);
+    else if (!isDeepStrictEqual(contract.goldens[key], fixtures[key]))
+      out.push(
+        `${GOLDEN_FIXTURES[key]} differs from the compiler's golden \`${key}\` output.\n` +
+          "  Refresh the fixture from the contract's `goldens`, and update whatever reads the new shape.",
+      );
   }
   return out;
 }
