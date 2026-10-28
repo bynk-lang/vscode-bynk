@@ -19,8 +19,19 @@ export function summarySentence(model: CdModel): string {
   const parts: string[] = [];
   if (breaking > 0) parts.push(`${breaking} breaking`);
   if (compatible > 0) parts.push(`${compatible} compatible`);
-  if (moved > 0) parts.push(`${moved} service contract${moved === 1 ? "" : "s"} changed`);
+  if (moved > 0) parts.push(`${moved} service contract${moved === 1 ? "" : "s"} changed${serviceVerdicts(model.services)}`);
   return parts.join(", ") + ".";
+}
+
+/** ` (1 breaking, 2 compatible)` for the service rows that carry a verdict;
+ *  empty when none does. Rows without one are counted only as changed. */
+function serviceVerdicts(services: CdService[]): string {
+  const breaking = services.filter((s) => s.compat?.verdict === "breaking").length;
+  const compatible = services.filter((s) => s.compat?.verdict === "compatible").length;
+  const parts: string[] = [];
+  if (breaking > 0) parts.push(`${breaking} breaking`);
+  if (compatible > 0) parts.push(`${compatible} compatible`);
+  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
 }
 
 /** What to say when there is no readable `bynk.schema.lock` to diff against;
@@ -67,11 +78,18 @@ function short(hash: string | null): string {
   return hash ? hash.slice(0, 8) : "—";
 }
 
-/** The note under the services list: a hash says the contract moved, not
- *  whether the move breaks a caller. */
+/** The label of a service row: the verdict when the compiler could classify
+ *  the change, otherwise the plain status. */
+export function serviceClass(s: CdService): string {
+  return s.compat ? s.compat.verdict : s.status;
+}
+
+/** The note under the services list. A verdict says whether a caller of the
+ *  live contract still works; it does not make the deploy allowed. */
 export const SERVICE_CAVEAT =
   "Service rows compare contract hashes with the deploy ledger. A changed hash means a live caller " +
-  "would be refused (bynk.deploy.contract_skew); it is not classified as compatible or breaking.";
+  "would be refused (bynk.deploy.contract_skew), even when the change is classified compatible. " +
+  "A row with no verdict has no recorded structure to classify yet: the next whole-project deploy records it.";
 
 // ---------------------------------------------------------------------
 // DOM construction.
@@ -131,12 +149,10 @@ export function renderContractDiff(root: HTMLElement, payload: CdPayload, reveal
   if (model.services.length > 0) {
     const table = el("table", "cd-table");
     for (const s of model.services) {
-      const row = el("tr", "cd-row cd-changed");
-      row.append(
-        el("td", "cd-class", s.status),
-        el("td", "cd-name", `${s.context} (${s.environment})`),
-        el("td", "cd-detail", serviceSentence(s)),
-      );
+      const row = el("tr", s.compat ? `cd-row cd-${s.compat.verdict}` : "cd-row cd-changed");
+      const detail = el("td", "cd-detail", serviceSentence(s));
+      for (const reason of s.compat?.reasons ?? []) detail.append(el("div", "cd-reason", reason));
+      row.append(el("td", "cd-class", serviceClass(s)), el("td", "cd-name", `${s.context} (${s.environment})`), detail);
       clickable(row, s.loc, reveal);
       table.append(row);
     }

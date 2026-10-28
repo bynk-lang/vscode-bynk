@@ -26,6 +26,7 @@ const CONTRACT_DIFF_CSS = `
   td.cd-class { text-transform: uppercase; font-size: 0.8em; letter-spacing: 0.04em; white-space: nowrap; }
   tr.cd-breaking td.cd-class { color: var(--vscode-editorWarning-foreground); font-weight: bold; }
   tr.cd-compatible td.cd-class { color: var(--vscode-testing-iconPassed, var(--vscode-descriptionForeground)); }
+  div.cd-reason { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
   td.cd-name { font-family: var(--vscode-editor-font-family, monospace); }
 `;
 

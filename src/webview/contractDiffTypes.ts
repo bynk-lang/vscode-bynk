@@ -32,9 +32,18 @@ export interface CdChange {
   loc: CdLoc | null;
 }
 
-/** A hash comparison, never a verdict: services have no compatibility
- *  classifier (ADR 0491), so there is no `breaking` here. */
+/** Whether a service row is present, changed or gone: a hash comparison
+ *  (ADR 0491). The verdict, when there is one, is `CdService.compat`. */
 export type CdServiceStatus = "changed" | "added" | "removed";
+
+/** bynk#2485: whether callers of the live contract still work against the
+ *  contract this source provides, from `bynk-check`'s classifier. */
+export interface CdCompat {
+  verdict: CdClass;
+  /** One line per difference, breaking ones first:
+   *  `breaking response.at: the caller requires …`. */
+  reasons: string[];
+}
 
 export interface CdService {
   environment: string;
@@ -43,6 +52,11 @@ export interface CdService {
   status: CdServiceStatus;
   live: string | null;
   current: string | null;
+  /** Only on a `changed` row whose live and current structure the ledger and
+   *  the build both recorded; `null` otherwise (an older ledger holds hashes
+   *  only), in which case the row is a hash comparison and no more. Absent
+   *  from a `bynk-lsp` older than bynk#2485. */
+  compat?: CdCompat | null;
   loc: CdLoc | null;
 }
 

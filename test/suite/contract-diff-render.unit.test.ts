@@ -7,10 +7,11 @@ import {
   changeLabel,
   ledgerSentence,
   lockSentence,
+  serviceClass,
   serviceSentence,
   summarySentence,
 } from "../../src/webview/contract-diff-render";
-import type { CdChange, CdModel, CdService } from "../../src/webview/contractDiffTypes";
+import type { CdChange, CdCompat, CdModel, CdService } from "../../src/webview/contractDiffTypes";
 
 const change = (name: string, cls: CdChange["class"]): CdChange => ({
   kind: "event",
@@ -42,7 +43,7 @@ describe("summarySentence", () => {
     assert.strictEqual(summarySentence(m), "1 breaking, 2 compatible.");
   });
 
-  it("counts service contracts as changed, never breaking", () => {
+  it("counts service contracts as changed when none has a verdict", () => {
     const svc: CdService = {
       environment: "default",
       context: "shop.billing",
@@ -50,10 +51,28 @@ describe("summarySentence", () => {
       status: "changed",
       live: "aaaaaaaaaaaaaaaa",
       current: "bbbbbbbbbbbbbbbb",
+      compat: null,
       loc: null,
     };
     assert.strictEqual(summarySentence(model({ services: [svc, svc] })), "2 service contracts changed.");
     assert.ok(!summarySentence(model({ services: [svc] })).includes("breaking"));
+  });
+
+  it("breaks service contracts down by verdict where the compiler gave one", () => {
+    const svc = (verdict: CdCompat["verdict"] | null): CdService => ({
+      environment: "default",
+      context: "shop.billing",
+      service: "charge",
+      status: "changed",
+      live: "aaaaaaaaaaaaaaaa",
+      current: "bbbbbbbbbbbbbbbb",
+      compat: verdict ? { verdict, reasons: [] } : null,
+      loc: null,
+    });
+    assert.strictEqual(
+      summarySentence(model({ services: [svc("breaking"), svc("compatible"), svc("compatible"), svc(null)] })),
+      "4 service contracts changed (1 breaking, 2 compatible).",
+    );
   });
 });
 
@@ -70,11 +89,32 @@ describe("labels", () => {
       status: "changed",
       live: "aaaaaaaaaaaaaaaa",
       current: "bbbbbbbbbbbbbbbb",
+      compat: null,
       loc: null,
     };
     assert.strictEqual(serviceSentence(s), "charge: contract aaaaaaaa → bbbbbbbb");
     assert.ok(serviceSentence({ ...s, status: "added", live: null }).includes("not in the live record"));
     assert.ok(serviceSentence({ ...s, status: "removed", current: null }).includes("no longer provided"));
+  });
+});
+
+describe("serviceClass", () => {
+  const row = (compat: CdService["compat"], status: CdService["status"] = "changed"): CdService => ({
+    environment: "default",
+    context: "shop.billing",
+    service: "charge",
+    status,
+    live: "aaaaaaaaaaaaaaaa",
+    current: "bbbbbbbbbbbbbbbb",
+    compat,
+    loc: null,
+  });
+
+  it("shows the verdict when there is one, and the status when there is not", () => {
+    assert.strictEqual(serviceClass(row({ verdict: "breaking", reasons: ["breaking response.at: x"] })), "breaking");
+    assert.strictEqual(serviceClass(row({ verdict: "compatible", reasons: [] })), "compatible");
+    assert.strictEqual(serviceClass(row(null)), "changed");
+    assert.strictEqual(serviceClass(row(null, "added")), "added");
   });
 });
 
