@@ -7,7 +7,9 @@ import {
   changeLabel,
   ledgerSentence,
   lockSentence,
+  foldReasons,
   serviceClass,
+  serviceRowView,
   serviceNote,
   serviceRowClass,
   serviceSentence,
@@ -154,6 +156,52 @@ describe("serviceRowClass", () => {
     assert.strictEqual(serviceRowClass(row({ verdict: "compatible", reasons: [] })), "cd-row cd-service-compatible");
     assert.strictEqual(serviceRowClass(row({ verdict: "breaking", reasons: [] })), "cd-row cd-breaking");
     assert.strictEqual(serviceRowClass(row(null)), "cd-row cd-changed");
+  });
+});
+
+describe("foldReasons", () => {
+  it("puts breaking reasons first whatever order the server sent", () => {
+    const { shown } = foldReasons(["compatible a: x", "breaking b: y", "compatible c: z", "breaking d: w"]);
+    assert.deepStrictEqual(shown, ["breaking b: y", "breaking d: w", "compatible a: x"]);
+  });
+
+  it("folds the reasons past the limit, losing none", () => {
+    const reasons = Array.from({ length: 10 }, (_, i) => `compatible f${i}: x`);
+    const { shown, folded } = foldReasons(reasons);
+    assert.strictEqual(shown.length, 3);
+    assert.strictEqual(shown.length + folded.length, 10);
+    assert.deepStrictEqual(foldReasons(["breaking a: x"]).folded, []);
+  });
+});
+
+describe("serviceRowView", () => {
+  const base = {
+    environment: "default",
+    context: "shop.billing",
+    service: "charge",
+    status: "changed" as const,
+    live: "aaaaaaaaaaaaaaaa",
+    current: "bbbbbbbbbbbbbbbb",
+    loc: null,
+  };
+
+  it("draws a classified row from its verdict and reasons", () => {
+    const v = serviceRowView({ ...base, compat: { verdict: "breaking", reasons: ["compatible a: x", "breaking b: y"] } });
+    assert.strictEqual(v.className, "cd-row cd-breaking");
+    assert.strictEqual(v.label, "breaking");
+    assert.deepStrictEqual(v.shown, ["breaking b: y", "compatible a: x"]);
+  });
+
+  it("draws a row with no verdict as a plain change, whether compat is null or absent", () => {
+    for (const compat of [null, undefined]) {
+      const v = serviceRowView({ ...base, compat });
+      assert.strictEqual(v.className, "cd-row cd-changed");
+      assert.strictEqual(v.label, "changed");
+      assert.deepStrictEqual([v.shown, v.folded], [[], []]);
+    }
+    // An older bynk-lsp omits the field entirely.
+    const { compat: _omitted, ...legacy } = { ...base, compat: null };
+    assert.strictEqual(serviceRowView(legacy as CdService).label, "changed");
   });
 });
 

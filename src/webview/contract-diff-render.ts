@@ -102,6 +102,38 @@ export function serviceRowClass(s: CdService): string {
   return s.compat.verdict === "breaking" ? "cd-row cd-breaking" : "cd-row cd-service-compatible";
 }
 
+/** How many reasons a row shows before the rest fold behind a "more" toggle. */
+export const REASONS_SHOWN = 3;
+
+/** A service row's reasons, breaking first (the server sorts them, but the view
+ *  does not rely on it) with the rest of an order kept stable, split into the
+ *  lines shown and the lines folded. */
+export function foldReasons(reasons: string[], limit = REASONS_SHOWN): { shown: string[]; folded: string[] } {
+  const breaking = reasons.filter((r) => r.startsWith("breaking "));
+  const ordered = [...breaking, ...reasons.filter((r) => !r.startsWith("breaking "))];
+  return { shown: ordered.slice(0, limit), folded: ordered.slice(limit) };
+}
+
+/** Everything the DOM needs to draw one service row, so that what a row says
+ *  is testable without a DOM. `compat` may be `null` or absent (an older
+ *  `bynk-lsp`); both mean no verdict. */
+export interface ServiceRowView {
+  className: string;
+  label: string;
+  sentence: string;
+  shown: string[];
+  folded: string[];
+}
+
+export function serviceRowView(s: CdService): ServiceRowView {
+  return {
+    className: serviceRowClass(s),
+    label: serviceClass(s),
+    sentence: serviceSentence(s),
+    ...foldReasons(s.compat?.reasons ?? []),
+  };
+}
+
 /** The note under the services list, built from the rows it sits under. A
  *  verdict says whether a caller of the live contract still works; it does
  *  not make the deploy allowed. */
@@ -176,10 +208,17 @@ export function renderContractDiff(root: HTMLElement, payload: CdPayload, reveal
   if (model.services.length > 0) {
     const table = el("table", "cd-table");
     for (const s of model.services) {
-      const row = el("tr", serviceRowClass(s));
-      const detail = el("td", "cd-detail", serviceSentence(s));
-      for (const reason of s.compat?.reasons ?? []) detail.append(el("div", "cd-reason", reason));
-      row.append(el("td", "cd-class", serviceClass(s)), el("td", "cd-name", `${s.context} (${s.environment})`), detail);
+      const view = serviceRowView(s);
+      const row = el("tr", view.className);
+      const detail = el("td", "cd-detail", view.sentence);
+      for (const reason of view.shown) detail.append(el("div", "cd-reason", reason));
+      if (view.folded.length > 0) {
+        const more = el("details", "cd-more");
+        more.append(el("summary", "cd-reason", `${view.folded.length} more`));
+        for (const reason of view.folded) more.append(el("div", "cd-reason", reason));
+        detail.append(more);
+      }
+      row.append(el("td", "cd-class", view.label), el("td", "cd-name", `${s.context} (${s.environment})`), detail);
       clickable(row, s.loc, reveal);
       table.append(row);
     }

@@ -27,6 +27,7 @@ const CONTRACT_DIFF_CSS = `
   tr.cd-breaking td.cd-class { color: var(--vscode-editorWarning-foreground); font-weight: bold; }
   tr.cd-compatible td.cd-class { color: var(--vscode-testing-iconPassed, var(--vscode-descriptionForeground)); }
   tr.cd-service-compatible td.cd-class { color: var(--vscode-descriptionForeground); }
+  details.cd-more > summary { cursor: pointer; }
   div.cd-reason { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
   td.cd-name { font-family: var(--vscode-editor-font-family, monospace); }
 `;
