@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # The extension's toolchain deps.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  # The workflows' pinned actions.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
