@@ -1116,7 +1116,7 @@ function upsertSuite(
   return item;
 }
 
-function upsertCase(
+export function upsertCase(
   ctrl: vscode.TestController,
   suiteItem: vscode.TestItem,
   c: JsonCase,
