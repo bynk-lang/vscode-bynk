@@ -12,7 +12,8 @@ import * as vscode from "vscode";
 
 import type { CheckOutcome } from "./chatCore";
 import { BynkNotFoundError, runBynk } from "./cli";
-import { parseRichDiagnostics } from "./richDiagnostics";
+import { isInside } from "./pathInside";
+import { compileVerdict } from "./richDiagnostics";
 
 /** Compile the project at `root` with `buffers` (absolute path -> text) over disk. */
 async function compileWith(
@@ -29,12 +30,7 @@ async function compileWith(
       JSON.stringify(buffers),
     );
     if (token.isCancellationRequested) return { kind: "unavailable", reason: "the check was cancelled" };
-    if (run.code === 0) return { kind: "ok" };
-    const errors = parseRichDiagnostics(`${run.stdout}\n${run.stderr}`).filter((d) => d.severity === "error");
-    if (errors.length > 0) return { kind: "errors", errors };
-    // A failure with no diagnostic is the compiler not running, not a verdict.
-    const reason = (run.stderr || run.stdout).trim().split("\n")[0];
-    return { kind: "unavailable", reason: reason || `bynk compile exited with ${run.code}` };
+    return compileVerdict(run.code, run.stdout, run.stderr);
   } catch (e) {
     return {
       kind: "unavailable",
@@ -50,7 +46,7 @@ function dirtyBuffers(root: string, skip: string): Record<string, string> {
   const buffers: Record<string, string> = {};
   for (const doc of vscode.workspace.textDocuments) {
     if (doc.languageId !== "bynk" || !doc.isDirty || doc.uri.scheme !== "file") continue;
-    if (doc.uri.fsPath === skip || !doc.uri.fsPath.startsWith(root)) continue;
+    if (doc.uri.fsPath === skip || !isInside(root, doc.uri.fsPath)) continue;
     buffers[doc.uri.fsPath] = doc.getText();
   }
   return buffers;

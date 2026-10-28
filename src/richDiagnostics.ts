@@ -54,6 +54,24 @@ export function parseRichDiagnostics(output: string): CompileDiagnostic[] {
   return found;
 }
 
+/** What a `bynk compile` run says about the text it was given: it compiled, it
+ *  has these errors, or it did not give a verdict (killed, or not the compiler's
+ *  own failure), which is no verdict at all. */
+export type CompileVerdict =
+  | { kind: "ok" }
+  | { kind: "errors"; errors: CompileDiagnostic[] }
+  | { kind: "unavailable"; reason: string };
+
+/** Read a finished run. `code` is `null` when the process was killed by a signal. */
+export function compileVerdict(code: number | null, stdout: string, stderr: string): CompileVerdict {
+  if (code === 0) return { kind: "ok" };
+  if (code === null) return { kind: "unavailable", reason: "bynk compile was stopped before it finished" };
+  const errors = parseRichDiagnostics(`${stdout}\n${stderr}`).filter((d) => d.severity === "error");
+  if (errors.length > 0) return { kind: "errors", errors };
+  const first = (stderr || stdout).trim().split("\n")[0];
+  return { kind: "unavailable", reason: first || `bynk compile exited with ${code}` };
+}
+
 /** What identifies a diagnostic across two compiles of slightly different text:
  *  not its line (an edit moves it) but where and what it is. */
 export function diagnosticKey(d: CompileDiagnostic): string {

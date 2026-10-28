@@ -435,4 +435,92 @@ describe("chatCore (#2465)", () => {
     const reply = "a\n```bynk\nx\n```\nb\n```ts\ny\n```\nc\n```bynk\nz\n```";
     assert.deepStrictEqual(bynkBlocks(reply).map((b) => b.code), ["x", "z"]);
   });
+
+  describe("review fixes (#2516)", () => {
+    const twice = (line: number) => diag("bynk.resolve.unknown_type", "unknown type `Usr`", line);
+
+    it("counts identical errors: fixing one of two is a fix, fixing none is not", async () => {
+      const mk = () => stub([[text(FIXED)]], broken, { bynk_explain_diagnostic: EXPLANATION });
+      const one = mk();
+      checkers(one.deps, [errors(twice(3), twice(9)), errors(twice(9))]);
+      assert.strictEqual((await runCommand("fix", "", one.deps, () => {})).checked, "verified");
+
+      const none = stub([[text(FIXED)], [text(FIXED)]], broken, { bynk_explain_diagnostic: EXPLANATION });
+      checkers(none.deps, [errors(twice(3), twice(9)), errors(twice(3), twice(9)), errors(twice(3), twice(9))]);
+      const out = await runCommand("fix", "", none.deps, () => {});
+      assert.strictEqual(out.fix, undefined, "an edit that fixed neither copy is not offered");
+    });
+
+    it("rejects an edit that adds a copy of an error the project already had", async () => {
+      const s = stub([[text(FIXED)], [text(FIXED)]], broken, { bynk_explain_diagnostic: EXPLANATION });
+      checkers(s.deps, [errors(twice(3)), errors(twice(3), twice(8)), errors(twice(3), twice(8))]);
+      const out = await runCommand("fix", "", s.deps, () => {});
+      assert.strictEqual(out.fix, undefined);
+      assert.ok(!out.markdown.join("").includes("Checked:"));
+    });
+
+    it("says so when the repair round produces no edit", async () => {
+      const s = stub([[text(STILL_BAD)], [text("I cannot do better.")]], broken, { bynk_explain_diagnostic: EXPLANATION });
+      checkers(s.deps, [errors(UNKNOWN), errors(UNKNOWN)]);
+      const out = await runCommand("fix", "", s.deps, () => {});
+      const md = out.markdown.join("");
+      assert.strictEqual(out.fix, undefined);
+      assert.ok(md.includes("I got no edit back") && md.includes("Rejected (first attempt)"), md);
+    });
+
+    it("stops starting example checks once the request is cancelled", async () => {
+      const blocks = [1, 2, 3, 4].map((n) => `\`\`\`bynk\nfn f${n}() -> Int { ${n} }\n\`\`\``).join("\n");
+      const s = stub([[text(blocks)]], { diagnostics: [] }, { bynk_search_book: "## B\nBook: https://bynk-lang.org/book/\n" });
+      let cancelled = false;
+      s.deps.isCancelled = () => cancelled;
+      const asked: string[] = [];
+      s.deps.checkScratch = async (src) => (asked.push(src), (cancelled = true), OK);
+      await runCommand("learn", "functions", s.deps, () => {});
+      // The first compile cancels; the others in its chunk and the fourth example
+      // see that before they start, so nothing else is compiled.
+      assert.strictEqual(asked.length, 1, "no compile starts after the request is cancelled");
+    });
+
+    it("checks several examples in one pass, not one compile at a time", async () => {
+      const blocks = [1, 2, 3].map((n) => `\`\`\`bynk\nfn f${n}() -> Int { ${n} }\n\`\`\``).join("\n");
+      const s = stub([[text(blocks)]], { diagnostics: [] }, { bynk_search_book: "## B\nBook: https://bynk-lang.org/book/\n" });
+      let running = 0;
+      let peak = 0;
+      s.deps.checkScratch = async () => {
+        peak = Math.max(peak, ++running);
+        await new Promise((r) => setTimeout(r, 5));
+        running--;
+        return OK;
+      };
+      await runCommand("learn", "functions", s.deps, () => {});
+      assert.strictEqual(peak, 3);
+    });
+
+    it("shows a bynk-fragment example without compiling it, and says so", async () => {
+      const reply = "Real.\n```bynk\nfn a() -> Int { 1 }\n```\nPartial.\n```bynk-fragment\nservice s { on call(\n```\n";
+      const s = stub([[text(reply)]], { diagnostics: [] }, { bynk_search_book: "## B\nBook: https://bynk-lang.org/book/\n" });
+      const c = checkers(s.deps, [], [OK]);
+      const out = await runCommand("learn", "services", s.deps, () => {});
+      const md = out.markdown.join("");
+      assert.strictEqual(c.scratchAsked.length, 1, "only the plain bynk block was compiled");
+      assert.ok(md.includes("```bynk\nservice s { on call("), "shown, with a fence the editor highlights");
+      assert.ok(!md.includes("bynk-fragment"));
+      assert.ok(md.includes("An illustrative example was not compiled"));
+      assert.ok(md.includes("Examples checked"));
+    });
+
+    it("does not claim anything was checked for a lesson of only fragments", async () => {
+      const reply = "Partial.\n```bynk-fragment\nservice s {\n```\n";
+      const s = stub([[text(reply)]], { diagnostics: [] }, { bynk_search_book: "## B\nBook: https://bynk-lang.org/book/\n" });
+      const c = checkers(s.deps, []);
+      const out = await runCommand("learn", "services", s.deps, () => {});
+      const md = out.markdown.join("");
+      assert.deepStrictEqual(c.scratchAsked, []);
+      assert.ok(md.includes("not compiled") && !md.includes("Examples checked"));
+    });
+
+    it("does not treat a bynk-fragment fence as an example to check", () => {
+      assert.deepStrictEqual(bynkBlocks("```bynk-fragment\nx\n```"), []);
+    });
+  });
 });

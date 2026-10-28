@@ -128,7 +128,9 @@ const COMMAND_TASKS: Record<string, string> = {
     "Explain the diagnostic(s) or code in the MATERIAL to a learner: what it means, why it happened here, and how to resolve it.",
   learn:
     "Teach the topic as a short lesson (a few paragraphs and one small example) using only the Book material given. " +
-    "Fence every Bynk example as ```bynk and make it a complete unit that compiles on its own: it is compiled before you are shown.",
+    "Fence every Bynk example as ```bynk and make it a complete unit that compiles on its own: it is compiled before you are shown. " +
+    "An example that is deliberately partial or meant not to compile may be fenced ```bynk-fragment instead; it is shown but not compiled, " +
+    "and the reader is told so. Never use that for code you present as working.",
   architecture:
     "Walk through this project's architecture: its contexts, services, agents and how they connect. Start with the shape, then the details.",
   fix: [
@@ -295,6 +297,16 @@ export function bynkBlocks(reply: string): { code: string; start: number; end: n
   return blocks;
 }
 
+/** Illustrative examples the model marked ```bynk-fragment: shown, not compiled. */
+export function fragmentCount(reply: string): number {
+  return [...reply.matchAll(/```bynk-fragment[ \t]*\r?\n/g)].length;
+}
+
+/** The fence tag a reader's editor knows how to highlight. */
+function plainFragmentFences(reply: string): string {
+  return reply.replace(/```bynk-fragment([ \t]*\r?\n)/g, "```bynk$1");
+}
+
 const UNIT_HEADER = /^\s*(?:context|commons|adapter|suite)\s+\w/m;
 
 /** Check one example: as given if it declares its own unit, else inside a
@@ -304,6 +316,7 @@ async function checkSnippet(deps: ChatDeps, code: string): Promise<CheckOutcome>
   const attempts = UNIT_HEADER.test(code) ? [code] : [`commons example\n\n${code}`, `context example\n\n${code}`];
   let best: CheckOutcome | undefined;
   for (const source of attempts) {
+    if (deps.isCancelled()) return { kind: "unavailable", reason: "the check was cancelled" };
     const outcome = await deps.checkScratch(source);
     if (outcome.kind !== "errors") return outcome;
     if (!best || (best.kind === "errors" && outcome.errors.length < best.errors.length)) best = outcome;
@@ -316,10 +329,20 @@ function listErrors(errors: readonly CompileDiagnostic[], limit = 5): string {
   return errors.slice(0, limit).map((e) => `- ${describeDiagnostic(e)}`).join("\n");
 }
 
-/** Outcome of checking each ```bynk block in a lesson. */
+/** How many examples are compiled at once. */
+const EXAMPLE_CONCURRENCY = 3;
+
+/** Outcome of checking each ```bynk block in a lesson, a few at a time (each
+ *  compile has its own scratch directory, so they cannot collide). A cancelled
+ *  request stops starting new ones. */
 async function checkExamples(deps: ChatDeps, reply: string): Promise<CheckOutcome[]> {
+  const blocks = bynkBlocks(reply);
   const results: CheckOutcome[] = [];
-  for (const b of bynkBlocks(reply)) results.push(await checkSnippet(deps, b.code));
+  for (let i = 0; i < blocks.length; i += EXAMPLE_CONCURRENCY) {
+    if (deps.isCancelled()) break;
+    const chunk = blocks.slice(i, i + EXAMPLE_CONCURRENCY);
+    results.push(...(await Promise.all(chunk.map((b) => checkSnippet(deps, b.code)))));
+  }
   return results;
 }
 
@@ -347,11 +370,20 @@ type FixVerdict =
   | { kind: "unchecked"; reason: string }
   | { kind: "rejected"; errors: CompileDiagnostic[]; targetRemains: boolean };
 
+/** How many errors of each kind (file, code, message) there are. Two identical
+ *  errors in a file share a key, so the number of them is what tells a fix of one
+ *  from a fix of none, or an edit that adds a copy elsewhere. */
+function countByKey(errors: readonly CompileDiagnostic[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const e of errors) counts.set(diagnosticKey(e), (counts.get(diagnosticKey(e)) ?? 0) + 1);
+  return counts;
+}
+
 /** The project as it is, compiled once: the diagnostic to fix as the compiler
  *  reports it, and the errors the project already had. */
 type FixBaseline =
   | { kind: "unchecked"; reason: string }
-  | { kind: "ready"; target: CompileDiagnostic; known: ReadonlySet<string> };
+  | { kind: "ready"; target: CompileDiagnostic; known: ReadonlyMap<string, number> };
 
 /** The file's text with 1-based lines `start..end` replaced. */
 function applyReplacement(lines: readonly string[], start: number, end: number, replacement: string): string {
@@ -375,7 +407,7 @@ async function fixBaseline(deps: ChatDeps, diag: EditorDiagnostic): Promise<FixB
   if (!target) {
     return { kind: "unchecked", reason: "the compiler does not report this diagnostic, so the edit can't be checked against it" };
   }
-  return { kind: "ready", target, known: new Set(before.errors.map(diagnosticKey)) };
+  return { kind: "ready", target, known: countByKey(before.errors) };
 }
 
 /** Compile the project with the edit; it passes if the target diagnostic is gone
@@ -395,8 +427,18 @@ async function verifyFix(
   const after = await deps.checkInProject(file, applyReplacement(lines, start, end, replacement));
   if (after.kind === "unavailable") return { kind: "unchecked", reason: after.reason };
   if (after.kind === "ok") return { kind: "verified" };
-  const fresh = after.errors.filter((e) => !base.known.has(diagnosticKey(e)));
-  const targetRemains = after.errors.some((e) => diagnosticKey(e) === diagnosticKey(base.target));
+  // An error is new if there are more of its kind than before (the later copies
+  // are the new ones); the target remains unless there are fewer of its kind.
+  const seen = new Map<string, number>();
+  const fresh: CompileDiagnostic[] = [];
+  for (const e of after.errors) {
+    const key = diagnosticKey(e);
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    if (n > (base.known.get(key) ?? 0)) fresh.push(e);
+  }
+  const targetKey = diagnosticKey(base.target);
+  const targetRemains = (seen.get(targetKey) ?? 0) >= (base.known.get(targetKey) ?? 0);
   if (!targetRemains && fresh.length === 0) return { kind: "verified" };
   return { kind: "rejected", errors: targetRemains ? [base.target, ...fresh] : fresh, targetRemains };
 }
@@ -446,6 +488,7 @@ export async function runCommand(
     let reply = await converse(deps, messages, sources, () => {});
     if (deps.isCancelled()) return done();
     let results = await checkExamples(deps, reply);
+    if (deps.isCancelled()) return done();
     const failing = (rs: readonly CheckOutcome[]) =>
       rs.flatMap((r) => (r.kind === "errors" ? r.errors : []));
     if (failing(results).length > 0) {
@@ -462,12 +505,17 @@ export async function runCommand(
       reply = await converse(deps, messages, sources, () => {});
       if (deps.isCancelled()) return done();
       results = await checkExamples(deps, reply);
+      if (deps.isCancelled()) return done();
     }
-    say(withoutFailedExamples(reply, results).trim() + "\n");
+    say(plainFragmentFences(withoutFailedExamples(reply, results)).trim() + "\n");
     const omitted = results.filter((r) => r.kind === "errors").length;
     const unavailable = results.find((r) => r.kind === "unavailable");
     if (omitted > 0) {
       say(`\n*${omitted === 1 ? "An example was" : `${omitted} examples were`} left out because ${omitted === 1 ? "it" : "they"} did not compile.*\n`);
+    }
+    const fragments = fragmentCount(reply);
+    if (fragments > 0) {
+      say(`\n*${fragments === 1 ? "An illustrative example was" : `${fragments} illustrative examples were`} not compiled.*\n`);
     }
     if (unavailable?.kind === "unavailable") {
       say(`\n*Examples were not checked: ${unavailable.reason}.*\n`);
@@ -521,6 +569,9 @@ export async function runCommand(
     }
     const base = await fixBaseline(deps, diag);
     let verdict = await verifyFix(deps, base, start, end, replacement);
+    // Set when the repair round came back with no edit, so what is shown as
+    // rejected is the first attempt and the answer says so.
+    let repairEmpty = false;
     if (verdict.kind === "rejected") {
       // One round to repair, with what the compiler said about the edit.
       messages.push({ role: "assistant", text: reply });
@@ -537,15 +588,19 @@ export async function runCommand(
       if (again !== undefined) {
         replacement = again;
         verdict = await verifyFix(deps, base, start, end, again);
+      } else {
+        repairEmpty = true;
       }
     }
     const fix: FixProposal = { path: diag.path, startLine: start, endLine: end, replacement, original };
     if (verdict.kind === "rejected") {
       say(
-        "The edit I came up with does not compile cleanly, so I am not offering it:\n" +
+        (repairEmpty
+          ? "My first edit does not compile cleanly, and when I asked for a correction I got no edit back, so I am not offering anything:\n"
+          : "The edit I came up with does not compile cleanly, so I am not offering it:\n") +
           `${listErrors(verdict.errors)}\n\n`,
       );
-      say(`Rejected:\n${renderDiff(fix)}\n`);
+      say(`${repairEmpty ? "Rejected (first attempt)" : "Rejected"}:\n${renderDiff(fix)}\n`);
       say(renderSources(sources));
       return done();
     }

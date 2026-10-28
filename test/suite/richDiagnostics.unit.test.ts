@@ -3,7 +3,7 @@
 
 import * as assert from "assert";
 
-import { describeDiagnostic, diagnosticKey, parseRichDiagnostics } from "../../src/richDiagnostics";
+import { compileVerdict, describeDiagnostic, diagnosticKey, parseRichDiagnostics } from "../../src/richDiagnostics";
 
 const TWO = `[bynk.resolve.unknown_name] Error: unknown name \`missing\`
    ╭─[ src/shop.bynk:3:27 ]
@@ -71,5 +71,26 @@ describe("parseRichDiagnostics (#2516)", () => {
     assert.strictEqual(diagnosticKey(a), diagnosticKey({ ...a, line: 40, column: 2 }));
     assert.notStrictEqual(diagnosticKey(a), diagnosticKey({ ...a, message: "other" }));
     assert.strictEqual(describeDiagnostic(a), "src/shop.bynk:3: error[bynk.resolve.unknown_name]: unknown name `missing`");
+  });
+
+  describe("compileVerdict", () => {
+    it("is ok for a clean exit", () => {
+      assert.deepStrictEqual(compileVerdict(0, "", ""), { kind: "ok" });
+    });
+    it("lists the errors of a failing run, ignoring warnings", () => {
+      const out = `${TWO}[bynk.lint.unused] Warning: unused\n`;
+      const v = compileVerdict(1, "", out);
+      assert.ok(v.kind === "errors" && v.errors.length === 2);
+    });
+    it("is no verdict when the process was killed, not 'exited with null'", () => {
+      const v = compileVerdict(null, "", "");
+      assert.ok(v.kind === "unavailable" && v.reason === "bynk compile was stopped before it finished", JSON.stringify(v));
+    });
+    it("is no verdict when it failed without a diagnostic, and says what it printed", () => {
+      const v = compileVerdict(2, "", "bynkc: could not start\nmore\n");
+      assert.ok(v.kind === "unavailable" && v.reason === "bynkc: could not start", JSON.stringify(v));
+      const bare = compileVerdict(2, "", "");
+      assert.ok(bare.kind === "unavailable" && bare.reason === "bynk compile exited with 2");
+    });
   });
 });
