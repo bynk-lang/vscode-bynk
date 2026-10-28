@@ -1,7 +1,7 @@
 // @webview-entry webview
 // #846: the sequence-diagram webview's own bundle entry (`out/webview.js`,
 // a separate esbuild target from the extension host's `out/extension.js` —
-// see `package.json`'s `build` script). Runs inside the webview's browser
+// see scripts/build.mjs). Runs inside the webview's browser
 // context, never the extension host: no `vscode` module, only
 // `acquireVsCodeApi()`.
 //

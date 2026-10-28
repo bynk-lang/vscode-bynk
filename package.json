@@ -1535,7 +1535,7 @@
     "check": "tsc -p . --noEmit",
     "check:contract": "node scripts/check-contract.mjs",
     "test:contract": "node --test scripts/contract-lib.test.mjs scripts/manifest-schema.test.mjs scripts/hotspots.test.mjs",
-    "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap --watch",
+    "watch": "node scripts/build.mjs --watch",
     "package": "npm run build && npx @vscode/vsce package",
     "compile-tests": "tsc -p tsconfig.test.json",
     "pretest": "npm run compile-tests && npm run build",

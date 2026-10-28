@@ -6,6 +6,15 @@
 //
 // Features that hand something back to `activate` (the Test Explorer's API, the
 // approvals, the live model views, which others use) stay registered there.
+//
+// Registration order: the table runs right after the refresh hub is built and
+// before the Test Explorer, the approvals and the live views, so a feature here
+// registers earlier than it used to relative to those and later relative to the
+// toolchain and task registrations, which moved in from the top. None of these
+// reads another's registration at activation: they register commands and
+// providers, and what they share (`testFailures`, the hub, the client getter) is
+// module state or a getter, not a registration. A feature that does need to run
+// after another belongs in `activate`, not here.
 
 import type * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";

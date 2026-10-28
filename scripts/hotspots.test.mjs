@@ -7,7 +7,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-import { webviewEntries } from "./build.mjs";
+import os from "node:os";
+import path from "node:path";
+
+import { webviewEntries } from "./webview-entries.mjs";
 
 const read = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
@@ -18,6 +21,33 @@ test("webview entries are discovered from their marker, with unique output names
   // The sequence diagram's bundle keeps its historical name, `out/webview.js`.
   assert.ok(entries.some((e) => e.entry.endsWith("/main.ts") && e.name === "webview"));
   assert.ok(names.includes("state"));
+});
+
+/** A scratch src/webview/ with these files. */
+function webviewDir(files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bynk-webview-"));
+  for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), text);
+  return dir;
+}
+
+test("discovery tolerates a byte-order mark and a mention of the API in a comment or declaration", () => {
+  const dir = webviewDir({
+    "a.ts": "\uFEFF// @webview-entry\nconst api = acquireVsCodeApi();\n",
+    "lib.ts": "// Never calls acquireVsCodeApi() itself.\ndeclare function acquireVsCodeApi(): unknown;\n",
+    "b.ts": "// @webview-entry other\n",
+  });
+  assert.deepEqual(webviewEntries(dir).map((e) => e.name), ["a", "other"]);
+});
+
+test("discovery fails loudly rather than skip a file that would be an entry", () => {
+  assert.throws(() => webviewEntries(webviewDir({ "x.ts": "const api = acquireVsCodeApi();\n" })), /x\.ts calls acquireVsCodeApi\(\)/);
+  assert.throws(() => webviewEntries(webviewDir({ "x.ts": "\n// @webview-entry\n" })), /exactly the file's first line/);
+  assert.throws(() => webviewEntries(webviewDir({ "x.ts": "// Licence\n// @webview-entry\n" })), /exactly the file's first line/);
+  assert.throws(() => webviewEntries(webviewDir({ "x.ts": "// @webview-entry  \t two words\n" })), /exactly the file's first line/);
+  assert.throws(
+    () => webviewEntries(webviewDir({ "x.ts": "// @webview-entry same\n", "y.ts": "// @webview-entry same\n" })),
+    /two webview entries would write out\/same\.js/,
+  );
 });
 
 test("every bundle the panels load still has an entry", () => {
