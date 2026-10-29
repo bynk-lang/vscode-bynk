@@ -5,8 +5,8 @@
 
 import * as vscode from "vscode";
 
-import { BynkNotFoundError, findProjectRoot, runBynk } from "./cli";
-import { openapiArgs, openapiFailure } from "./openapiCore";
+import { findProjectRoot, runBynk } from "./cli";
+import { openapiArgs, openapiOutcome } from "./openapiCore";
 
 export function registerOpenapi(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand("bynk.exportOpenapi", exportOpenapi));
@@ -18,26 +18,40 @@ async function exportOpenapi(): Promise<void> {
     void vscode.window.showInformationMessage("Open a Bynk project (a folder with a bynk.toml) to export its OpenAPI document.");
     return;
   }
+  // The CLI reads the project from disk: unsaved edits would be left out of a
+  // spec that then reads as current.
+  if (vscode.workspace.textDocuments.some((d) => d.languageId === "bynk" && d.isDirty)) {
+    const save = await vscode.window.showWarningMessage(
+      "Some Bynk files have unsaved changes, which the export would leave out.",
+      "Save and Export",
+    );
+    if (!save) return;
+    await vscode.workspace.saveAll(false);
+  }
   const target = await vscode.window.showSaveDialog({
     defaultUri: vscode.Uri.joinPath(root, "openapi.json"),
     filters: { OpenAPI: ["json", "yaml", "yml"] },
     saveLabel: "Export OpenAPI",
   });
   if (!target) return;
-  const run = await vscode.window.withProgress(
+  if (target.scheme !== "file") {
+    void vscode.window.showErrorMessage("Choose a location on the local file system: `bynk openapi` writes the file itself.");
+    return;
+  }
+  const outcome = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: "Exporting OpenAPI…", cancellable: true },
-    (_progress, token) => runBynk(openapiArgs(root.fsPath, target.fsPath), root.fsPath, token).catch((e) => e),
+    async (_progress, token) => {
+      try {
+        const run = await runBynk(openapiArgs(root.fsPath, target.fsPath), root.fsPath, token);
+        return openapiOutcome(run, token.isCancellationRequested);
+      } catch (error) {
+        return openapiOutcome({ error }, token.isCancellationRequested);
+      }
+    },
   );
-  if (run instanceof BynkNotFoundError) {
-    void vscode.window.showErrorMessage(run.message);
-    return;
-  }
-  if (run instanceof Error) {
-    void vscode.window.showErrorMessage(`Could not run bynk openapi: ${run.message}`);
-    return;
-  }
-  if (run.code !== 0) {
-    void vscode.window.showErrorMessage(openapiFailure(run.stderr));
+  if (outcome.kind === "cancelled") return;
+  if (outcome.kind === "failed") {
+    void vscode.window.showErrorMessage(outcome.message);
     return;
   }
   const open = await vscode.window.showInformationMessage(`Wrote ${vscode.workspace.asRelativePath(target)}.`, "Open");
