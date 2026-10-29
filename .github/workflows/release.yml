@@ -27,6 +27,9 @@ jobs:
         run: |
           ver="$(node -p "require('./package.json').version")"
           test "v$ver" = "$GITHUB_REF_NAME" || { echo "::error::package.json is $ver but the tag is $GITHUB_REF_NAME"; exit 1; }
+      - name: The changelog has a section for this version
+        run: |
+          grep -Eq "^## \\[${GITHUB_REF_NAME#v}\\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## [${GITHUB_REF_NAME#v}]' section"; exit 1; }
       - name: The pin names a usable release
         env:
           GH_TOKEN: ${{ github.token }}
