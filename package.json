@@ -10,7 +10,7 @@
     "url": "https://github.com/bynk-lang/vscode-bynk"
   },
   "//bynkServerVersion": "The bynkc-lsp release this extension build provisions (see src/server.ts): the last shipped release, not the workspace version. release.yml's server-pin job moves it when a release is published (#1673).",
-  "bynkServerVersion": "v0.434.0",
+  "bynkServerVersion": "v0.436.0",
   "//bynkServerMinVersion": "The oldest bynkc-lsp this extension works against: older servers lack requests it calls. Unlike bynkServerVersion it is moved by hand, when the extension starts to need something newer (src/server.ts).",
   "bynkServerMinVersion": "v0.434.0",
   "engines": {
