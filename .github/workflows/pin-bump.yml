@@ -4,7 +4,8 @@ name: Move the server pin
 # canary/README.md) fans a `bynk-canary` dispatch out to every enrolled
 # repository, this one included, carrying the bare version. It also sends one
 # weekly, so a missed release catches up; a pin already at or past it is a
-# no-op. Open a PR moving `bynkServerVersion` to it. It is a PR, not a
+# no-op. Open a PR moving `bynkServerVersion` to it and the extension's own
+# `version` along with it (releasing that version is a separate tag). It is a PR, not a
 # push to main, because under independent versions a pin bump is an ordinary
 # change worth CI — the full suite, including the contract check, runs against
 # the new release before it merges.
@@ -63,5 +64,5 @@ jobs:
           gh pr view "$branch" --json state --jq .state | grep -qx OPEN ||
             gh pr create --base main --head "$branch" \
               --title "chore: point at bynk $TAG" \
-              --body "Moves \`bynkServerVersion\` to $TAG. CI runs the contract check and integration suite against it. Review \`bynkServerMinVersion\` only if the extension now needs something newer."
+              --body "Moves \`bynkServerVersion\` to $TAG and the extension version to match (see scripts/next-server-pin.sh). Merging does not publish: tag the new version to release. CI runs the contract check and integration suite against it. Review \`bynkServerMinVersion\` only if the extension now needs something newer."
           gh pr merge "$branch" --auto --squash
