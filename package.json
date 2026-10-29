@@ -635,6 +635,11 @@
         "category": "Bynk"
       },
       {
+        "command": "bynk.exportOpenapi",
+        "title": "Export OpenAPI…",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.approveRequirements",
         "title": "Review Pending npm Requirements…",
         "category": "Bynk"
@@ -723,6 +728,10 @@
         },
         {
           "command": "bynk.doctor",
+          "when": "!isWeb"
+        },
+        {
+          "command": "bynk.exportOpenapi",
           "when": "!isWeb"
         },
         {
