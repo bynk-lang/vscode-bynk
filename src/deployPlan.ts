@@ -130,18 +130,23 @@ export interface DeployTarget {
   secretsFile?: string;
 }
 
-/** The `bynk deploy` argument list: the dry-run plan, or the real deploy. The
- *  two differ only in `--dry-run --format json`, so the deploy runs exactly
- *  what was previewed. Never `--yes`, never `--prune`. */
-export function deployArgs(target: DeployTarget, mode: "plan" | "deploy"): string[] {
-  // The pickers and presets validate first; this is the backstop, so no value
-  // can ever read as a flag such as `--yes` whatever the caller passed.
+/** The backstop for every argument list: the pickers and presets validate
+ *  first, so no value can ever read as a flag such as `--yes` whatever the
+ *  caller passed. */
+function assertNames(target: { environment: string; context?: string }): void {
   if (!validEnvironmentName(target.environment)) {
     throw new Error(`not an environment name: ${JSON.stringify(target.environment)}`);
   }
   if (target.context !== undefined && !validContextName(target.context)) {
     throw new Error(`not a context name: ${JSON.stringify(target.context)}`);
   }
+}
+
+/** The `bynk deploy` argument list: the dry-run plan, or the real deploy. The
+ *  two differ only in `--dry-run --format json`, so the deploy runs exactly
+ *  what was previewed. Never `--yes`, never `--prune`. */
+export function deployArgs(target: DeployTarget, mode: "plan" | "deploy"): string[] {
+  assertNames(target);
   const args = ["deploy"];
   if (mode === "plan") args.push("--dry-run", "--format", "json");
   args.push("--env", target.environment);
@@ -151,14 +156,9 @@ export function deployArgs(target: DeployTarget, mode: "plan" | "deploy"): strin
 }
 
 /** The `bynk tail` argument list (#2546): stream a deployed Worker's logs.
- *  Validated like `deployArgs`, so no value can read as a flag. */
+ *  Names are checked as in `deployArgs`. */
 export function tailArgs(target: { environment: string; context?: string }): string[] {
-  if (!validEnvironmentName(target.environment)) {
-    throw new Error(`not an environment name: ${JSON.stringify(target.environment)}`);
-  }
-  if (target.context !== undefined && !validContextName(target.context)) {
-    throw new Error(`not a context name: ${JSON.stringify(target.context)}`);
-  }
+  assertNames(target);
   const args = ["tail", "--env", target.environment];
   if (target.context) args.push("--context", target.context);
   return args;
