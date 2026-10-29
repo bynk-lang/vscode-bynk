@@ -363,6 +363,7 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Clear Worker Logs** | Empty the log buffer and the channel. |
 | **Bynk: Deploy…** | Pick an environment and a scope, review the dry-run plan, then deploy from the plan in a terminal. `bynk` asks you to confirm before it changes anything. |
 | **Bynk: Show Deploy Plan** | The same plan for review only. It never deploys. |
+| **Bynk: Tail Deployed Logs…** | Pick an environment (and a context, when there are several) and stream the deployed Worker's logs with `bynk tail`, in a terminal, with stack frames at their `.bynk` lines. Needs a `bynk` with the command (v0.436.0 or newer). |
 | **Bynk: Copy Playground Link** / **Bynk: Open in Playground** | Share the selection (or a single-file program, whole) as a [playground](https://playground.bynk-lang.dev) link. The code is compressed into the URL fragment, so it never reaches a server; a snippet too large for a link is refused, not truncated. Also in the editor context menu, and on the web. |
 | **Bynk: Export OpenAPI…** | Write an OpenAPI 3.1 document for the project's `from http` services (`bynk openapi`), as JSON or YAML by file name. |
 | **Bynk: Add Dependency…** / **Bynk: Fetch Dependencies** | Look an `org/package` up in the registry and add a version (`bynk add`); fetch the project's dependencies (`bynk fetch`). |

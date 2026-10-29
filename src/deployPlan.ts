@@ -150,6 +150,20 @@ export function deployArgs(target: DeployTarget, mode: "plan" | "deploy"): strin
   return args;
 }
 
+/** The `bynk tail` argument list (#2546): stream a deployed Worker's logs.
+ *  Validated like `deployArgs`, so no value can read as a flag. */
+export function tailArgs(target: { environment: string; context?: string }): string[] {
+  if (!validEnvironmentName(target.environment)) {
+    throw new Error(`not an environment name: ${JSON.stringify(target.environment)}`);
+  }
+  if (target.context !== undefined && !validContextName(target.context)) {
+    throw new Error(`not a context name: ${JSON.stringify(target.context)}`);
+  }
+  const args = ["tail", "--env", target.environment];
+  if (target.context) args.push("--context", target.context);
+  return args;
+}
+
 /** The environments a `bynk.deploy.lock` records (its `[environments.<name>]`
  *  tables), sorted, without duplicates. */
 export function lockEnvironments(lockText: string): string[] {

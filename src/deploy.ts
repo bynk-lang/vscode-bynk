@@ -24,6 +24,7 @@ import {
   lockEnvironments,
   planOutcome,
   settledState,
+  tailArgs,
   validContextName,
   PLAN_CSS,
   renderPlanHtml,
@@ -46,6 +47,7 @@ export function registerDeploy(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("bynk.deploy", (preset?: Preset) => start(true, preset)),
     vscode.commands.registerCommand("bynk.showDeployPlan", (preset?: Preset) => start(false, preset)),
+    vscode.commands.registerCommand("bynk.tailLogs", (preset?: Preset) => tail(preset)),
     { dispose: () => output?.dispose() },
   );
 }
@@ -79,6 +81,48 @@ async function start(canDeploy: boolean, preset?: Preset): Promise<void> {
   const target: DeployTarget = { environment };
   if (scope) target.context = scope;
   await showPlan({ root, target, canDeploy });
+}
+
+/** #2546: stream a deployed Worker's logs, stack frames at their `.bynk` lines.
+ *  `bynk tail` runs in a terminal (it streams until stopped, and `wrangler tail`
+ *  may ask the user to log in); an absolute `path:line:col` in it is clickable. */
+async function tail(preset?: Preset): Promise<void> {
+  const root = await findProjectRoot();
+  if (!root) {
+    void vscode.window.showErrorMessage("Bynk: no bynk.toml found in the workspace.");
+    return;
+  }
+  const environment =
+    typeof preset?.environment === "string" && validEnvironmentName(preset.environment)
+      ? preset.environment
+      : await pickEnvironment(root);
+  if (environment === undefined) return;
+  if (typeof preset?.context === "string" && preset.context && !validContextName(preset.context)) {
+    void vscode.window.showErrorMessage(
+      `Bynk: ${JSON.stringify(preset.context)} is not a context name (\`commerce.orders\` or \`commerce-orders\`).`,
+    );
+    return;
+  }
+  // `bynk tail` follows one Worker; a project with several contexts must pick.
+  const names = await projectContexts(root);
+  let context = typeof preset?.context === "string" ? preset.context : undefined;
+  if (context === undefined && names.length > 1) {
+    const picked = await vscode.window.showQuickPick(
+      names.map((n) => ({ label: n })),
+      { placeHolder: "Which context's Worker should be tailed?" },
+    );
+    if (!picked) return;
+    context = picked.label;
+  }
+  const override = bynkEnv().BYNK_BYNKC;
+  const terminal = vscode.window.createTerminal({
+    name: `Bynk Tail (${environment})`,
+    cwd: root,
+    shellPath: bynkPath(),
+    shellArgs: tailArgs({ environment, ...(context ? { context } : {}) }),
+    env: override ? { BYNK_BYNKC: override } : undefined,
+  });
+  terminal.show();
 }
 
 /** Environments recorded in `bynk.deploy.lock` (`default` always first), then
