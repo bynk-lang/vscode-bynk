@@ -16,6 +16,12 @@ Install it from the Visual Studio Marketplace (`bynk-lang.bynk-vscode`), or run
 
 ## Features
 
+The features are grouped below: the editor, testing and debugging, running and
+deploying, views of the project, and AI assistance. Each command is listed again
+under [Commands](#commands), and each setting under [Settings](#settings).
+
+### Editing
+
 - **Syntax highlighting** — a TextMate grammar, mirrored from the
   [tree-sitter grammar](https://github.com/bynk-lang/bynk/tree/main/tree-sitter-bynk)
   (the source of truth).
@@ -31,101 +37,136 @@ Install it from the Visual Studio Marketplace (`bynk-lang.bynk-vscode`), or run
   so fences there stay plain.)
 - **Markdown in doc comments** — the Markdown in `---` doc-blocks and `--- text`
   one-line docs is highlighted: headings, emphasis, inline code, links, list and
-  quote markers, and ` ```bynk ` examples as Bynk.
+  quote markers, and ` ```bynk ` examples as Bynk. With
+  `bynk.inlineDocRendering.enable` the comments are also rendered in place.
 - **Live diagnostics** — errors and warnings as you type, exactly as
   `bynkc check` reports them, each tagged with its dotted category.
-- **Hover** — type signatures and doc blocks.
+  **Bynk: Explain Diagnostic Code…** (and the **Explain** quick fix) shows the
+  installed compiler's explanation of a code, offline.
+- **Hover** — type signatures and doc blocks. Hover a refined type for example
+  values and a box that checks a value you type (**Explore Refined Type**).
 - **Go-to-definition** and **find references** for types, functions,
   capabilities, services, and agents.
 - **Rename** — workspace-wide and validated.
 - **Completion**, **inlay hints** (inferred types), and **semantic tokens**
   (type-aware highlighting).
 - **Code actions** — quick fixes for diagnostics that carry a suggestion,
-  **Fill match arms** for a non-exhaustive `match`, **Inline variable**, **Generate provider stub**,
-  **Organise `uses`/`consumes`** (`source.organizeImports`) and **Fix all**
-  (`source.fixAll.bynk`). Run them on save with `"editor.codeActionsOnSave":
-  { "source.organizeImports": "explicit", "source.fixAll.bynk": "explicit" }`
-  in a `"[bynk]"` settings block.
+  **Fill match arms** for a non-exhaustive `match`, **Inline variable**,
+  **Generate provider stub**, **Organise `uses`/`consumes`**
+  (`source.organizeImports`) and **Fix all** (`source.fixAll.bynk`). Run them on
+  save with `"editor.codeActionsOnSave": { "source.organizeImports": "explicit",
+  "source.fixAll.bynk": "explicit" }` in a `"[bynk]"` settings block.
 - **Formatting** and **range formatting** via `bynk-fmt` (honours
   `editor.formatOnSave`).
 - **Document & workspace symbols** and **document highlights**.
-- **Test Explorer** — run a project's `test` and `integration` blocks from the
-  Testing view (or **Bynk: Run Tests**), with click-through from a failing
-  assertion to its `.bynk` line. Runs `bynk test --format ndjson`, so each
-  case's result appears as that case finishes, with its duration (a `bynk` that
-  predates the stream is run with `--format json` instead); compile failures land in the Problems panel. **Run with Coverage** runs
-  `bynk test --coverage`: the Test Coverage view shows each `.bynk` file's line
-  percentage and the gutter marks covered and uncovered lines (line level; it
-  needs `tsc` and `node`). On a single test case it measures that case alone and
-  the run is named for it (`Coverage: <case>`); on anything else it measures the
-  whole project and says so in the run output. Reports are never merged across
-  runs, and a case's report is not a slice of the whole project's. A
-  **`▷ Run Test | Debug Test`** CodeLens
-  (and native gutter run/debug glyphs) sit at each test in the editor — disable
-  the lens with `bynk.testCodeLens`.
-  What you select is what runs and what is reported: any selection of cases and
-  suites is one `bynk test` process, narrowed with `--suite` and a repeated
-  `--case`, and only the tests you picked are reported; excluded tests are left
-  out. (A `bynk` that predates the set filter is run as before: one process per
-  case for a handful of cases, and the whole project for more.)
-  The Run profile has a **Watch** toggle (continuous run). With it on for an
-  item, saving a `.bynk` file or `bynk.toml`, or changing one outside the editor,
-  reruns that item after a one-second quiet period; several saves in a burst are
-  one rerun. A change during a run cancels it and starts a new one, so runs never
-  overlap and a cancelled run reports nothing. Turning Watch on does not itself
-  run the tests. A failure to run (a missing `bynk`, a crashed runner) is offered
-  once per Watch session and noted in the run output after that, and a compile
-  failure still reaches the Problems panel on each run. Debug, Coverage and
-  **Run against…** are not continuous.
-  A test a remote run skipped (`bynk test --against`) shows as skipped, with the
-  driver's reason in the run output, not as a failure. A suite whose tests are
-  all declared in one file opens that file, and **Bynk: Run Tests in This File**
-  (also in the editor's context menu) runs every test declared in it. **Debug**
-  on one test debugs just that case, and on a suite or several tests it debugs
-  that selection as one run (a `bynk` that predates the set filter debugs the whole
-  project and says so).
-  Each test is tagged with its tier (`unit`, `integration` or `system`; a test's
-  tier is set by an `as` clause on its `case` or `suite`), so the Testing view's
-  filter selects by tier. The **Run against…** profile runs the `system` tests
-  against a target: `dev` (a local `bynk dev` the driver starts and stops) or a
-  target declared under `[test.targets]` in `bynk.toml`, with the last choice
-  remembered. A deployed target keeps its state between runs, and the run output
-  says which target ran. The extension only passes a target's name: the driver
-  refuses a bare URL and a `production = true` target, and its message is shown.
-  A test that uses what a deployed target cannot honour (`advance Clock`, say)
-  refuses the run, with a **Retry, skipping unsupported cases** action. Run
-  against a target is run-only, not offered for Debug or Coverage.
-  A failed `property` or history property shows its seed and counterexample as
-  parts of the failure. **Re-run with This Seed** (on the test, in the Testing
-  view) runs that one test again with `--case` and `--seed` and reproduces it.
-  **Pin This Seed** keeps the seed in the workspace (never in `bynk.toml` or
-  source), shows it beside the test, and passes it to a run of that one test; a
-  suite or whole-project run always draws a fresh seed. A pin is shown as stale,
-  and not passed, once the property tests of its suite change (an added,
-  removed or reordered one), because the seed could then draw a different stream; **Unpin Seed** clears it.
-  A failure that an agent's `invariant` or `transition` caused names it: a line such
-  as `Violated invariant Wallet.nonneg` that opens the declaration. A failed history
-  gets one line for each step the agent refused (`Step 2 (Spend) was refused by
-  invariant Wallet.nonneg`), because a refused step is recorded as data and would
-  otherwise not show which declaration refused it; the line opens the declaration,
-  and a second line opens the handler the step called when the language server can
-  place it. A declaration line the driver could not place opens the failed test
-  instead. A refusal in a `system` suite or a remote run is not reported, since the
-  agent runs behind the service boundary and the case never sees it.
+- **Why does this need `Logger`?** — hover a capability in a `given` clause for
+  the shortest chain of agent-handler calls from that declaration to the
+  capability's use, each step a link to source; the **Show capability path**
+  quick fix opens a peek over every chain.
+- **Compiled output** — **Bynk: Show Compiled Output** opens the TypeScript the
+  compiler emits for the active file, read-only, beside it. It is compiled from
+  your unsaved buffers, and the cursor in either editor highlights the matching
+  lines in the other.
+- **Explorer decorations** — a two-letter badge naming each file's context, a
+  red tint on files whose tests failed in the last run, and a warning tint on
+  files with a contract break. Each is a setting (`bynk.fileDecorations.*`).
+- **`bynk.toml` editing** — completion, hover and validation for every table and
+  key of the project manifest, from the
+  [`bynk.toml` JSON Schema](https://bynk-lang.org/schemas/bynk.toml.json) this
+  extension associates with it. A TOML extension that reads JSON Schemas does the
+  editing: install [Even Better TOML](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml)
+  (recommended, not required; the extension suggests it once, the first time you
+  open a `bynk.toml` without it).
+- **Dependencies** — **Bynk: Add Dependency…** looks an `org/package` up in the
+  registry, offers its versions and adds it; **Fetch Dependencies** fetches them;
+  a CodeLens in `bynk.toml` shows when a newer version is available (**Upgrade
+  Dependency**; turn it off with `bynk.dependencies.upgradeLenses`);
+  **Bynk: Publish…** shows the package, version, registry and file list and
+  publishes only after you confirm. Every registry query goes through `bynk`.
+- **Status bar** — the active project name (click to open `bynk.toml`) and the
+  language-server state (click to show its output).
+
+### Testing
+
+Run a project's `test` and `integration` blocks from the Testing view (or
+**Bynk: Run Tests**). The extension runs `bynk test --format ndjson`, so each
+case's result appears as that case finishes, with its duration (a `bynk` that
+predates the stream is run with `--format json` instead). Compile failures land
+in the Problems panel, and a failing assertion links to its `.bynk` line.
+
+- **Running a selection.** What you select is what runs and what is reported:
+  any selection of cases and suites is one `bynk test` process, narrowed with
+  `--suite` and a repeated `--case`, and only the tests you picked are reported.
+  (A `bynk` that predates the set filter is run as before: one process per case
+  for a handful of cases, and the whole project for more.) A suite whose tests
+  are all declared in one file opens that file, and **Bynk: Run Tests in This
+  File** (also in the editor's context menu) runs every test declared in it.
+- **In the editor.** A **`▷ Run Test | Debug Test`** CodeLens (and native gutter
+  run/debug glyphs) sit at each test; disable the lens with `bynk.testCodeLens`.
+- **Tiers.** Each test is tagged with its tier (`unit`, `integration` or
+  `system`; set by an `as` clause on its `case` or `suite`), so the Testing
+  view's filter selects by tier.
+- **Coverage.** **Run with Coverage** runs `bynk test --coverage`: the Test
+  Coverage view shows each `.bynk` file's line percentage and the gutter marks
+  covered and uncovered lines (line level; it needs `tsc` and `node`). On a
+  single test case it measures that case alone and the run is named for it
+  (`Coverage: <case>`); on anything else it measures the whole project and says
+  so in the run output. Reports are never merged across runs, and a case's
+  report is not a slice of the whole project's.
+- **Watch.** The Run profile has a **Watch** toggle (continuous run). With it on
+  for an item, saving a `.bynk` file or `bynk.toml`, or changing one outside the
+  editor, reruns that item after a one-second quiet period; several saves in a
+  burst are one rerun. A change during a run cancels it and starts a new one, so
+  runs never overlap and a cancelled run reports nothing. Turning Watch on does
+  not itself run the tests. A failure to run (a missing `bynk`, a crashed
+  runner) is offered once per Watch session and noted in the run output after
+  that, and a compile failure still reaches the Problems panel on each run.
+  Debug, Coverage and **Run against…** are not continuous.
+- **Run against a target.** The **Run against…** profile runs the `system`
+  tests against a target: `dev` (a local `bynk dev` the driver starts and stops)
+  or a target declared under `[test.targets]` in `bynk.toml`, with the last
+  choice remembered. A deployed target keeps its state between runs, and the run
+  output says which target ran. The extension only passes a target's name: the
+  driver refuses a bare URL and a `production = true` target, and its message is
+  shown. A test that uses what a deployed target cannot honour (`advance Clock`,
+  say) refuses the run, with a **Retry, skipping unsupported cases** action. A
+  test a remote run skipped shows as skipped, with the driver's reason in the run
+  output, not as a failure. Run against a target is run-only, not offered for
+  Debug or Coverage.
+- **Property tests.** A failed `property` or history property shows its seed and
+  counterexample as parts of the failure. **Re-run with This Seed** (on the
+  test, in the Testing view) runs that one test again with `--case` and `--seed`
+  and reproduces it. **Pin This Seed** keeps the seed in the workspace (never in
+  `bynk.toml` or source), shows it beside the test, and passes it to a run of
+  that one test; a suite or whole-project run always draws a fresh seed. A pin is
+  shown as stale, and not passed, once the property tests of its suite change (an
+  added, removed or reordered one), because the seed could then draw a different
+  stream; **Unpin Seed** clears it.
+- **Agent invariants.** A failure that an agent's `invariant` or `transition`
+  caused names it: a line such as `Violated invariant Wallet.nonneg` that opens
+  the declaration. A failed history gets one line for each step the agent refused
+  (`Step 2 (Spend) was refused by invariant Wallet.nonneg`), because a refused
+  step is recorded as data and would otherwise not show which declaration
+  refused it; the line opens the declaration, and a second line opens the handler
+  the step called when the language server can place it. A declaration line the
+  driver could not place opens the failed test instead. A refusal in a `system`
+  suite or a remote run is not reported, since the agent runs behind the service
+  boundary and the case never sees it.
+
+### Debugging
+
 - **Debugging** — set a breakpoint in a `.bynk` file and press **Debug**: in the
   Test Explorer (Node, `bynk test --inspect`) or via a `bynk` `launch.json`
-  config for the dev-server worker (workerd, `bynk dev --inspect`). Delegates to
-  VS Code's JavaScript debugger; breakpoints resolve to the exact `.bynk`
-  statement through the emitted source maps.
+  config for the dev-server worker (workerd, `bynk dev --inspect`). On one test
+  it debugs just that case; on a suite or several tests it debugs that selection
+  as one run (a `bynk` that predates the set filter debugs the whole project and
+  says so). Delegates to VS Code's JavaScript debugger; breakpoints resolve to
+  the exact `.bynk` statement through the emitted source maps.
 - **`bynkc: check` build task** — type-check the whole project on demand, errors
   routed to the Problems panel.
-- **Project sidebar** — a **Bynk** view in the activity bar lists the project's
-  contexts, commons, adapters, and test suites. Each unit expands to its
-  declarations (services and agents expand to their handlers) and to
-  **Consumes** / **Consumed by** groups for its `consumes` edges. Every node
-  opens its source; handler nodes have inline **Sequence Diagram** and
-  **Wire Contract** actions, and unit nodes **Show Documentation**. The view
-  refreshes on the same trigger as the live views below.
+
+### Running and deploying
+
 - **Dev server** — **Bynk: Start Dev Server** (or the `bynk: dev` task) serves
   the project, or one context you pick, with `bynk dev`. A status-bar item shows
   what is serving (`dev: 3 contexts`); click it to open or copy a context's URL,
@@ -148,6 +189,10 @@ Install it from the Visual Studio Marketplace (`bynk-lang.bynk-vscode`), or run
   **Bynk: Sweep State Migrations…** shows the sweep plan and runs `bynk migrate
   sweep` in a terminal for you to confirm there; production environments first
   ask you to type their name.
+- **Export OpenAPI** — **Bynk: Export OpenAPI…** writes an OpenAPI 3.1 document
+  for the project's `from http` services with `bynk openapi`, as JSON or YAML by
+  the file name you choose. It needs a `bynk` that has the command, and offers to
+  save unsaved Bynk files first, since the export reads from disk.
 - **Doctor** — **Bynk: Doctor** shows `bynk doctor`'s readiness checklist
   (compile, test, dev and deploy, editor) with each gap's remedy as buttons: run
   it in a terminal after you confirm, open a link or setting, or copy it. A test,
@@ -157,19 +202,35 @@ Install it from the Visual Studio Marketplace (`bynk-lang.bynk-vscode`), or run
   badge on the **Bynk** view, and in a notification with **Review…**. **Bynk:
   Review Pending npm Requirements…** shows each package, what asks for it and
   why, and approves one package at a time; **Approve all** asks you to confirm.
+
+### Views of the project
+
+- **Project sidebar** — a **Bynk** view in the activity bar lists the project's
+  contexts, commons, adapters, and test suites. Each unit expands to its
+  declarations (services and agents expand to their handlers) and to
+  **Consumes** / **Consumed by** groups for its `consumes` edges. Every node
+  opens its source; handler nodes have inline **Sequence Diagram** and
+  **Wire Contract** actions, and unit nodes **Show Documentation**. The view
+  refreshes on the same trigger as the live views below.
 - **Live model views** — the sequence diagram, documentation page, architecture
-  map, wire contract, and agent state view (see Commands) open beside the editor and stay current:
-  they refresh when you save (or as you type, with `bynk.views.refresh`), the
-  sequence and wire-contract views follow the cursor from handler to handler
-  (pin one to freeze it), and open views come back after a window reload. Open
-  them from the editor title bar, the Command Palette, the `Show Sequence`
-  CodeLens above each handler, the `Show State` CodeLens on each agent, or an
-  optional `Wire contract` CodeLens beside a handler's (`bynk.viewsCodeLens`).
-  The agent state view follows the cursor from agent to agent.
-- **Why does this need `Logger`?** — hover a capability in a `given` clause for
-  the shortest chain of agent-handler calls from that declaration to the
-  capability's use, each step a link to source; the **Show capability path**
-  quick fix opens a peek over every chain.
+  map, wire contract, agent state view and contract diff (see Commands) open
+  beside the editor and stay current: they refresh when you save (or as you type,
+  with `bynk.views.refresh`), the sequence and wire-contract views follow the
+  cursor from handler to handler (pin one to freeze it), and open views come back
+  after a window reload. Open them from the editor title bar, the Command
+  Palette, the `Show Sequence` CodeLens above each handler, the `Show State`
+  CodeLens on each agent, or an optional `Wire contract` CodeLens beside a
+  handler's (`bynk.viewsCodeLens`). The agent state view follows the cursor from
+  agent to agent.
+- **Contract diff** — **Bynk: Show Contract Diff** lists every boundary change
+  since `bynk.schema.lock` (events and agent state), each classified compatible
+  or breaking, and every service contract whose hash differs from the live
+  record in `bynk.deploy.lock`. For a service change the view shows the
+  compatible/breaking verdict and the reasons behind it, when the language
+  server has them.
+
+### AI assistance
+
 - **Tools for AI agents** — language-model tools a chat agent in VS Code
   (Copilot's agent mode, or another extension) can call to ask the installed
   toolchain instead of guessing: `bynk_get_diagnostics`,
@@ -181,16 +242,10 @@ Install it from the Visual Studio Marketplace (`bynk-lang.bynk-vscode`), or run
 - **`@bynk` chat participant** — `@bynk /explain`, `/learn`, `/architecture` and
   `/fix` in the Chat view, answering from those tools and citing their sources.
   `/fix` proposes an edit as a diff you apply with a button; it never applies one
-  itself.
-- **Status bar** — the active project name (click to open `bynk.toml`) and the
-  language-server state (click to show its output).
-- **`bynk.toml` editing** — completion, hover and validation for every table and
-  key of the project manifest, from the
-  [`bynk.toml` JSON Schema](https://bynk-lang.org/schemas/bynk.toml.json) this
-  extension associates with it. A TOML extension that reads JSON Schemas does the
-  editing: install [Even Better TOML](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml)
-  (recommended, not required; the extension suggests it once, the first time you
-  open a `bynk.toml` without it).
+  itself. A proposed fix, and the examples `/learn` shows, are compiled with
+  `bynk compile` before they are shown (your unsaved buffers included, nothing in
+  the project changed): the answer says whether the fix checked clean, and a fix
+  that could not be checked is offered as **Apply unchecked fix**.
 
 All `.bynk` language features come from `bynkc-lsp`; the extension is the
 client that provisions and launches it.
@@ -246,8 +301,8 @@ unsupported platform, or a failed download — the failure is loud and actionabl
 (an error notification, a status-bar indicator, and commands to retry) rather
 than silently degrading to grammar-only highlighting.
 
-On a platform with no prebuilt server, build it from the workspace root and
-point the setting at it:
+On a platform with no prebuilt server, build it from a checkout of the
+[`bynk` repository](https://github.com/bynk-lang/bynk) and point the setting at it:
 
 ```sh
 cargo build --release -p bynk-lsp   # → target/release/bynkc-lsp
@@ -294,23 +349,31 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Architecture Map** | A whole-project map of contexts and adapters, their `consumes` edges, and what each one binds. |
 | **Bynk: Show Wire Contract** | The JSON wire shape of the service handler at the cursor. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Show Agent State** | The state machines of the agent at the cursor: for each `store` Cell of an enum or sum type, a state diagram generated from its handlers and a handler × state table of what each handler does from each state, with moves a `transition` would refuse at commit marked ⚠, and each handler's effects — what it writes, reads and calls on each path (shown instead for an agent with no state field). Follows the cursor from agent to agent, highlighting the handler under it. |
+| **Bynk: Show Contract Diff** | Boundary changes since `bynk.schema.lock` and service contracts that differ from `bynk.deploy.lock`'s live record, each marked compatible or breaking. Refreshes when either lock changes. |
 | **Bynk: Show Compiled Output** | The TypeScript the compiler emits for the active file, read-only, beside it. Compiled from your unsaved buffers through `bynk compile`; the cursor in either editor highlights the matching lines in the other, and the output follows your edits. |
 | **Bynk: Explain Diagnostic Code…** | The installed compiler's explanation of a diagnostic code, in a panel, offline: pick a code from the Problems panel or type one. The **Explain** quick fix on a diagnostic opens the same panel. |
 | **Bynk: Explore Refined Type** | Opened by the **Try values…** link in a refined type's hover: example values from the type's domain (fixed seed, so they stay put) and a box that checks a value you type against the predicate, naming each clause that fails. Runs none of your project's code. |
+| **Bynk: Install Toolchain** | Download `bynk` and `bynkc` (checksum-verified) and put them on the `PATH` of new integrated terminals. |
 | **Bynk: Start Dev Server** | Serve the project with `bynk dev` in a terminal. In a multi-context project it asks which context to serve (**All contexts** first). |
 | **Bynk: Stop Dev Server** | Stop the dev server and every worker it started. |
 | **Bynk: Restart Dev Server** | Stop the dev server and start it again with the same contexts. |
+| **Bynk: Dev Server Menu** | The status-bar item's menu: open or copy a context's URL, stop or restart. |
 | **Bynk: Show Worker Logs** | Open the *Bynk Logs* channel: the dev server's workers' output, with stack frames at their `.bynk` lines. |
 | **Bynk: Filter Worker Logs** | Show only some levels (all, warnings and errors, errors) and some contexts. |
 | **Bynk: Clear Worker Logs** | Empty the log buffer and the channel. |
 | **Bynk: Deploy…** | Pick an environment and a scope, review the dry-run plan, then deploy from the plan in a terminal. `bynk` asks you to confirm before it changes anything. |
 | **Bynk: Show Deploy Plan** | The same plan for review only. It never deploys. |
 | **Bynk: Copy Playground Link** / **Bynk: Open in Playground** | Share the selection (or a single-file program, whole) as a [playground](https://playground.bynk-lang.dev) link. The code is compressed into the URL fragment, so it never reaches a server; a snippet too large for a link is refused, not truncated. Also in the editor context menu, and on the web. |
+| **Bynk: Export OpenAPI…** | Write an OpenAPI 3.1 document for the project's `from http` services (`bynk openapi`), as JSON or YAML by file name. |
+| **Bynk: Add Dependency…** / **Bynk: Fetch Dependencies** | Look an `org/package` up in the registry and add a version (`bynk add`); fetch the project's dependencies (`bynk fetch`). |
+| **Bynk: Publish…** | Show the package, version, registry and files (`bynk publish --dry-run`), and publish after you confirm. |
+| **Bynk: Show Capability Path** | Open the peek over every chain of agent-handler calls from a `given` capability to its use. Offered as a quick fix. |
+| **Bynk: Sweep State Migrations…** | Show the sweep plan and run `bynk migrate sweep` in a terminal. |
 | **Bynk: Review Pending npm Requirements…** | Review the npm packages dependencies' adapters ask for and approve them per package (`bynk approve`). |
 | **Bynk: Doctor** | Check whether this machine can compile, test, serve and deploy Bynk, with a remedy for each gap. |
 
-The five model views (sequence diagram, documentation, architecture map, wire
-contract, agent state) are also buttons on the editor title bar of a `.bynk` file. Each
+The model views (sequence diagram, documentation, architecture map, wire
+contract, agent state, contract diff) are also buttons on the editor title bar of a `.bynk` file. Each
 refreshes on the trigger `bynk.views.refresh` sets, has a **Refresh** button of
 its own, and is restored after **Developer: Reload Window**.
 
@@ -332,6 +395,10 @@ its own, and is restored after **Developer: Reload Window**.
 | `bynk.inlineDocRendering.enable` | `true` | Render `--- … ---` doc comments in place with light Markdown styling while reading the source. |
 | `bynk.views.refresh` | `onSave` | When open model views re-request their model: `onSave`, `onType` (about 500 ms after the last edit), or `manual` (the view's Refresh button). A hidden view catches up when shown. |
 | `bynk.viewsCodeLens` | `false` | Show a `Wire contract` CodeLens above each service and agent handler, beside the `Show Sequence` lens. |
+| `bynk.fileDecorations.contextBadge` | `auto` | Two-letter Explorer badge naming each file's context (and each test file's), with the full name in the tooltip. Commons and adapters carry none. |
+| `bynk.fileDecorations.failedTests` | `true` | Tint a file red in the Explorer (and its folders) when a test in it failed in the last run. |
+| `bynk.fileDecorations.contractBreaks` | `true` | Mark a file in the Explorer (and its folders) with a `!` badge and a warning tint when the language server reports a contract break in it against `bynk.schema.lock`. |
+| `bynk.dependencies.upgradeLenses` | `true` | Show an upgrade CodeLens above each registry dependency in `bynk.toml` when a newer version exists. Each package is looked up at most once per session. |
 | `bynk.dev.basePort` | empty (8787) | First port the dev server allocates (`bynk dev --base-port`): context *i* is served on this port + *i*. |
 | `bynk.dev.args` | `[]` | Extra arguments forwarded to `wrangler dev` after `--` (for example `["--var", "KEY:value"]`). |
 
@@ -359,7 +426,7 @@ Two built-in VS Code settings also apply:
 
 ## Build & install from source
 
-From this directory:
+Clone this repository, then from its root:
 
 ```sh
 npm install
