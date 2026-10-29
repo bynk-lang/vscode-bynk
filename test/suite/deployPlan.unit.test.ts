@@ -15,6 +15,7 @@ import {
   planOutcome,
   renderPlanHtml,
   settledState,
+  tailArgs,
   validContextName,
   validEnvironmentName,
 } from "../../src/deployPlan";
@@ -62,6 +63,20 @@ describe("parseDeployPlan", () => {
   it("refuses text that is not a plan", () => {
     assert.throws(() => parseDeployPlan('{"environment":"default"}'));
     assert.throws(() => parseDeployPlan("bynk: refusing to deploy"));
+  });
+});
+
+describe("tailArgs", () => {
+  it("names the environment, and the context when given", () => {
+    assert.deepStrictEqual(tailArgs({ environment: "default" }), ["tail", "--env", "default"]);
+    assert.deepStrictEqual(tailArgs({ environment: "staging", context: "commerce.orders" }), [
+      "tail", "--env", "staging", "--context", "commerce.orders",
+    ]);
+  });
+
+  it("refuses a flag-like environment or context", () => {
+    assert.throws(() => tailArgs({ environment: "--format" }));
+    assert.throws(() => tailArgs({ environment: "prod", context: "--status" }));
   });
 });
 
