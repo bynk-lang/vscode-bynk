@@ -64,7 +64,8 @@ export class BynkNotFoundError extends Error {
 
 /** Run `bynk <args>` in `cwd` to completion and collect its output. A non-zero
  *  exit resolves normally (many commands use it for "found problems"); only a
- *  failure to start rejects, with a `BynkNotFoundError`. Cancelling the token
+ *  failure to start rejects: with a `BynkNotFoundError`, or, when `cwd` no longer
+ *  exists, with an error coded `BYNK_MISSING_CWD` naming it. Cancelling the token
  *  stops the process tree. */
 export function runBynk(
   args: string[],

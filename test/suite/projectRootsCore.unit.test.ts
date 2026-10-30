@@ -113,3 +113,19 @@ describe("root cache (#61)", () => {
     assert.strictEqual(await cache.get("k", resolve, check), "/r2");
   });
 });
+
+describe("root cache, concurrent stale hits (#61)", () => {
+  it("lets two callers that both find a stale entry share one fresh resolve", async () => {
+    const cache = new RootCache<string>();
+    let resolves = 0;
+    let live = true;
+    const resolve = async () => (resolves++, live ? "/p" : undefined);
+    const check = async (r: string) => live && r === "/p";
+    await cache.get("k", resolve, check);
+    live = false;
+    const [a, b] = await Promise.all([cache.get("k", resolve, check), cache.get("k", resolve, check)]);
+    assert.strictEqual(a, undefined);
+    assert.strictEqual(b, undefined);
+    assert.strictEqual(resolves, 2, "one initial resolve, one shared re-resolve");
+  });
+});
