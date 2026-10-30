@@ -5,9 +5,15 @@
 // architecture-model cache keys on it, and everything that runs `bynk` roots
 // at it, so a stray manifest in a parent directory is never a project.
 
+import * as os from "node:os";
 import * as vscode from "vscode";
 
-import { resolveRoot } from "./projectRootsCore";
+import { inWorkspace, resolveRoot, type RootOptions } from "./projectRootsCore";
+
+const options = (): RootOptions => ({
+  home: vscode.Uri.file(os.homedir()).path,
+  caseInsensitive: process.platform === "win32",
+});
 
 const cache = new Map<string, Promise<vscode.Uri | undefined>>();
 
@@ -31,17 +37,33 @@ export function projectRootFor(file: vscode.Uri): Promise<vscode.Uri | undefined
   if (!hit) {
     hit = resolveRoot(file.path, folders, (dir) =>
       exists(vscode.Uri.joinPath(file.with({ path: dir }), "bynk.toml")),
-    ).then((dir) => (dir === undefined ? undefined : file.with({ path: dir, query: "", fragment: "" })));
+    options()).then((dir) => (dir === undefined ? undefined : file.with({ path: dir, query: "", fragment: "" })));
     cache.set(key, hit);
   }
   return hit;
 }
 
+/** Whether `file` lies in a workspace folder. */
+export function inWorkspaceFolder(file: vscode.Uri): boolean {
+  return inWorkspace(
+    file.path,
+    (vscode.workspace.workspaceFolders ?? []).filter((f) => f.uri.scheme === file.scheme).map((f) => f.uri.path),
+    options(),
+  );
+}
+
+/** `projectRootFor`, for what an agent steers (LM tools, `/fix`): a file
+ *  outside every workspace folder has no project, loose or not. */
+export async function workspaceRootFor(file: vscode.Uri): Promise<vscode.Uri | undefined> {
+  return inWorkspaceFolder(file) ? projectRootFor(file) : undefined;
+}
+
 /** The project the user is working in: the root of the active `.bynk` file,
- *  else the first workspace folder that is itself a project. */
-export async function activeProjectRoot(): Promise<vscode.Uri | undefined> {
+ *  else the first workspace folder that is itself a project. With
+ *  `workspaceOnly`, an active file outside the workspace doesn't count. */
+export async function activeProjectRoot(workspaceOnly = false): Promise<vscode.Uri | undefined> {
   const active = vscode.window.activeTextEditor?.document;
-  if (active?.languageId === "bynk" && active.uri.scheme === "file") {
+  if (active?.languageId === "bynk" && active.uri.scheme === "file" && !(workspaceOnly && !inWorkspaceFolder(active.uri))) {
     const root = await projectRootFor(active.uri);
     if (root) return root;
   }

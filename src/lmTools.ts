@@ -26,7 +26,7 @@ import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
 import { requestArchitectureModel } from "./architectureMap";
-import { BynkNotFoundError, findProjectRoot, runBynk } from "./cli";
+import { BynkNotFoundError, runBynk } from "./cli";
 import { diagnosticPath, parseShortDiagnostic } from "./cliCore";
 import {
   capText,
@@ -43,7 +43,7 @@ import {
   renderWireContract,
 } from "./lmRender";
 import { maxChars, positionIn, registerCoreLmTools, relPath, resolveFile, textResult } from "./lmToolsCore";
-import { projectRootFor } from "./projectRoots";
+import { activeProjectRoot, workspaceRootFor } from "./projectRoots";
 import type { ViewRefresh } from "./viewRefresh";
 import type { DocModel } from "./webview/docTypes";
 import type { Explanation } from "./webview/explainTypes";
@@ -197,8 +197,8 @@ class CheckTool implements vscode.LanguageModelTool<{ file?: string }> {
     token: vscode.CancellationToken,
   ) {
     const root = options.input.file
-      ? await projectRootFor(await resolveFile(options.input.file))
-      : await findProjectRoot();
+      ? await workspaceRootFor(await resolveFile(options.input.file))
+      : await activeProjectRoot(true);
     if (!root) throw new Error("No bynk.toml found: `bynk check` runs in a Bynk project.");
     let output: string;
     let code: number | null;

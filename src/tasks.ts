@@ -67,6 +67,22 @@ function checkTask(folder?: vscode.WorkspaceFolder, project?: string): vscode.Ta
   return task;
 }
 
+/** The workspace folder `project` is under, for a task not scoped to one: the
+ *  first folder holding `project/bynk.toml`, else the first folder. */
+async function folderHolding(project: string | undefined): Promise<vscode.WorkspaceFolder | undefined> {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  if (!project) return folders[0];
+  for (const folder of folders) {
+    try {
+      await vscode.workspace.fs.stat(vscode.Uri.joinPath(folder.uri, project, "bynk.toml"));
+      return folder;
+    } catch {
+      /* not under this one */
+    }
+  }
+  return folders[0];
+}
+
 /** One check task per project in the workspace, each in its own directory so
  *  a nested project is checked where its `bynk.toml` is. A workspace with no
  *  manifest still gets the plain task. */
@@ -87,13 +103,13 @@ export function registerTasks(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.tasks.registerTaskProvider(TASK_TYPE, {
       provideTasks: checkTasks,
-      resolveTask: (task) => {
+      resolveTask: async (task) => {
         if (task.definition.type !== TASK_TYPE) return undefined;
         const project = typeof task.definition.project === "string" ? task.definition.project : undefined;
-        const folder = typeof task.scope === "object" ? task.scope : undefined;
+        const folder = typeof task.scope === "object" ? task.scope : await folderHolding(project);
         const resolved = checkTask(folder, project);
         // Keep the user's definition (their tasks.json entry) as written.
-        const out = new vscode.Task(task.definition, resolved.scope ?? vscode.TaskScope.Workspace, resolved.name, "bynkc", resolved.execution, ["$bynkc"]);
+        const out = new vscode.Task(task.definition, task.scope ?? vscode.TaskScope.Workspace, resolved.name, "bynkc", resolved.execution, ["$bynkc"]);
         out.group = vscode.TaskGroup.Build;
         return out;
       },

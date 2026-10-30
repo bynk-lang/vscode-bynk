@@ -4,7 +4,7 @@
 
 import * as assert from "assert";
 
-import { containingFolder, resolveRoot } from "../../src/projectRootsCore";
+import { containingFolder, inWorkspace, resolveRoot } from "../../src/projectRootsCore";
 
 const fsWith =
   (...manifests: string[]) =>
@@ -43,10 +43,31 @@ describe("project roots (#40)", () => {
     assert.strictEqual(containingFolder("/work/a.bynk", ["/work/"]), "/work");
   });
 
-  it("looks only at its own directory for a file outside every folder", async () => {
-    assert.strictEqual(await resolveRoot("/tmp/p/a.bynk", folders, fsWith("/tmp/p")), "/tmp/p");
-    assert.strictEqual(await resolveRoot("/tmp/p/src/a.bynk", folders, fsWith("/tmp/p")), undefined);
-    assert.strictEqual(await resolveRoot("/tmp/p/a.bynk", [], fsWith("/")), undefined);
+  it("walks a loose file up to its project, as a scaffolded src/main.bynk needs", async () => {
+    assert.strictEqual(await resolveRoot("/tmp/p/src/a.bynk", folders, fsWith("/tmp/p")), "/tmp/p");
+    assert.strictEqual(await resolveRoot("/tmp/p/src/a.bynk", [], fsWith("/tmp/p")), "/tmp/p");
+  });
+
+  it("never takes a manifest in the home directory for a loose file", async () => {
+    const home = { home: "/home/me" };
+    assert.strictEqual(await resolveRoot("/home/me/scratch/a.bynk", [], fsWith("/home/me"), home), undefined);
+    assert.strictEqual(await resolveRoot("/home/me/scratch/a.bynk", [], fsWith("/home/me/scratch"), home), "/home/me/scratch");
+    assert.strictEqual(await resolveRoot("/home/me/a.bynk", [], fsWith("/home/me"), home), undefined);
+  });
+
+  it("stops at the filesystem root for a loose file", async () => {
+    const seen: string[] = [];
+    await resolveRoot("/x/y/a.bynk", [], async (d) => (seen.push(d), false));
+    assert.deepStrictEqual(seen, ["/x/y", "/x", "/"]);
+  });
+
+  it("compares folders ignoring case when asked", async () => {
+    const ci = { caseInsensitive: true };
+    assert.strictEqual(containingFolder("/Work/src/a.bynk", ["/work"], true), "/work");
+    assert.strictEqual(containingFolder("/Work/src/a.bynk", ["/work"]), undefined);
+    assert.strictEqual(await resolveRoot("/Work/src/a.bynk", ["/work"], fsWith("/Work"), ci), "/Work");
+    assert.ok(inWorkspace("/Work/a.bynk", ["/work"], ci));
+    assert.ok(!inWorkspace("/Other/a.bynk", ["/work"], ci));
   });
 
   it("handles a manifest at the filesystem root only when it is the folder", async () => {

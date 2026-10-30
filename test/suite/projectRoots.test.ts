@@ -1,6 +1,8 @@
 // #40: one project-root rule, bounded by the workspace folder, with a nested
-// project in the workspace — inside the extension host. The `bynkc: check` task is one per project, each in its own
-// directory, and a root lookup never leaves the workspace.
+// project in the workspace — inside the extension host. The `bynkc: check`
+// task is one per project, each in its own directory with its diagnostics on
+// that project's files. (That a lookup never leaves the workspace folder is
+// covered by projectRootsCore.unit.test.ts.)
 
 import * as assert from "assert";
 import * as fs from "fs";
@@ -8,7 +10,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { projectRootFor } from "../../src/projectRoots";
-import { waitFor } from "./util";
+import { present, waitFor } from "./util";
 
 const WORKSPACE = path.resolve(__dirname, "../../../test/fixtures/workspace");
 
@@ -38,10 +40,31 @@ describe("Project roots with a nested project (#40)", () => {
     assert.ok(same(inOuter?.fsPath, WORKSPACE), String(inOuter));
   });
 
-  it("does not look outside the workspace folder", async () => {
-    // `test/fixtures` sits above the workspace folder and is in no folder itself.
-    const outside = vscode.Uri.file(path.resolve(WORKSPACE, "..", "hello-web.bynk"));
-    assert.strictEqual(await projectRootFor(outside), undefined);
+  it("puts a nested check's diagnostics on the nested file", async function () {
+    if (process.platform === "win32") this.skip();
+    this.timeout(60_000);
+    // A stand-in `bynk` that reports one error the way the driver prints it:
+    // a path relative to the project it ran in.
+    const script = path.join(dir, "bynk-reports-error");
+    fs.writeFileSync(script, '#!/bin/sh\necho "src/a.bynk:1:1: error[test.boom]: boom"\nexit 1\n', { mode: 0o755 });
+    const config = vscode.workspace.getConfiguration("bynk");
+    const previous = config.inspect<string>("bynkPath")?.globalValue;
+    await config.update("bynkPath", script, vscode.ConfigurationTarget.Global);
+    try {
+      const web = await waitFor(
+        async () => (await vscode.tasks.fetchTasks({ type: "bynkc" })).find((t) => String(t.definition.project).endsWith("apps/web")),
+        present,
+        "a check task for the nested project",
+      );
+      await vscode.tasks.executeTask(web);
+      const nestedFile = vscode.Uri.file(path.join(nested, "src", "a.bynk"));
+      const outerFile = vscode.Uri.file(path.join(WORKSPACE, "src", "a.bynk"));
+      const boom = (uri: vscode.Uri) => vscode.languages.getDiagnostics(uri).filter((d) => d.source === "bynkc");
+      await waitFor(() => boom(nestedFile), present, "the error in the nested project's Problems", 40_000);
+      assert.deepStrictEqual(boom(outerFile), [], "not on the same path under the workspace folder");
+    } finally {
+      await vscode.workspace.getConfiguration("bynk").update("bynkPath", previous, vscode.ConfigurationTarget.Global);
+    }
   });
 
   it("offers one check task per project, each in its own directory", async function () {
