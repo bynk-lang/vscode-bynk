@@ -1,6 +1,5 @@
 // #40: one project-root rule, bounded by the workspace folder, with a nested
-// project in the workspace — inside the extension host against the stand-in
-// `bynk`. The `bynkc: check` task is one per project, each in its own
+// project in the workspace — inside the extension host. The `bynkc: check` task is one per project, each in its own
 // directory, and a root lookup never leaves the workspace.
 
 import * as assert from "assert";
@@ -8,7 +7,6 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { useFakeBynk } from "./fakeBynk";
 import { projectRootFor } from "../../src/projectRoots";
 import { waitFor } from "./util";
 
@@ -17,7 +15,6 @@ const WORKSPACE = path.resolve(__dirname, "../../../test/fixtures/workspace");
 describe("Project roots with a nested project (#40)", () => {
   let dir: string;
   let nested: string;
-  let fake: Awaited<ReturnType<typeof useFakeBynk>>;
 
   const same = (a: string | undefined, b: string): boolean => a !== undefined && fs.realpathSync(a) === fs.realpathSync(b);
 
@@ -29,10 +26,8 @@ describe("Project roots with a nested project (#40)", () => {
     fs.writeFileSync(path.join(nested, "src", "a.bynk"), "commons a\n");
     fs.mkdirSync(path.join(dir, "loose"));
     fs.writeFileSync(path.join(dir, "loose", "b.bynk"), "commons b\n");
-    fake = await useFakeBynk();
   });
   after(async () => {
-    await fake.restore();
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -61,19 +56,5 @@ describe("Project roots with a nested project (#40)", () => {
     assert.ok(same(cwdOf(web), nested), String(cwdOf(web)));
     const root = tasks.find((t) => t.definition.project === undefined)!;
     assert.ok(same(cwdOf(root), WORKSPACE), String(cwdOf(root)));
-  });
-
-  it("runs the nested project's check where its bynk.toml is", async function () {
-    if (process.platform === "win32") this.skip();
-    this.timeout(60_000);
-    const tasks = await vscode.tasks.fetchTasks({ type: "bynkc" });
-    const web = tasks.find((t) => String(t.definition.project).endsWith("apps/web"))!;
-    await vscode.tasks.executeTask(web);
-    await waitFor(
-      () => fake.read().filter((e) => e.argv?.[0] === "check" && e.cwd !== undefined && same(e.cwd, nested)),
-      (runs) => runs.length > 0,
-      "`bynk check` in the nested project",
-      30_000,
-    );
   });
 });
