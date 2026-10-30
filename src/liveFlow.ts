@@ -64,6 +64,7 @@ export class LiveFlow<P, T extends FlowTarget> {
   /** Explicit command: fetch fresh, then open (or reuse) the panel. */
   async show(next: T): Promise<void> {
     const seq = this.supersede();
+    this.editedDuringShow = false;
     this.showSeq = seq;
     try {
       await this.showFrom(seq, next);
@@ -198,6 +199,7 @@ export class LiveFlow<P, T extends FlowTarget> {
     this.target = undefined;
     this.handler = undefined;
     this.refreshLost = false;
+    this.editedDuringShow = false;
   }
 
   /** Start a request that makes any older one stale; a refresh in flight is
