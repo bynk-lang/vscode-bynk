@@ -429,7 +429,7 @@ function refinedPayload(base: "Int" | "String" = "String"): RefinedPayload {
       base,
       opaque: true,
       declaration: `type Code = ${HOSTILE}`,
-      clauses: [{ source: `Matches(${HOSTILE})`, description: `a ${HOSTILE}`, check: "true", message: "m" }],
+      clauses: [{ source: `Matches(${HOSTILE})`, description: `a ${HOSTILE}`, predicate: { kind: "nonEmpty" }, message: "m" }],
       examples: [`ex${HOSTILE}`, "plain"],
       examplesNote: `note ${HOSTILE}`,
       seed: 1,
@@ -484,6 +484,14 @@ describe("refined type explorer (jsdom)", () => {
     assert.strictEqual(verdict.querySelectorAll("li").length, 1);
     dom.post({ type: "verdict", text: "plain", verdict: { kind: "unreadable", message: HOSTILE } });
     assert.strictEqual(verdict.textContent, `✗ ${HOSTILE}`);
+    noMarkup(dom.root);
+    dom.post({
+      type: "verdict",
+      text: "plain",
+      verdict: { kind: "unchecked", failures: [], unchecked: [{ source: `U${HOSTILE}`, reason: `needs ${HOSTILE}` }] },
+    });
+    assert.ok(verdict.classList.contains("rx-warn") && !verdict.classList.contains("rx-bad"));
+    assert.ok(String(verdict.textContent).includes("could not be checked"));
     noMarkup(dom.root);
     dom.post({ type: "verdict", text: "plain", verdict: { kind: "timeout" } });
     assert.ok(String(verdict.textContent).includes("too long"));

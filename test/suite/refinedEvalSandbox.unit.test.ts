@@ -1,116 +1,87 @@
-// #35: the explorer runs server-supplied predicate text; these pin that an
-// escape attempt cannot reach the extension host's realm, and that the
-// legitimate predicate forms still evaluate under the same restrictions.
+// #35: nothing the server sends is executed. A clause is data (`predicate`),
+// interpreted by `refinedEval.ts`; the only code run is the fixed `RegExp` test
+// for a `matches` pattern, in a locked-down context. These pin that hostile
+// strings in every field stay inert, and that the pattern test cannot reach
+// the host or outlive its time limit.
 
 import * as assert from "assert";
 
 import { evaluateClauses } from "../../src/refinedEval";
-import type { RefinedClause } from "../../src/webview/refinedTypes";
+import type { Predicate, RefinedClause } from "../../src/webview/refinedTypes";
 
-function clause(check: string): RefinedClause {
-  return { source: "x", description: "", check, message: "no" };
+const CODE = 'this.constructor.constructor("return process")().exit(1)';
+
+function clause(predicate: unknown, extra: object = {}): RefinedClause {
+  return { source: "x", description: "", message: "no", predicate: predicate as Predicate, ...extra };
 }
 
-function escapes(check: string, value: bigint | number | string = "abc"): void {
-  // Either the predicate throws (string codegen is off) or it cannot produce the host's `process`.
-  try {
-    const v = evaluateClauses([clause(check)], value);
-    assert.notStrictEqual(v.kind, "valid", check);
-  } catch (err) {
-    assert.ok(!/pid|argv/.test(String(err)), String(err));
-  }
-}
+afterEach(() => {
+  delete (globalThis as { pwned?: number }).pwned;
+});
 
 describe("refinedEval sandbox (unit)", () => {
-  it("this.constructor.constructor cannot reach the host Function", () => {
-    escapes('this.constructor.constructor("return process")() !== undefined');
-    assert.throws(() => evaluateClauses([clause('this.constructor.constructor("return process")()')], "a"), /EvalError|predicate threw/);
+  it("a legacy `check` string is never evaluated", () => {
+    const c = clause(undefined, { check: "(globalThis.pwned = 1) === 1" });
+    assert.strictEqual(evaluateClauses([c], "a").kind, "unchecked");
+    assert.strictEqual((globalThis as { pwned?: number }).pwned, undefined);
   });
 
-  it("value.constructor.constructor cannot reach the host Function", () => {
-    assert.throws(() => evaluateClauses([clause('value.constructor.constructor("return process")()')], "a"), /EvalError|predicate threw/);
-    assert.throws(() => evaluateClauses([clause('value.constructor.constructor("return process")()')], 1n), /EvalError|predicate threw/);
+  it("code in the source, message and description is only text", () => {
+    const c = { source: CODE, description: CODE, message: CODE, predicate: { kind: "nonEmpty" } } as RefinedClause;
+    assert.strictEqual(evaluateClauses([c], "a").kind, "valid");
+    const v = evaluateClauses([c], "");
+    assert.ok(v.kind === "invalid" && v.failures[0].message === CODE);
   });
 
-  it("process and require are not in scope", () => {
-    const v = evaluateClauses([clause('typeof process === "undefined" && typeof require === "undefined"')], "a");
-    assert.strictEqual(v.kind, "valid");
+  it("code in a bound or length is not run", () => {
+    const hostile = [CODE, { valueOf: () => (globalThis as { pwned?: number }).pwned = 1 }];
+    for (const h of hostile) {
+      evaluateClauses([clause({ kind: "range", min: h, max: h })], 1n);
+      evaluateClauses([clause({ kind: "range", min: h, max: h })], 1);
+      evaluateClauses([clause({ kind: "length", length: h })], "a");
+    }
+    assert.strictEqual((globalThis as { pwned?: number }).pwned, undefined);
   });
 
-  it("an Error.prepareStackTrace hook cannot be installed to leak host frames", () => {
-    const hook =
-      "(function () { var leaked; Error.prepareStackTrace = function (e, s) { leaked = s.map(function (f) { return f.getFunction(); }); return 1; };" +
-      " try { null.x; } catch (e) { e.stack; } return leaked === undefined; })()";
-    assert.strictEqual(evaluateClauses([clause(hook)], "a").kind, "valid");
+  it("a pattern that is JavaScript source is only a pattern", () => {
+    const sneaky = ['"); globalThis.pwned = 1; ("', "a\\", ".*)$|(?:", "${CODE}"];
+    for (const pattern of sneaky) {
+      const v = evaluateClauses([clause({ kind: "matches", pattern })], 'a"; x');
+      assert.ok(v.kind !== "timeout", pattern);
+    }
+    assert.strictEqual((globalThis as { pwned?: number }).pwned, undefined);
   });
 
-  it("the sandbox does not leak between clauses", () => {
-    const set = clause("(globalThis.leak = 1) === 1");
-    const read = clause("typeof globalThis.leak === 'undefined'");
-    assert.strictEqual(evaluateClauses([set, read], "a").kind, "valid");
+  it("a candidate is only ever a value, never code", () => {
+    const m = clause({ kind: "matches", pattern: "[a-z]+" });
+    for (const text of ["1); process.exit(1); (", "`${process.exit(1)}`", '"; process.exit(1); "', "0 || (globalThis.pwned = 1)"]) {
+      const v = evaluateClauses([m], text);
+      assert.strictEqual(v.kind, "invalid", text);
+    }
+    assert.strictEqual((globalThis as { pwned?: number }).pwned, undefined);
   });
 
-  it("an infinite loop times out", () => {
-    assert.strictEqual(evaluateClauses([clause("(function () { for (;;) {} })()")], "a", 50).kind, "timeout");
+  it("the pattern test sees no host globals", () => {
+    // If the context leaked the host's `process`, this lookahead-free probe
+    // could not tell; instead, check the fixed script's scope directly: a
+    // pattern cannot name a variable, and the value is the only string in play.
+    const secret = "pid";
+    const v = evaluateClauses([clause({ kind: "matches", pattern: "(?:process|require|globalThis|pattern|value)" })], secret);
+    assert.strictEqual(v.kind, "invalid");
+    assert.strictEqual(evaluateClauses([clause({ kind: "matches", pattern: "pid" })], secret).kind, "valid");
   });
 
-  it("legitimate predicates still evaluate", () => {
-    assert.strictEqual(evaluateClauses([clause("value >= 1 && value <= 100")], 50n).kind, "valid");
-    assert.strictEqual(evaluateClauses([clause("value >= 0.5 && value <= 2.5")], 3.5).kind, "invalid");
-    assert.strictEqual(evaluateClauses([clause("value >= 0")], -0).kind, "valid");
-    assert.strictEqual(evaluateClauses([clause("value.length === 4")], "ab c").kind, "valid");
-    assert.strictEqual(evaluateClauses([clause("value.length > 0")], "").kind, "invalid");
-    assert.strictEqual(
-      evaluateClauses([clause('new globalThis.RegExp("^(?:" + "[a-z]+" + ")$").test(value)')], 'a"; x').kind,
-      "invalid",
-    );
-    assert.strictEqual(
-      evaluateClauses([clause('new globalThis.RegExp("^(?:" + "[a-z]+" + ")$").test(value)')], "abc").kind,
-      "valid",
-    );
+  it("an unterminated-regex-cost pattern times out, then the next check runs", () => {
+    const evil = clause({ kind: "matches", pattern: "(x+x+)+y" });
+    const t0 = Date.now();
+    assert.strictEqual(evaluateClauses([evil], "x".repeat(60), 100).kind, "timeout");
+    assert.ok(Date.now() - t0 < 3000);
+    assert.strictEqual(evaluateClauses([clause({ kind: "matches", pattern: "x+" })], "xx", 100).kind, "valid");
   });
 
-  describe("hostile payloads return within the time limit", () => {
-    // Hostile code that hangs inside the context is stopped as a timeout; one that
-    // only throws, or breaks out of its wrapper, is an error. Neither hangs the host.
-    const bounded = (check: string, expected: "timeout" | "throws"): void => {
-      const t0 = Date.now();
-      let kind = "none";
-      try {
-        kind = evaluateClauses([clause(check)], "a", 100).kind;
-      } catch {
-        kind = "throws";
-      }
-      assert.ok(Date.now() - t0 < 2000, `${check} took ${Date.now() - t0}ms`);
-      assert.strictEqual(kind, expected, check);
-    };
-
-    it("a queued microtask loop", () => {
-      bounded("(Promise.resolve().then(function () { for (;;) {} }), true)", "timeout");
-    });
-
-    it("a thrown object with a hostile getter", () => {
-      bounded('(function () { throw { get code() { for (;;) {} }, get name() { for (;;) {} } }; })()', "timeout");
-    });
-
-    it("a thrown object with a hostile toString", () => {
-      bounded('(function () { throw { toString: function () { for (;;) {} } }; })()', "throws");
-    });
-
-    it("a thrown Proxy", () => {
-      bounded('(function () { throw new Proxy({}, { get: function () { for (;;) {} }, getPrototypeOf: function () { for (;;) {} } }); })()', "timeout");
-    });
-
-    it("a predicate that breaks out of its wrapper and throws a hostile value", () => {
-      bounded('true; })(); throw { get code() { for (;;) {} } }; (function () { 1', "throws");
-    });
-
-    it("a syntax error is not a timeout", () => {
-      bounded("value >=", "throws");
-    });
-  });
-
-  it("the Error binding cannot be replaced", () => {
-    assert.strictEqual(evaluateClauses([clause('(function () { Error = 1; return typeof Error === "function"; })()')], "a").kind, "valid");
+  it("a timeout in one clause ends the check, however the clauses are ordered", () => {
+    const evil = clause({ kind: "matches", pattern: "(x+x+)+y" });
+    const v = evaluateClauses([clause({ kind: "nonEmpty" }), evil], "x".repeat(60), 100);
+    assert.strictEqual(v.kind, "timeout");
   });
 });

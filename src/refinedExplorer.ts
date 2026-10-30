@@ -5,8 +5,8 @@
 // `experimental.refinedTypeExplorerCommand`, see `refinedExplorerClientFeature`;
 // the hover middleware in `extension.ts` trusts that one command, since a
 // server's Markdown cannot run commands otherwise). The command asks the server
-// for `bynk/refinedTypeModel` — the base, the clauses as the emitter lowers
-// them, and a seeded list of examples — and opens a panel. The panel posts each
+// for `bynk/refinedTypeModel` — the base, the clauses with their structured
+// predicates, and a seeded list of examples — and opens a panel. The panel posts each
 // candidate back here, where `refinedEval.ts` checks it.
 
 import * as vscode from "vscode";
@@ -33,6 +33,7 @@ const REFINED_CSS = `
   #rx-input { width: 100%; box-sizing: border-box; font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); padding: 4px 6px; }
   .rx-verdict { margin-top: 8px; min-height: 1.4em; }
   .rx-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+  .rx-warn { color: var(--vscode-editorWarning-foreground, var(--vscode-descriptionForeground)); }
   .rx-bad { color: var(--vscode-errorForeground); }
   .rx-verdict ul { margin: 4px 0 0; }
 `;

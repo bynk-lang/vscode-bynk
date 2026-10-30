@@ -65,7 +65,7 @@ version).
 - Live panels (wire contract, agent state, sequence diagram and the rest) no longer show a stale render when commands or cursor moves overlap, and a refresh cut short by a cursor move into a handler with no model is redone.
 - Bynk Logs rebuilds its output channel once per buffer's worth of lines instead of on every line once the buffer is full.
 - Clicking through to a location in a view checks the message and reports a file that can no longer be opened, instead of failing silently.
-- The refined-type explorer evaluates predicates in a context with no host-realm objects (a mitigation: the real fix is the server sending predicates structurally).
+- The refined-type explorer interprets each clause's structured `predicate` instead of running the server's JavaScript `check` text (#35). Only a `matches` pattern is run, as a regular expression under a time limit. A clause it cannot check is reported as "could not be checked" rather than passed or failed: an invalid pattern, an unknown kind, a condition that does not fit the type, an `Int` bound beyond 2^53 (already rounded by JSON), or a clause from a server older than v0.443.0, which shows "needs bynk v0.443.0 or newer".
 - Export OpenAPI saves only the unsaved `.bynk` files, not every dirty document.
 - The `@bynk` chat participant's Apply fix command rejects a malformed proposal with a message instead of throwing.
 - The Test CodeLens provider disposes its event subscriptions.
