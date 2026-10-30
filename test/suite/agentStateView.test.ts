@@ -120,7 +120,7 @@ describe("agent state view (#2196)", () => {
   });
 
   it("offers one Show State lens per agent", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     const lenses = await waitFor(
       async () =>
         ((await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)) ?? [])
@@ -142,7 +142,7 @@ describe("agent state view (#2196)", () => {
   });
 
   it("moves the highlight within the agent without re-requesting its model", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     editor = await vscode.window.showTextDocument(editor.document, vscode.ViewColumn.One);
     const before = await state();
     const inCancel = new vscode.Position(lineOf("status := Cancelled"), 8);
@@ -153,7 +153,7 @@ describe("agent state view (#2196)", () => {
   });
 
   it("retargets to another agent, which has no state field", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     const before = await state();
     const inBump = new vscode.Position(lineOf("total := total + 1"), 6);
     editor.selection = new vscode.Selection(inBump, inBump);

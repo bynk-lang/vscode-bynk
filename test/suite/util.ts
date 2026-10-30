@@ -18,9 +18,10 @@ export const truthy = (v: unknown): boolean => !!v;
 export const present = <T>(v: T | undefined): v is T => v !== undefined && !(Array.isArray(v) && v.length === 0);
 
 /** Poll `fn` until `ok` accepts its value, or fail after `timeoutMs` naming
- *  `what` and the last value seen. The default sits under Mocha's usual 30 s
- *  test timeout so this error fires first; a test that waits longer (or
- *  deliberately shorter) passes its own, within its `this.timeout`. */
+ *  `what` and the last value seen. The default sits under the suite's 60 s
+ *  Mocha timeout and the 30 s some tests set, so this error fires first; a test
+ *  that waits longer (or deliberately shorter) passes its own, within its
+ *  `this.timeout`. */
 export async function waitFor<T, U extends T>(
   fn: () => Thenable<T> | T,
   ok: (v: T) => v is U,

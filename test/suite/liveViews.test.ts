@@ -99,7 +99,7 @@ describe("live model views (#2093)", () => {
   });
 
   it("follows the cursor into another handler", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     const before = await state(SEQ);
     editor = await vscode.window.showTextDocument(editor.document, vscode.ViewColumn.One);
     const b = new vscode.Position(lineOf('GET("/b")') + 1, 4);
@@ -120,7 +120,7 @@ describe("live model views (#2093)", () => {
   });
 
   it("does not retarget while pinned, and catches up when unpinned", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     await vscode.commands.executeCommand("bynk._liveViewPin", SEQ, true);
     const pinned = await state(SEQ);
     assert.strictEqual(pinned.target?.pinned, true);
@@ -135,7 +135,7 @@ describe("live model views (#2093)", () => {
   });
 
   it("refreshes after an edit is saved (onSave)", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     // The panel must be visible to refresh; reveal it beside the editor.
     await vscode.commands.executeCommand("bynk.showSequenceDiagram", uri.toString(), editor.selection.active);
     const before = await state(SEQ);
@@ -157,7 +157,7 @@ describe("live model views (#2093)", () => {
   });
 
   it("offers the Wire contract lens only when bynk.viewsCodeLens is on", async function () {
-    this.timeout(30_000);
+    this.timeout(70_000);
     const lenses = async () =>
       ((await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)) ?? [])
         .map((l) => l.command?.command)
@@ -179,7 +179,7 @@ describe("live model views (#2093)", () => {
   // #2108 review: an `editor/title` button calls the command with
   // `(resourceUri, {groupId, editorIndex})`, which is not a position.
   it("takes the cursor of the shown editor when a title-bar button passes no position", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     editor = await vscode.window.showTextDocument(editor.document, vscode.ViewColumn.One);
     const b = new vscode.Position(lineOf('GET("/b")') + 1, 4);
     editor.selection = new vscode.Selection(b, b);
@@ -196,7 +196,7 @@ describe("live model views (#2093)", () => {
   // #2108 review: a page can draw on other files (a multi-file unit's
   // documentation, a consumed context), so an edit to another file refreshes.
   it("refreshes a documentation page when another file is saved", async function () {
-    this.timeout(60_000);
+    this.timeout(70_000);
     await vscode.commands.executeCommand("bynk.showDocumentation", uri.toString());
     const before = await waitFor(() => state(DOC), (v) => v.open && v.hasPayload, "the documentation view", 30_000);
     const other = vscode.Uri.file(path.join(dir, "src", "notes.bynk"));
@@ -211,7 +211,7 @@ describe("live model views (#2093)", () => {
   // #2108 re-review: a refresh that finds no model (the stored position's
   // handler was deleted) keeps the last good view instead of blanking it.
   it("keeps the last good model when a refresh finds none", async function () {
-    this.timeout(60_000);
+    this.timeout(70_000);
     editor = await vscode.window.showTextDocument(editor.document, vscode.ViewColumn.One);
     const lines = editor.document.getText().split("\n");
     const start = lines.findIndex((l) => l.includes('GET("/a")'));

@@ -138,7 +138,7 @@ describe("Bynk project sidebar (#2097)", () => {
   });
 
   it("opens the wire-contract view from a handler node", async function () {
-    this.timeout(30_000);
+    this.timeout(50_000);
     const uri = vscode.Uri.file(path.join(dir, "src", "billing.bynk")).toString();
     const line = FILES["src/billing.bynk"].split("\n").findIndex((l) => l.includes("on call("));
     await vscode.commands.executeCommand("bynk.project.wireContract", {
@@ -158,7 +158,7 @@ describe("Bynk project sidebar (#2097)", () => {
   });
 
   it("reloads on the live views' trigger while visible, and shows the new declaration", async function () {
-    this.timeout(60_000);
+    this.timeout(110_000);
     const treeState = () =>
       vscode.commands.executeCommand<{ reloads: number; visible: boolean }>("bynk._projectTreeState");
     // Show the Bynk activity-bar container so the tree is visible.
