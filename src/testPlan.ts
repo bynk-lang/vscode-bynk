@@ -254,6 +254,24 @@ export interface PlanCase {
   tier?: Tier;
 }
 
+/** The id of a suite's "Doc examples" group node. A case id is `${suiteId}::${name}`
+ *  and a suite id holds no `#doc-examples`, so the group's id can collide with
+ *  neither, and holds no `::` for the seed pins to slice at. */
+export const DOC_GROUP_SUFFIX = "#doc-examples";
+
+export function docGroupId(suiteId: string): string {
+  return `${suiteId}${DOC_GROUP_SUFFIX}`;
+}
+
+export function isDocGroupId(id: string): boolean {
+  return id.endsWith(DOC_GROUP_SUFFIX) && !id.includes("::");
+}
+
+/** The suite a group node's id belongs to. */
+export function suiteIdOfGroup(groupId: string): string {
+  return groupId.slice(0, groupId.length - DOC_GROUP_SUFFIX.length);
+}
+
 /** A requested or excluded item: a whole suite (no `name`) or one case. */
 export interface ItemRef {
   suiteId: string;

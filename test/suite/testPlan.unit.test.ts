@@ -9,6 +9,9 @@ import * as assert from "assert";
 import {
   PER_CASE_LIMIT,
   caseKey,
+  docGroupId,
+  isDocGroupId,
+  suiteIdOfGroup,
   casesInFile,
   coverageScope,
   debugTarget,
@@ -768,5 +771,42 @@ describe("doc-comment example cases (#2461)", () => {
     assert.strictEqual(isDocExample({ origin: "doc" }), true);
     assert.strictEqual(isDocExample({}), false);
     assert.strictEqual(isDocExample({ origin: "other" }), false);
+  });
+});
+
+describe("the Doc examples group node's id", () => {
+  const SUITE = "file:///proj|bynk-test:unit:orders";
+
+  it("is recognised, and names its suite back", () => {
+    const id = docGroupId(SUITE);
+    assert.ok(isDocGroupId(id));
+    assert.strictEqual(suiteIdOfGroup(id), SUITE);
+  });
+
+  it("can never be a case id: a case key holds `::` and the group id does not", () => {
+    assert.ok(!docGroupId(SUITE).includes("::"));
+    assert.ok(!isDocGroupId(caseKey(SUITE, "ends with #doc-examples")));
+    assert.ok(!isDocGroupId(SUITE));
+  });
+
+  it("leaves a seed pin's slice at the first `::` on the case's real suite", () => {
+    const key = caseKey(SUITE, "adds");
+    assert.strictEqual(key.slice(0, key.indexOf("::")), SUITE);
+  });
+
+  it("plans a group's doc cases as the suite plus one case each, leaving the rest out", () => {
+    const all: PlanCase[] = [
+      { suiteId: SUITE, name: "ordinary" },
+      { suiteId: SUITE, name: "doc a" },
+      { suiteId: SUITE, name: "doc b" },
+    ];
+    const group = [{ suiteId: SUITE, name: "doc a" }, { suiteId: SUITE, name: "doc b" }];
+    assert.deepStrictEqual(planRun(all, { include: group }, { sets: true }).steps, [
+      { suites: ["orders"], cases: ["doc a", "doc b"] },
+    ]);
+    // Excluding the group's cases from the suite leaves the ordinary one.
+    assert.deepStrictEqual(planRun(all, { include: [{ suiteId: SUITE }], exclude: group }, { sets: true }).steps, [
+      { caseName: "ordinary" },
+    ]);
   });
 });

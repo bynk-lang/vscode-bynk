@@ -10,6 +10,8 @@ import {
   TIERS,
   tierOf,
   isDocExample,
+  docGroupId,
+  isDocGroupId,
   type ItemRef,
   type JsonCase,
   type JsonLocation,
@@ -45,7 +47,29 @@ export function forEachSuite(ctrl: vscode.TestController, fn: (suite: vscode.Tes
 
 /** Every case item, across all projects. */
 export function forEachCase(ctrl: vscode.TestController, fn: (c: vscode.TestItem) => void): void {
-  forEachSuite(ctrl, (suite) => suite.children.forEach(fn));
+  forEachSuite(ctrl, (suite) => suiteCases(suite).forEach((c) => fn(c)));
+}
+
+/** A suite's case items: its direct children, and those of its "Doc examples" group
+ *  node, which is not a case itself. The one walk over a suite's cases. */
+export function suiteCases(suite: vscode.TestItem): vscode.TestItem[] {
+  const cases: vscode.TestItem[] = [];
+  suite.children.forEach((child) => {
+    if (isDocGroupId(child.id)) child.children.forEach((c) => void cases.push(c));
+    else cases.push(child);
+  });
+  return cases;
+}
+
+/** The case item `id` (its full id) of a suite, wherever it sits. */
+export function suiteCase(suite: vscode.TestItem, id: string): vscode.TestItem | undefined {
+  return suiteCases(suite).find((c) => c.id === id);
+}
+
+/** The case item with this full id in the suite `suiteId`, if both exist. */
+export function findCaseById(ctrl: vscode.TestController, suiteId: string, id: string): vscode.TestItem | undefined {
+  const suite = findSuite(ctrl, suiteId);
+  return suite && suiteCase(suite, id);
 }
 
 /** The suite item with this (project-scoped) id. */
@@ -92,7 +116,7 @@ export function caseItem(ctrl: vscode.TestController, arg: unknown): vscode.Test
   if (typeof id !== "string") return undefined;
   let found: vscode.TestItem | undefined;
   forEachSuite(ctrl, (suite) => {
-    const c = suite.children.get(id);
+    const c = suiteCase(suite, id);
     if (c) found = c;
   });
   if (found) return found;
@@ -114,21 +138,21 @@ export function tierOfItem(item: vscode.TestItem): Tier | undefined {
 export function planCases(ctrl: vscode.TestController): PlanCase[] {
   const cases: PlanCase[] = [];
   forEachSuite(ctrl, (suite) => {
-    suite.children.forEach((c) => {
+    for (const c of suiteCases(suite)) {
       cases.push({
         suiteId: suite.id,
         name: c.label,
         file: c.uri ? fileKey(c.uri) : undefined,
         tier: tierOfItem(c),
       });
-    });
+    }
   });
   return cases;
 }
 
 /** A request's include/exclude lists as plain references: a top-level item is a
- *  project (all its suites), its child a suite, and a grandchild a case of its
- *  parent. */
+ *  project (all its suites), its child a suite, a "Doc examples" group the doc cases
+ *  of its suite, and any deeper item a case of its suite. */
 export function requestRef(request: vscode.TestRunRequest): RequestRef {
   const refs = (i: vscode.TestItem): ItemRef[] => {
     if (!i.parent) {
@@ -136,7 +160,16 @@ export function requestRef(request: vscode.TestRunRequest): RequestRef {
       i.children.forEach((suite) => void suites.push({ suiteId: suite.id }));
       return suites;
     }
-    return i.parent.parent ? [{ suiteId: i.parent.id, name: i.label }] : [{ suiteId: i.id }];
+    if (isDocGroupId(i.id)) {
+      const cases: ItemRef[] = [];
+      const suiteId = i.parent.id;
+      i.children.forEach((c) => void cases.push({ suiteId, name: c.label }));
+      return cases;
+    }
+    if (!i.parent.parent) return [{ suiteId: i.id }];
+    // A case sits under its suite, or under that suite's group node.
+    const suite = isDocGroupId(i.parent.id) ? i.parent.parent : i.parent;
+    return [{ suiteId: suite.id, name: i.label }];
   };
   return { include: request.include?.flatMap(refs), exclude: request.exclude?.flatMap(refs) };
 }
@@ -234,6 +267,28 @@ export function upsertSuite(
   return item;
 }
 
+/** The suite's "Doc examples" group node, created on first use. */
+function docGroup(ctrl: vscode.TestController, suiteItem: vscode.TestItem): vscode.TestItem {
+  const id = docGroupId(suiteItem.id);
+  let group = suiteItem.children.get(id);
+  if (!group) {
+    group = ctrl.createTestItem(id, "Doc examples");
+    suiteItem.children.add(group);
+  }
+  return group;
+}
+
+/** Delete the suite's cases not in `live`, and the group node once it holds none. */
+export function pruneCases(suiteItem: vscode.TestItem, live: Set<string>): void {
+  const groupId = docGroupId(suiteItem.id);
+  const group = suiteItem.children.get(groupId);
+  if (group) {
+    prune(group.children, live);
+    if (group.children.size === 0) suiteItem.children.delete(groupId);
+  }
+  prune(suiteItem.children, new Set([...live, ...(group && group.children.size > 0 ? [groupId] : [])]));
+}
+
 export function upsertCase(
   ctrl: vscode.TestController,
   suiteItem: vscode.TestItem,
@@ -242,8 +297,14 @@ export function upsertCase(
   legacyKind?: string,
 ): vscode.TestItem {
   const id = `${suiteItem.id}::${c.name}`;
-  let item = suiteItem.children.get(id);
+  const doc = isDocExample(c);
+  const parent = doc ? docGroup(ctrl, suiteItem) : suiteItem;
+  let item = parent.children.get(id);
   if (!item) {
+    // A case that changed between doc and ordinary moves: deleted from the old
+    // parent and recreated, under the same id, in the right one.
+    const other = doc ? suiteItem : suiteItem.children.get(docGroupId(suiteItem.id));
+    other?.children.delete(id);
     // A discovered case carries its declaration `location`, so the tree links to
     // the `.bynk` source before any run. The uri is fixed at creation; the range
     // is refreshed each pass (a passing run case carries no location, so we never
@@ -252,7 +313,7 @@ export function upsertCase(
       ? vscode.Uri.joinPath(root, c.location.path)
       : undefined;
     item = ctrl.createTestItem(id, c.name, uri);
-    suiteItem.children.add(item);
+    parent.children.add(item);
   }
   if (c.location) {
     const pos = sourcePosition(c.location);

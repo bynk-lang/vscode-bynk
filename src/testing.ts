@@ -33,7 +33,7 @@ import { discover } from "./testDiscovery";
 import { detailedCoverage } from "./testReport";
 import type { RunEnv } from "./testEnv";
 import { runHandler } from "./testRun";
-import { caseItem, fileKey, findCase, findSuite, forEachCase, planCases, requestRef, requestedRoots } from "./testTree";
+import { caseItem, fileKey, findCase, findCaseById, forEachCase, planCases, requestRef, requestedRoots } from "./testTree";
 
 // The surface the integration tests and `testCodeLens.ts` reach through here.
 export { applyDocument, placeHandlers, type HandlerLookup, type RunSink } from "./testReport";
@@ -369,7 +369,7 @@ export function registerTesting(
       }
       const refs = casesInFile(planCases(ctrl), fileKey(uri));
       const items = refs
-        .map((r) => findSuite(ctrl, r.suiteId)?.children.get(caseKey(r.suiteId, r.name ?? "")))
+        .map((r) => findCaseById(ctrl, r.suiteId, caseKey(r.suiteId, r.name ?? "")))
         .filter((i): i is vscode.TestItem => i !== undefined);
       if (items.length === 0) {
         void vscode.window.showInformationMessage(
