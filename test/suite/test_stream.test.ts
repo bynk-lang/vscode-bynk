@@ -13,7 +13,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { applyDocument, runBynkcTestStream, type RunSink } from "../../src/testing";
-import { driverSupport } from "../../src/testStream";
+import { newDriverSupport } from "../../src/testStream";
 import { caseKey, planRun, type JsonSuite, type TestRun } from "../../src/testPlan";
 import { FAKE_BYNK, useFakeBynk, type FakeLogEntry } from "./fakeBynk";
 import { truthy, waitFor } from "./util";
@@ -48,17 +48,19 @@ describe("Streaming test results", () => {
     fs.writeFileSync(path.join(dir, "two.json"), JSON.stringify(twoSuites));
   });
 
+  let driverSupport = newDriverSupport();
+
   beforeEach(async () => {
     fake = await useFakeBynk();
     process.env.BYNK_FAKE_TEST_DOC = path.join(dir, "two.json");
-    driverSupport.ndjson = true;
+    driverSupport = newDriverSupport();
   });
 
   afterEach(async () => {
     delete process.env.BYNK_FAKE_TEST_DOC;
     delete process.env.BYNK_FAKE_STREAM_DELAY_MS;
     delete process.env.BYNK_FAKE_NDJSON;
-    driverSupport.ndjson = true;
+    driverSupport = newDriverSupport();
     await fake.restore();
   });
 
@@ -71,7 +73,7 @@ describe("Streaming test results", () => {
     const started = Date.now();
     const arrivals: { name: string; at: number }[] = [];
     const { doc, streamed } = await runBynkcTestStream(workspace, token.token, {}, (suite: JsonSuite) =>
-      arrivals.push({ name: suite.name, at: Date.now() - started }),
+      arrivals.push({ name: suite.name, at: Date.now() - started }), driverSupport,
     );
     const total = Date.now() - started;
     assert.ok(streamed);
@@ -100,7 +102,7 @@ describe("Streaming test results", () => {
     await runBynkcTestStream(workspace, token.token, {}, () => {
       // The first suite has arrived and the run is held; the user presses Stop.
       token.cancel();
-    }).then(
+    }, driverSupport).then(
       () => undefined,
       (e) => {
         outcome = "rejected";
@@ -120,7 +122,7 @@ describe("Streaming test results", () => {
       const token = new vscode.CancellationTokenSource();
       const { doc, streamed } = await runBynkcTestStream(workspace, token.token, { against: "dev" }, () => {
         assert.fail("a compile failure holds no suite");
-      });
+      }, driverSupport);
       assert.ok(streamed);
       assert.strictEqual(doc.error?.kind, "compile");
       assert.ok(doc.error?.diagnostics?.[0].includes("advance Clock"));
@@ -136,7 +138,7 @@ describe("Streaming test results", () => {
     const token = new vscode.CancellationTokenSource();
     const { doc, streamed } = await runBynkcTestStream(workspace, token.token, {}, () => {
       assert.fail("a refused stream holds no suite");
-    });
+    }, driverSupport);
     assert.strictEqual(streamed, false, "the suites are for the caller to apply");
     assert.strictEqual(doc.suites?.length, 2);
     assert.strictEqual(driverSupport.ndjson, false);

@@ -37,6 +37,7 @@ import { registerRefinedExplorer } from "./refinedExplorer";
 import { registerTasks } from "./tasks";
 import { registerTomlRecommendation } from "./tomlRecommendation";
 import { registerToolchain } from "./toolchain";
+import type { DriverSupport } from "./testStream";
 import type { ViewRefresh } from "./viewRefresh";
 import { registerViewsCodeLens } from "./viewsCodeLens";
 
@@ -47,6 +48,9 @@ export interface FeatureEnv {
   output: vscode.LogOutputChannel;
   viewRefresh: ViewRefresh;
   client: () => LanguageClient | undefined;
+  /** What the `bynk` driver is known to understand, shared by the Test Explorer and
+   *  the debugger. */
+  driverSupport: DriverSupport;
 }
 
 /** Keep this sorted by feature name. */
@@ -56,7 +60,7 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   // #2465: `@bynk` in the Chat view, orchestrating the language-model tools.
   ({ context }) => registerChatParticipant(context),
   // v0.72: one-click debugging through the JavaScript debugger (ADR 0104).
-  ({ context }) => registerDebug(context),
+  ({ context, driverSupport }) => registerDebug(context, driverSupport),
   // #2472: Add Dependency…, Fetch Dependencies, upgrade lenses, Publish….
   ({ context }) => registerDependencies(context),
   // #2101: plan-first deploy.

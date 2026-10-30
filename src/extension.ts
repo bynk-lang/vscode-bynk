@@ -31,6 +31,7 @@ import {
 } from "./server";
 import { newContext, newProject } from "./scaffold";
 import { registerTesting } from "./testing";
+import { newDriverSupport } from "./testStream";
 import { registerTestCodeLens } from "./testCodeLens";
 import { registerApproveRequirements } from "./approveRequirements";
 import { provideCodeLenses } from "./codelens";
@@ -103,12 +104,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // The features that need only the context, the hub, the client getter or the
   // output channel: see features.ts (add new ones there, not here).
-  registerFeatures({ context, output, viewRefresh, client: () => client });
+  const driverSupport = newDriverSupport();
+  registerFeatures({ context, output, viewRefresh, client: () => client, driverSupport });
 
   // v0.59: the Test Explorer — runs `bynkc test --format json`. v0.78: also discovers
   // eagerly and exposes case locations for the Test CodeLens. #2269: its Watch toggle
   // reruns on the hub's change signal, so the hub is built first.
-  const testApi = registerTesting(context, viewRefresh);
+  const testApi = registerTesting(context, viewRefresh, driverSupport);
 
   // #2473: review and approve the npm packages dependencies' adapters ask for;
   // pending ones are found in `check`/`dev`/`deploy` output, and badge the

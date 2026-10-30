@@ -24,7 +24,7 @@ import { bynkPath } from "./tasks";
 import { BYNK_DESCRIPTION_GENERATOR } from "./debugValues";
 import { devServerRunning, stopDevServer } from "./devServer";
 import { launchFailureAction } from "./cliCore";
-import { driverSupport, rejectsSets } from "./testStream";
+import { rejectsSets, type DriverSupport } from "./testStream";
 import { offerDoctor, reportBynkNotFound } from "./doctor";
 import { renderBynkValue, relabelBynkLocals } from "./semanticValues";
 
@@ -102,7 +102,7 @@ const SKIP_FILES = [
   "**/node_modules/**",
 ];
 
-export function registerDebug(context: vscode.ExtensionContext): void {
+export function registerDebug(context: vscode.ExtensionContext, driverSupport: DriverSupport): void {
   // Each delegated `pwa-node` attach session is backed by a CLI child process
   // (bynkc/bynk → node/wrangler). Track it so terminating the debug session tears
   // the whole process group down — otherwise the inspected runtime is orphaned.
@@ -111,7 +111,7 @@ export function registerDebug(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.debug.registerDebugConfigurationProvider(
       BYNK_TYPE,
-      new BynkDebugProvider(children),
+      new BynkDebugProvider(children, driverSupport),
     ),
     // The test path stops at the runtime entry (see `stopOnEntry` in the resolved
     // config) so js-debug binds pending `.bynk` breakpoints before any module
@@ -226,7 +226,10 @@ function stringList(v: unknown): string[] | undefined {
 }
 
 class BynkDebugProvider implements vscode.DebugConfigurationProvider {
-  constructor(private readonly children: Map<string, ChildProcess>) {}
+  constructor(
+    private readonly children: Map<string, ChildProcess>,
+    private readonly driverSupport: DriverSupport,
+  ) {}
 
   // A `"bynk"` config (from launch.json or `debugBynkTests`) is *resolved* into a
   // `pwa-node` attach: we launch the matching `--inspect` CLI, learn its inspector
@@ -330,7 +333,7 @@ class BynkDebugProvider implements vscode.DebugConfigurationProvider {
       return await this.startTest(root, filter);
     } catch (e) {
       if (!isSet || !rejectsSets(String(e))) throw e;
-      driverSupport.sets = false;
+      this.driverSupport.sets = false;
       void vscode.window.showInformationMessage(
         "Bynk: this `bynk` cannot filter by several tests, so the whole project runs under the inspector. " +
           "Select one test to debug just that case.",

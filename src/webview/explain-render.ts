@@ -7,18 +7,11 @@
 
 import type { MarkdownIt } from "markdown-it";
 
+import { escapeHtml } from "../escapeHtml";
 import { isExternalHttpLink, renderDocMarkdown } from "./doc-render";
 import type { Explanation } from "./explainTypes";
 
-/** Escape text for an HTML text node or a double-quoted attribute. */
-export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+export { escapeHtml };
 
 /** The explanation page body: the code as the heading, the rendered blurb and
  *  example, then "Read more in the Book" for an http(s) `href`. */

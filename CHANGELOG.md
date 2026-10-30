@@ -38,6 +38,11 @@ version).
   of on every keystroke, and only for the project involved. Its compile errors no
   longer go to Problems, where they duplicated the language server's.
 - Changing `bynk.executablePath` restarts the server.
+- Internal: `testing.ts` is split into tree, discovery, run, report, driver, seed
+  and target-picker modules. The seed memory and the record of what the `bynk`
+  driver understands are now owned by `activate()` and passed in rather than held
+  at module level, and `dirtyBuffers`, the diagnostic severity map and
+  `escapeHtml` each have one definition.
 - `bynk.executablePath`, `bynk.bynkPath` and `bynk.dev.args` are
   machine-scoped, so a workspace's settings cannot redirect them.
 - The pure unit tests run in plain Node (`npm run test:unit`), with a coverage

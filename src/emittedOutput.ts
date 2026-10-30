@@ -14,8 +14,8 @@
 // not locked scrolling); the lookups are in `emittedMap.ts`.
 
 import * as vscode from "vscode";
-import * as path from "node:path";
 
+import { dirtyBuffers } from "./dirtyBuffers";
 import { buildModules, buildProjectModules } from "./emittedBuild";
 import {
   generatedRangeForSource,
@@ -45,18 +45,6 @@ interface View {
 /** The project directory of `file` (see `projectRootFor`), as a path. */
 export async function projectRootOf(file: vscode.Uri): Promise<string | undefined> {
   return (await projectRootFor(file))?.fsPath;
-}
-
-/** The unsaved `.bynk` buffers under `root`: absolute path -> text. */
-function dirtyBuffers(root: string): Record<string, string> {
-  const buffers: Record<string, string> = {};
-  for (const doc of vscode.workspace.textDocuments) {
-    if (doc.languageId !== "bynk" || !doc.isDirty || doc.uri.scheme !== "file") continue;
-    const rel = path.relative(root, doc.uri.fsPath);
-    if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
-    buffers[doc.uri.fsPath] = doc.getText();
-  }
-  return buffers;
 }
 
 /** The virtual document for `file` of `source`. The query carries the source,
