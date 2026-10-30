@@ -128,12 +128,17 @@ function findSuite(ctrl: vscode.TestController, suiteId: string): vscode.TestIte
   return scope === undefined ? undefined : ctrl.items.get(scope)?.children.get(suiteId);
 }
 
+/** A project's name in messages: its folder. */
+function projectLabel(root: vscode.Uri): string {
+  return root.path.split("/").filter(Boolean).pop() ?? root.fsPath;
+}
+
 /** The project item for `root`, created on first use. */
 function projectItem(ctrl: vscode.TestController, root: vscode.Uri): vscode.TestItem {
   const id = root.toString();
   let item = ctrl.items.get(id);
   if (!item) {
-    item = ctrl.createTestItem(id, root.path.split("/").filter(Boolean).pop() ?? root.fsPath, root);
+    item = ctrl.createTestItem(id, projectLabel(root), root);
     item.description = vscode.workspace.asRelativePath(root, false);
     ctrl.items.add(item);
   }
@@ -272,11 +277,22 @@ function requestRoots(ctrl: vscode.TestController, request: vscode.TestRunReques
   return [...roots.values()];
 }
 
+/** The roots to run a request in: those of its items, and for a request with none
+ *  ("Run All") also every project in the workspace, since eager discovery only
+ *  reaches the projects the user has touched. */
+async function requestedRoots(ctrl: vscode.TestController, request: vscode.TestRunRequest): Promise<vscode.Uri[]> {
+  const roots = new Map(requestRoots(ctrl, request).map((r) => [r.toString(), r]));
+  if (!request.include?.length) for (const r of await workspaceRoots()) roots.set(r.toString(), r);
+  return [...roots.values()];
+}
+
 /** A run against a named target (`bynk test --against`). */
 interface AgainstRun {
   target: string;
   /** Pass `--skip-unsupported`: offered as a retry, never the default. */
   skipUnsupported: boolean;
+  /** The projects that declare the target; others in the request are left out. */
+  roots?: vscode.Uri[];
 }
 
 export function registerTesting(context: vscode.ExtensionContext, hub: ViewRefresh): TestApi {
@@ -384,11 +400,10 @@ export function registerTesting(context: vscode.ExtensionContext, hub: ViewRefre
     request: vscode.TestRunRequest,
     token: vscode.CancellationToken,
   ): Promise<void> => {
-    const target = await pickTarget(
-      context,
-      requestRoots(ctrl, request)[0] ?? (await workspaceRoots())[0],
-    );
-    if (!target) return;
+    const roots = await requestedRoots(ctrl, request);
+    const picked = await pickTarget(context, roots);
+    if (!picked) return;
+    const { target, declaring } = picked;
     if (target === DEV_TARGET && devServerRunning()) {
       // Like debug (#2094 DECISION C): a running `bynk dev` holds the ports the
       // test run's own dev server needs. Ask rather than fail on a clash.
@@ -401,7 +416,7 @@ export function registerTesting(context: vscode.ExtensionContext, hub: ViewRefre
       if (choice !== stop) return;
       await stopDevServer();
     }
-    await runHandler(ctrl, problems, request, token, false, { target, skipUnsupported: false });
+    await runHandler(ctrl, problems, request, token, false, { target, skipUnsupported: false, roots: declaring });
   };
   context.subscriptions.push(
     ctrl.createRunProfile("Run against…", vscode.TestRunProfileKind.Run, runAgainst, false),
@@ -462,7 +477,7 @@ export function registerTesting(context: vscode.ExtensionContext, hub: ViewRefre
     }
     discovering = true;
     try {
-      await discover(ctrl, only, token);
+      await discover(ctrl, problems, only, token);
     } finally {
       discovering = false;
       changed.fire();
@@ -650,8 +665,11 @@ async function runHandler(
   // The projects come from the requested items, never from the editor that happens to
   // be focused; a request spanning several projects runs once in each. Before the tree
   // has been discovered there are no items, and "Run All" runs every project found.
-  let roots = requestRoots(ctrl, request);
-  if (roots.length === 0 && !request.include?.length) roots = await workspaceRoots();
+  let roots = await requestedRoots(ctrl, request);
+  if (against?.roots) {
+    const declaring = new Set(against.roots.map((r) => r.toString()));
+    roots = roots.filter((r) => declaring.has(r.toString()));
+  }
   if (roots.length === 0) {
     run.appendOutput("Bynk: no bynk.toml found in the workspace.\r\n");
     run.end();
@@ -667,7 +685,8 @@ async function runHandler(
       exclude: requestedAll.exclude?.filter((r) => projectOf(r.suiteId) === key),
     };
     const cases = planCases(ctrl).filter((c) => projectOf(c.suiteId) === key);
-    const again = await runInProject(ctrl, problems, run, root, request, requested, cases, token, coverage, against, once, seedOverride);
+    const label = roots.length > 1 ? projectLabel(root) : undefined;
+    const again = await runInProject(ctrl, problems, run, root, request, requested, cases, token, coverage, against, once, seedOverride, label);
     if (again === "retry") {
       run.end();
       return runHandler(ctrl, problems, request, token, coverage, against, seedOverride, once);
@@ -692,7 +711,10 @@ async function runInProject(
   against: AgainstRun | undefined,
   once: FailureOnce | undefined,
   seedOverride?: string,
+  label?: string,
 ): Promise<"retry" | void> {
+  // With several projects in the run, say which one a message is about.
+  const say = (m: string): void => run.appendOutput(label ? m.replace(/^Bynk:/, `Bynk (${label}):`) : m);
   // DECISION D: in a continuous session a notification is shown once, and every
   // failure is still written to the run's output.
   const notify = (kind: string, show: () => void): void => {
@@ -708,20 +730,20 @@ async function runInProject(
     // left as it was.
     const system = systemOnly(cases, requested);
     if (system.empty) {
-      run.appendOutput(`Bynk: none of the selected tests is system-tier, so nothing runs against ${against.target}.\r\n`);
+      say(`Bynk: none of the selected tests is system-tier, so nothing runs against ${against.target}.\r\n`);
       return;
     }
     cases = system.cases;
     requested = system.request;
-    run.appendOutput(`Bynk: running the system tests against ${against.target}.\r\n`);
-    if (against.target !== DEV_TARGET) run.appendOutput(`Bynk: ${targetDetail(against.target)}\r\n`);
+    say(`Bynk: running the system tests against ${against.target}.\r\n`);
+    if (against.target !== DEV_TARGET) say(`Bynk: ${targetDetail(against.target)}\r\n`);
   }
   const planned = planRun(cases, requested, { coverage, remote: against !== undefined, sets: driverSupport.sets });
   // The tree holds every tier, so a run against a target reports only what it
   // asked for, not whatever else the document happens to carry.
   const plan: RunPlan = against ? { ...planned, narrowed: true } : planned;
   if (plan.steps.length === 0) {
-    run.appendOutput("Bynk: nothing is selected to run.\r\n");
+    say("Bynk: nothing is selected to run.\r\n");
     return;
   }
   // DECISION E: a coverage report is one case's or the whole project's, never a merge
@@ -729,12 +751,12 @@ async function runInProject(
   // the plan that runs, which the tree may have changed under since the run was named.
   const measured = coverage ? coverageScope(plan) : undefined;
   if (measured?.kind === "case") {
-    run.appendOutput(`Bynk: coverage for the case "${measured.name}" alone — not the project's coverage report.\r\n`);
+    say(`Bynk: coverage for the case "${measured.name}" alone — not the project's coverage report.\r\n`);
   } else if (measured?.narrowed) {
     // One item selected and yet the project ran: the plan only does that for a name
     // another suite shares, which `--case` would run in both.
     const why = plan.wanted.length === 1 ? " (another suite has a case with this name, and `--case` would run both)" : "";
-    run.appendOutput(
+    say(
       `Bynk: coverage measures one case or the whole project, so this ran the whole project${why}; the report is the project's, not the selection's.\r\n`,
     );
   }
@@ -756,8 +778,8 @@ async function runInProject(
       ? { seed: seedOverride, note: undefined }
       : seedFor(key, seeds.pins, (k) => suiteFingerprint(seeds as SeedState, k), key.slice(key.indexOf("::") + 2));
     seed = chosen.seed;
-    if (chosen.note) run.appendOutput(`Bynk: ${chosen.note}.\r\n`);
-    if (seed) run.appendOutput(`Bynk: running with seed ${seed}.\r\n`);
+    if (chosen.note) say(`Bynk: ${chosen.note}.\r\n`);
+    if (seed) say(`Bynk: running with seed ${seed}.\r\n`);
   }
 
   const reported = new Set<string>();
@@ -795,7 +817,7 @@ async function runInProject(
           }
         } catch (e) {
           // One case that cannot be applied must not drop the rest, nor hide the run's own error.
-          run.appendOutput(`Bynk: could not report a test result — ${String(e)}\r\n`);
+          say(`Bynk: could not report a test result — ${String(e)}\r\n`);
         }
       });
     };
@@ -828,10 +850,10 @@ async function runInProject(
       // it was before: one process per case, or the whole project.
       if (driverSupport.sets && (step.suites || step.cases) && rejectsSets(String(e))) {
         driverSupport.sets = false;
-        run.appendOutput("Bynk: this `bynk` cannot run several tests in one process; running them one at a time.\r\n");
+        say("Bynk: this `bynk` cannot run several tests in one process; running them one at a time.\r\n");
         return "retry";
       }
-      run.appendOutput(`Bynk: could not run tests — ${String(e)}\r\n`);
+      say(`Bynk: could not run tests — ${String(e)}\r\n`);
       // #2095: `bynk` missing is the one gap the Doctor can't diagnose; any
       // other failure to run is most likely a missing test tool.
       if (e instanceof BynkNotFoundError) notify("bynk-not-found", () => void reportBynkNotFound());
@@ -846,7 +868,7 @@ async function runInProject(
     // Problems panel (the `bynkc` shape) and stop. These are not test results.
     if (doc.error?.kind === "compile") {
       routeCompileDiagnostics(problems, root, doc.error.diagnostics ?? []);
-      run.appendOutput(
+      say(
         "Bynk: the project did not compile — see the Problems panel.\r\n",
       );
       if (against && !against.skipUnsupported && offersSkipUnsupported(doc.error.diagnostics ?? [])) {
@@ -862,7 +884,7 @@ async function runInProject(
     for (const note of runNotes(doc)) {
       if (!noted.has(note)) {
         noted.add(note);
-        run.appendOutput(`Bynk: ${note}.\r\n`);
+        say(`Bynk: ${note}.\r\n`);
       }
     }
 
@@ -872,7 +894,7 @@ async function runInProject(
     if (unavailable) {
       // #2104: the environment can't measure coverage (only `tsx`): relay the
       // driver's own reason, rather than failing silently.
-      run.appendOutput(`Bynk: coverage is unavailable — ${unavailable}\r\n`);
+      say(`Bynk: coverage is unavailable — ${unavailable}\r\n`);
       if (!crashShown) {
         crashShown = true;
         void offerDoctor(`Bynk: coverage is unavailable. ${unavailable}`, "test");
@@ -881,13 +903,13 @@ async function runInProject(
       // The driver declined the run (an unknown or production target, a missing
       // secret, an unreachable target): its own message says why, and nothing
       // crashed, so no Doctor offer.
-      run.appendOutput(`Bynk: the run against ${against.target} did not happen — ${doc.error.message ?? "unknown error"}\r\n`);
+      say(`Bynk: the run against ${against.target} did not happen — ${doc.error.message ?? "unknown error"}\r\n`);
     } else if (doc.error?.kind === "runtime") {
-      run.appendOutput(
+      say(
         `Bynk: the test runner crashed — ${doc.error.message ?? "unknown error"}\r\n`,
       );
       if (doc.error.stderr) {
-        run.appendOutput(doc.error.stderr.replace(/\n/g, "\r\n") + "\r\n");
+        say(doc.error.stderr.replace(/\n/g, "\r\n") + "\r\n");
       }
       if (!crashShown) {
         crashShown = true;
@@ -1088,12 +1110,14 @@ async function workspaceRoots(): Promise<vscode.Uri[]> {
  *  execution) and (re)build each project's subtree from its document. Backs both
  *  the resolve (view-open) and refresh handlers, and the eager triggers, which pass
  *  `only` — the files that changed — to discover just their projects. Stale suites
- *  and cases are pruned so a removed test disappears on refresh; a transient failure,
- *  a project that does not compile, or no project found leaves the existing tree
- *  untouched. Compile errors are not routed to the Problems panel: the language
+ *  and cases are pruned so a removed test disappears on refresh, and a project whose
+ *  `bynk.toml` is gone with it; a transient failure leaves the tree untouched, and a
+ *  project that does not compile keeps its tests and shows the error on its item.
+ *  Compile errors are not routed to the Problems panel: the language
  *  server reports them live, and this compile sees only what is saved. */
 async function discover(
   ctrl: vscode.TestController,
+  problems: vscode.DiagnosticCollection,
   only?: vscode.Uri[],
   token?: vscode.CancellationToken,
 ): Promise<void> {
@@ -1108,7 +1132,9 @@ async function discover(
   } else {
     roots = await workspaceRoots();
   }
-  if (roots.length === 0) return; // keep whatever the tree already shows
+  // A full pass also forgets a project that is no longer in the workspace.
+  if (!only) prune(ctrl.items, new Set(roots.map((r) => r.toString())));
+  if (roots.length === 0) return;
 
   for (const root of roots) {
     if (token?.isCancellationRequested) return;
@@ -1118,11 +1144,21 @@ async function discover(
     } catch {
       continue; // network/exec hiccup — keep whatever the tree already shows
     }
-    if (doc.error?.kind === "compile") continue;
+    const project = projectItem(ctrl, root);
+    if (doc.error?.kind === "compile") {
+      // Say why the project has no (or stale) tests, rather than leave it unexplained.
+      const first = doc.error.diagnostics?.[0];
+      project.error = `This project does not compile, so its tests cannot be listed${first ? `: ${first}` : "."}`;
+      continue;
+    }
+    project.error = undefined;
+    // The compile is clean now: an earlier run's errors for this project are stale.
+    const prefix = `${root.toString()}/`;
+    problems.forEach((uri) => {
+      if (uri.toString().startsWith(prefix)) problems.delete(uri);
+    });
     reconcile(ctrl, doc.suites ?? [], root);
   }
-  // A full pass also forgets a project that is no longer in the workspace.
-  if (!only) prune(ctrl.items, new Set(roots.map((r) => r.toString())));
 }
 
 /** Bring one project's subtree in line with `suites`: upsert each suite and its
@@ -1159,6 +1195,15 @@ function reconcile(
     // A pin for a case that is gone has nothing to attach to; the others show
     // whether they still hold.
     let changed = false;
+    // Pins from before ids were project-scoped belong to the only project there is.
+    if (ctrl.items.size === 1) {
+      for (const [key, pin] of [...seeds.pins]) {
+        if (projectOf(key) !== undefined) continue;
+        seeds.pins.delete(key);
+        seeds.pins.set(scopeSuiteId(root.toString(), key), pin);
+        changed = true;
+      }
+    }
     for (const key of [...seeds.pins.keys()]) {
       const suiteId = key.slice(0, key.indexOf("::"));
       if (liveSuites.has(suiteId) && !project.children.get(suiteId)?.children.get(key)) {
@@ -1496,19 +1541,24 @@ async function manifestTargets(root: vscode.Uri): Promise<string[]> {
   }
 }
 
-/** Ask which target to run against, from the manifest of the first project the
- *  request covers: `dev`, the manifest's targets (the last
- *  choice first), or a name typed by hand. Remembers the choice per workspace.
+/** Ask which target to run against: `dev`, the targets any requested project's
+ *  manifest declares (the last choice first), or a name typed by hand. Also
+ *  returns the projects that declare the chosen target, which are the ones to run:
+ *  all of them for `dev` or a name typed by hand that none declares. Remembers the choice per workspace.
  *  A bare URL is refused here with a message, since the driver would refuse it
  *  and a target name is all the extension ever passes. */
-async function pickTarget(context: vscode.ExtensionContext, root: vscode.Uri | undefined): Promise<string | undefined> {
-  if (!root) {
+async function pickTarget(
+  context: vscode.ExtensionContext,
+  roots: vscode.Uri[],
+): Promise<{ target: string; declaring: vscode.Uri[] } | undefined> {
+  if (roots.length === 0) {
     void vscode.window.showErrorMessage("Bynk: no bynk.toml found in the workspace.");
     return undefined;
   }
   const last = context.workspaceState.get<string>(LAST_TARGET_KEY);
   const MANUAL = "Enter a target name…";
-  const choices = targetChoices(await manifestTargets(root), last);
+  const declared = await Promise.all(roots.map(async (root) => ({ root, targets: await manifestTargets(root) })));
+  const choices = targetChoices([...new Set(declared.flatMap((d) => d.targets))], last);
   const picked = await vscode.window.showQuickPick(
     [
       ...choices.map((name) => ({
@@ -1537,7 +1587,8 @@ async function pickTarget(context: vscode.ExtensionContext, root: vscode.Uri | u
     target = typed.trim();
   }
   await context.workspaceState.update(LAST_TARGET_KEY, target);
-  return target;
+  const declaring = declared.filter((d) => d.targets.includes(target)).map((d) => d.root);
+  return { target, declaring: target === DEV_TARGET || declaring.length === 0 ? roots : declaring };
 }
 
 /** After the driver refused a run for a case a real runtime cannot honour, offer
