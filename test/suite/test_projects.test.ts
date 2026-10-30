@@ -8,7 +8,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { FAKE_BYNK, useFakeBynk, waitFor, type FakeLogEntry } from "./fakeBynk";
+import { FAKE_BYNK, useFakeBynk, type FakeLogEntry } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 const WORKSPACE = path.resolve(__dirname, "../../../test/fixtures/workspace");
 
@@ -84,6 +85,7 @@ describe("Testing view with two projects", () => {
     await vscode.commands.executeCommand("testing.refreshTests");
     await waitFor(
       async () => (await lenses(alphaA)).length > 0 && (await lenses(alphaB)).length > 0,
+      truthy,
       "both projects' cases to be discovered",
       45_000,
     );
@@ -93,7 +95,7 @@ describe("Testing view with two projects", () => {
     await vscode.window.showTextDocument(readme);
     const before = invocations(a, false).length;
     await vscode.commands.executeCommand("testing.refreshTests");
-    await waitFor(() => invocations(a, false).length > before, "the refresh to rediscover");
+    await waitFor(() => invocations(a, false).length > before, truthy, "the refresh to rediscover");
     await sleep(1000);
 
     assert.deepStrictEqual(await lenses(alphaA), ["same name"], "project A keeps its case");
@@ -110,7 +112,7 @@ describe("Testing view with two projects", () => {
     const runsA = invocations(a, true).length;
     const runsB = invocations(b, true).length;
     await vscode.commands.executeCommand("bynk.runTestsInFile", alphaA);
-    await waitFor(() => invocations(a, true).length > runsA, "project A to run");
+    await waitFor(() => invocations(a, true).length > runsA, truthy, "project A to run");
 
     assert.strictEqual(invocations(b, true).length, runsB, "project B did not run");
   });
