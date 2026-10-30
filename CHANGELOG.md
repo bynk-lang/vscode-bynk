@@ -31,6 +31,15 @@ version).
 - Test discovery runs on save, on open and when the active editor changes, instead
   of on every keystroke, and only for the project involved. Its compile errors no
   longer go to Problems, where they duplicated the language server's.
+- The pure unit tests run in plain Node (`npm run test:unit`), with a coverage
+  floor (`npm run test:unit:coverage`) and in CI right after the type check. The
+  webview renderers now have jsdom tests, including that markup in a name or
+  message renders as text.
+
+### Fixed
+
+- The packaged VSIX no longer ships the compiled test build (`out/src/**`) when
+  tests were built before packaging, and CI now fails if it would.
 
 ## [0.436.0] - 2026-10-29
 

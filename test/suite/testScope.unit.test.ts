@@ -4,6 +4,7 @@
 
 import * as assert from "assert";
 
+import { migrateLegacyPins } from "../../src/testSeeds";
 import { caseKey, groupByProject, planRun, projectOf, scopeSuiteId, suiteNameOf } from "../../src/testPlan";
 
 const A = "file:///work/a";
@@ -72,5 +73,22 @@ describe("grouping a run's items by project", () => {
       { coverage: false, remote: false, sets: true },
     );
     assert.deepStrictEqual(plan.wanted, [caseKey(unit(A, "s"), "x")]);
+  });
+});
+
+describe("pins saved before ids were project-scoped", () => {
+  const pin = { seed: "0x1", fingerprint: ["a"] };
+
+  it("move under the only project", () => {
+    const pins = new Map([["bynk-test:unit:s::c", pin]]);
+    assert.strictEqual(migrateLegacyPins(pins, A), true);
+    assert.deepStrictEqual([...pins.keys()], [`${A}|bynk-test:unit:s::c`]);
+  });
+
+  it("leave a pin that is already scoped alone", () => {
+    const key = `${A}|bynk-test:unit:s::c`;
+    const pins = new Map([[key, pin]]);
+    assert.strictEqual(migrateLegacyPins(pins, B), false);
+    assert.deepStrictEqual([...pins.keys()], [key]);
   });
 });

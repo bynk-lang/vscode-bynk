@@ -70,6 +70,7 @@ import {
   fingerprintOf,
   pinDescription,
   pinState,
+  migrateLegacyPins,
   seedFor,
   validSeed,
   type Pin,
@@ -1135,6 +1136,9 @@ async function discover(
   // A full pass also forgets a project that is no longer in the workspace.
   if (!only) prune(ctrl.items, new Set(roots.map((r) => r.toString())));
   if (roots.length === 0) return;
+  // Old pins can only be attributed to a project when the workspace holds just one.
+  const all = only ? await workspaceRoots() : roots;
+  const onlyProject = all.length === 1;
 
   for (const root of roots) {
     if (token?.isCancellationRequested) return;
@@ -1153,11 +1157,14 @@ async function discover(
     }
     project.error = undefined;
     // The compile is clean now: an earlier run's errors for this project are stale.
-    const prefix = `${root.toString()}/`;
+    const own = (uri: vscode.Uri): boolean => {
+      const nearest = all.map((r) => r.toString() + "/").filter((p) => uri.toString().startsWith(p));
+      return nearest.sort((a, b) => b.length - a.length)[0] === `${root.toString()}/`;
+    };
     problems.forEach((uri) => {
-      if (uri.toString().startsWith(prefix)) problems.delete(uri);
+      if (own(uri)) problems.delete(uri);
     });
-    reconcile(ctrl, doc.suites ?? [], root);
+    reconcile(ctrl, doc.suites ?? [], root, onlyProject);
   }
 }
 
@@ -1167,6 +1174,7 @@ function reconcile(
   ctrl: vscode.TestController,
   suites: JsonSuite[],
   root: vscode.Uri,
+  onlyProject: boolean,
 ): void {
   const project = projectItem(ctrl, root);
   const liveSuites = new Set<string>();
@@ -1196,14 +1204,7 @@ function reconcile(
     // whether they still hold.
     let changed = false;
     // Pins from before ids were project-scoped belong to the only project there is.
-    if (ctrl.items.size === 1) {
-      for (const [key, pin] of [...seeds.pins]) {
-        if (projectOf(key) !== undefined) continue;
-        seeds.pins.delete(key);
-        seeds.pins.set(scopeSuiteId(root.toString(), key), pin);
-        changed = true;
-      }
-    }
+    if (onlyProject && migrateLegacyPins(seeds.pins, root.toString())) changed = true;
     for (const key of [...seeds.pins.keys()]) {
       const suiteId = key.slice(0, key.indexOf("::"));
       if (liveSuites.has(suiteId) && !project.children.get(suiteId)?.children.get(key)) {
