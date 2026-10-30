@@ -28,6 +28,13 @@ version).
 - A `bynk migrate status` that started before a sweep can no longer put its
   pre-sweep answer back in the State Migrations cache.
 
+### Added
+
+- **Bynk: Tail Deployed Logs…** streams a deployed Worker's logs with
+  `bynk tail`, in a terminal, with stack frames rewritten to `.bynk` lines. It
+  asks for the environment, and for the context when the project has several.
+  Needs a `bynk` with the command (v0.436.0 or newer).
+
 ## [0.436.0] - 2026-10-29
 
 Built against `bynk` v0.436.0.

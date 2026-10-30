@@ -603,6 +603,11 @@
         "category": "Bynk"
       },
       {
+        "command": "bynk.tailLogs",
+        "title": "Tail Deployed Logs…",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.addDependency",
         "title": "Add Dependency…",
         "category": "Bynk",
@@ -852,6 +857,10 @@
         },
         {
           "command": "bynk.showDeployPlan",
+          "when": "(editorLangId == bynk || bynk.hasProject) && !isWeb"
+        },
+        {
+          "command": "bynk.tailLogs",
           "when": "(editorLangId == bynk || bynk.hasProject) && !isWeb"
         },
         {
