@@ -13,6 +13,7 @@ import * as vscode from "vscode";
 
 import { contextNames } from "./devEvents";
 import { killTree, OutputSink, spawnTree } from "./proc";
+import { activeProjectRoot } from "./projectRoots";
 import { bynkPath, compilerOverride } from "./tasks";
 
 /** The contexts the project's `.bynk` sources declare, sorted: what a
@@ -117,30 +118,5 @@ export function spawnBynk(
 /** Stop a `spawnBynk` child and its process tree. */
 export const stopTree = killTree;
 
-/** The directory of the nearest `bynk.toml`: walking up from the active `.bynk`
- *  file, then the workspace-folder roots. Mirrors the rooting in testing.ts and
- *  debug.ts, and the LSP's `find_project_root`. */
-export async function findProjectRoot(): Promise<vscode.Uri | undefined> {
-  const exists = async (uri: vscode.Uri): Promise<boolean> => {
-    try {
-      await vscode.workspace.fs.stat(uri);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  const active = vscode.window.activeTextEditor?.document;
-  if (active?.languageId === "bynk" && active.uri.scheme === "file") {
-    let dir = vscode.Uri.joinPath(active.uri, "..");
-    for (;;) {
-      if (await exists(vscode.Uri.joinPath(dir, "bynk.toml"))) return dir;
-      const parent = vscode.Uri.joinPath(dir, "..");
-      if (parent.path === dir.path) break;
-      dir = parent;
-    }
-  }
-  for (const folder of vscode.workspace.workspaceFolders ?? []) {
-    if (await exists(vscode.Uri.joinPath(folder.uri, "bynk.toml"))) return folder.uri;
-  }
-  return undefined;
-}
+/** The project the user is working in (see `activeProjectRoot`). */
+export const findProjectRoot = activeProjectRoot;

@@ -17,7 +17,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-import { bynkEnv } from "./cli";
+import { bynkEnv, findProjectRoot } from "./cli";
+import { projectRootFor } from "./projectRoots";
 import { killTree, spawnTree } from "./proc";
 import { bynkPath } from "./tasks";
 import { BYNK_DESCRIPTION_GENERATOR } from "./debugValues";
@@ -238,7 +239,9 @@ class BynkDebugProvider implements vscode.DebugConfigurationProvider {
     // An empty `launch.json` (or a bare F5) gives us a typeless config — default
     // it to a test-debug at the workspace, the headline flow.
     const mode: "test" | "dev" = config.mode === "dev" ? "dev" : "test";
-    const root = folder?.uri ?? (await findProjectRoot());
+    // A nested project holding the active file beats the folder `launch.json`
+    // belongs to (the folder is the fallback for a project at its root).
+    const root = (await nestedRoot(folder)) ?? folder?.uri ?? (await findProjectRoot());
     if (!root) {
       void vscode.window.showErrorMessage(
         "Bynk debug: no bynk.toml found in the workspace.",
@@ -486,29 +489,11 @@ async function waitForInspector(
   throw new Error(`timed out waiting for the inspector on port ${port}`);
 }
 
-/** The directory of the nearest `bynk.toml` — active `.bynk` file up, then the
- *  workspace-folder roots. Mirrors testing.ts / the LSP's `find_project_root`. */
-async function findProjectRoot(): Promise<vscode.Uri | undefined> {
-  const exists = async (uri: vscode.Uri): Promise<boolean> => {
-    try {
-      await vscode.workspace.fs.stat(uri);
-      return true;
-    } catch {
-      return false;
-    }
-  };
+/** The project root of the active `.bynk` file when it lies in `folder` (any
+ *  workspace folder when `folder` is unset). */
+async function nestedRoot(folder: vscode.WorkspaceFolder | undefined): Promise<vscode.Uri | undefined> {
   const active = vscode.window.activeTextEditor?.document;
-  if (active?.languageId === "bynk" && active.uri.scheme === "file") {
-    let dir = vscode.Uri.joinPath(active.uri, "..");
-    for (;;) {
-      if (await exists(vscode.Uri.joinPath(dir, "bynk.toml"))) return dir;
-      const parent = vscode.Uri.joinPath(dir, "..");
-      if (parent.path === dir.path) break;
-      dir = parent;
-    }
-  }
-  for (const folder of vscode.workspace.workspaceFolders ?? []) {
-    if (await exists(vscode.Uri.joinPath(folder.uri, "bynk.toml"))) return folder.uri;
-  }
-  return undefined;
+  if (active?.languageId !== "bynk" || active.uri.scheme !== "file") return undefined;
+  if (folder && vscode.workspace.getWorkspaceFolder(active.uri)?.uri.toString() !== folder.uri.toString()) return undefined;
+  return projectRootFor(active.uri);
 }

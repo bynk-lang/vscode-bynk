@@ -11,28 +11,7 @@
 import * as vscode from "vscode";
 
 import { missingUses, playgroundLink } from "./playgroundLink";
-
-/**
- * Whether `uri` sits under a folder holding a `bynk.toml`, looking no higher
- * than its workspace folder (or its own directory, outside any), so a stray
- * manifest in a parent such as the home directory doesn't count.
- */
-async function inProject(uri: vscode.Uri): Promise<boolean> {
-  const top = vscode.workspace.getWorkspaceFolder(uri)?.uri.path;
-  let dir = uri;
-  for (;;) {
-    const parent = vscode.Uri.joinPath(dir, "..");
-    if (parent.path === dir.path) return false;
-    dir = parent;
-    try {
-      await vscode.workspace.fs.stat(vscode.Uri.joinPath(dir, "bynk.toml"));
-      return true;
-    } catch {
-      // No manifest here; keep climbing.
-    }
-    if (top === undefined || dir.path === top) return false;
-  }
-}
+import { projectRootFor } from "./projectRoots";
 
 /** The link for the active editor, or `undefined` after telling the user why not. */
 async function linkForActiveEditor(): Promise<string | undefined> {
@@ -53,7 +32,7 @@ async function linkForActiveEditor(): Promise<string | undefined> {
           "other files will not resolve in the playground.",
       );
     }
-  } else if (await inProject(document.uri)) {
+  } else if ((await projectRootFor(document.uri)) !== undefined) {
     void vscode.window.showInformationMessage(
       "This file is part of a project, so it depends on other files. Select the code to share.",
     );

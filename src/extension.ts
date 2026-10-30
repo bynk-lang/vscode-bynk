@@ -47,6 +47,7 @@ import { registerFeatures } from "./features";
 import { ViewRefresh } from "./viewRefresh";
 import { StartQueue } from "./startQueue";
 import { registerProjectTree } from "./projectTree";
+import { activeProjectRoot, watchProjectRoots } from "./projectRoots";
 import type { LivePanel } from "./livePanel";
 
 let client: LanguageClient | undefined;
@@ -169,6 +170,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // `contributes.menus`) on "this workspace is a Bynk project". `when` clauses
   // cannot use the `workspaceContains:` activation predicate, so we mirror it as
   // a custom context key, kept live by a `bynk.toml` create/delete watcher.
+  watchProjectRoots(context);
   const tomlWatcher = vscode.workspace.createFileSystemWatcher("**/bynk.toml");
   tomlWatcher.onDidCreate(() => void refreshProjectContext());
   tomlWatcher.onDidDelete(() => void refreshProjectContext());
@@ -579,38 +581,9 @@ function updateProjectItem(): void {
   serverItem.show();
 }
 
-async function fileExists(uri: vscode.Uri): Promise<boolean> {
-  try {
-    await vscode.workspace.fs.stat(uri);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function findBynkToml(): Promise<vscode.Uri | undefined> {
-  // Walk upward from the active `.bynk` file to the nearest `bynk.toml`,
-  // mirroring the LSP's `find_project_root` (bynk-lsp/src/main.rs) — so a
-  // nested project (a `bynk.toml` below the workspace-folder root) is found,
-  // not just one at the root.
-  const active = vscode.window.activeTextEditor?.document;
-  if (active?.languageId === "bynk" && active.uri.scheme === "file") {
-    let dir = vscode.Uri.joinPath(active.uri, "..");
-    for (;;) {
-      const candidate = vscode.Uri.joinPath(dir, "bynk.toml");
-      if (await fileExists(candidate)) return candidate;
-      const parent = vscode.Uri.joinPath(dir, "..");
-      if (parent.path === dir.path) break; // reached the filesystem root
-      dir = parent;
-    }
-  }
-  // Fall back to the workspace-folder roots (covers a root-level project and
-  // the no-active-`.bynk`-file case).
-  for (const folder of vscode.workspace.workspaceFolders ?? []) {
-    const candidate = vscode.Uri.joinPath(folder.uri, "bynk.toml");
-    if (await fileExists(candidate)) return candidate;
-  }
-  return undefined;
+  const root = await activeProjectRoot();
+  return root && vscode.Uri.joinPath(root, "bynk.toml");
 }
 
 async function readProjectName(): Promise<string | undefined> {

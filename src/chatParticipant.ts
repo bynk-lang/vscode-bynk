@@ -31,7 +31,7 @@ import {
 } from "./chatCore";
 import { checkInProject, checkScratch } from "./chatCheck";
 import { relPath } from "./lmToolsCore";
-import { projectRootFor } from "./projectRoots";
+import { workspaceRootFor } from "./projectRoots";
 
 const PARTICIPANT_ID = "bynk.chat";
 export const APPLY_FIX_COMMAND = "bynk.chat.applyFix";
@@ -120,7 +120,7 @@ function depsFor(request: vscode.ChatRequest, token: vscode.CancellationToken): 
   const activeBynk = active?.languageId === "bynk" && active.uri.scheme === "file" ? active.uri : undefined;
   return {
     checkInProject: activeBynk
-      ? (_file, text) => checkInProject(activeBynk, text, token, projectRootFor)
+      ? (_file, text) => checkInProject(activeBynk, text, token, workspaceRootFor)
       : undefined,
     checkScratch: (source) => checkScratch(source, token),
     model: modelLike(request.model, token),

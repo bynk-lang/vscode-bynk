@@ -1165,7 +1165,13 @@
     ],
     "taskDefinitions": [
       {
-        "type": "bynkc"
+        "type": "bynkc",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "The project to check, as a path relative to the workspace folder (for a project nested below it). Omit for a project at the workspace folder."
+          }
+        }
       },
       {
         "type": "bynk",

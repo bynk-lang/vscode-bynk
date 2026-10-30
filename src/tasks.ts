@@ -9,6 +9,7 @@
 // only via `BYNK_BYNKC`, or sitting next to `bynk` off PATH) now works here too.
 
 import * as os from "node:os";
+import * as path from "node:path";
 import * as vscode from "vscode";
 
 import { reportBynkNotFound } from "./doctor";
@@ -42,19 +43,23 @@ export function compilerOverride(): string | undefined {
   return p || undefined;
 }
 
-/** The `bynkc: check` build task: `bynk check . --format short`, run at the
- *  workspace root, errors routed through `$bynkc`. */
-function checkTask(definition: vscode.TaskDefinition = { type: TASK_TYPE }): vscode.Task {
+/** The `bynkc: check` build task for one project: `bynk check <project>
+ *  --format short`, errors routed through `$bynkc`. `bynk` prints diagnostic
+ *  paths relative to where it runs, and the matcher resolves them against the
+ *  workspace folder (`${cwd}` there is not the task's `cwd`), so it runs *in*
+ *  the workspace folder and names a nested project as its argument. */
+function checkTask(folder?: vscode.WorkspaceFolder, project?: string): vscode.Task {
   const override = compilerOverride();
-  const exec = new vscode.ShellExecution(
-    bynkPath(),
-    ["check", ".", "--format", "short"],
-    override ? { env: { BYNK_BYNKC: override } } : undefined,
-  );
+  const cwd = (folder ?? vscode.workspace.workspaceFolders?.[0])?.uri.fsPath;
+  const exec = new vscode.ShellExecution(bynkPath(), ["check", project ?? ".", "--format", "short"], {
+    ...(cwd ? { cwd } : {}),
+    ...(override ? { env: { BYNK_BYNKC: override } } : {}),
+  });
+  const definition: vscode.TaskDefinition = project ? { type: TASK_TYPE, project } : { type: TASK_TYPE };
   const task = new vscode.Task(
     definition,
-    vscode.TaskScope.Workspace,
-    "check",
+    folder ?? vscode.TaskScope.Workspace,
+    project ? `check (${project})` : "check",
     "bynkc",
     exec,
     ["$bynkc"],
@@ -63,12 +68,51 @@ function checkTask(definition: vscode.TaskDefinition = { type: TASK_TYPE }): vsc
   return task;
 }
 
+/** The workspace folder `project` is under, for a task not scoped to one: the
+ *  first folder holding `project/bynk.toml`, else the first folder. */
+async function folderHolding(project: string | undefined): Promise<vscode.WorkspaceFolder | undefined> {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  if (!project) return folders[0];
+  for (const folder of folders) {
+    try {
+      await vscode.workspace.fs.stat(vscode.Uri.joinPath(folder.uri, project, "bynk.toml"));
+      return folder;
+    } catch {
+      /* not under this one */
+    }
+  }
+  return folders[0];
+}
+
+/** One check task per project in the workspace, a nested one checked by name. A workspace with no
+ *  manifest still gets the plain task. */
+async function checkTasks(): Promise<vscode.Task[]> {
+  const manifests = await vscode.workspace.findFiles("**/bynk.toml", "**/node_modules/**");
+  const tasks: vscode.Task[] = [];
+  for (const manifest of manifests) {
+    const folder = vscode.workspace.getWorkspaceFolder(manifest);
+    if (!folder) continue;
+    const project = path.posix.relative(folder.uri.path, path.posix.dirname(manifest.path));
+    tasks.push(checkTask(folder, project || undefined));
+  }
+  tasks.sort((a, b) => a.name.localeCompare(b.name));
+  return tasks.length > 0 ? tasks : [checkTask()];
+}
+
 export function registerTasks(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.tasks.registerTaskProvider(TASK_TYPE, {
-      provideTasks: () => [checkTask()],
-      resolveTask: (task) =>
-        task.definition.type === TASK_TYPE ? checkTask(task.definition) : undefined,
+      provideTasks: checkTasks,
+      resolveTask: async (task) => {
+        if (task.definition.type !== TASK_TYPE) return undefined;
+        const project = typeof task.definition.project === "string" ? task.definition.project : undefined;
+        const folder = typeof task.scope === "object" ? task.scope : await folderHolding(project);
+        const resolved = checkTask(folder, project);
+        // Keep the user's definition (their tasks.json entry) as written.
+        const out = new vscode.Task(task.definition, task.scope ?? vscode.TaskScope.Workspace, resolved.name, "bynkc", resolved.execution, ["$bynkc"]);
+        out.group = vscode.TaskGroup.Build;
+        return out;
+      },
     }),
     // #2095: `bynk` itself missing is the one gap the Doctor can't diagnose, so
     // say how to fix it. Found by resolving the executable as the task starts
