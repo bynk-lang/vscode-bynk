@@ -12,6 +12,13 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Bynk: Tail Deployed Logs…** streams a deployed Worker's logs with
+  `bynk tail`, in a terminal, with stack frames rewritten to `.bynk` lines. It
+  asks for the environment, and for the context when the project has several.
+  Needs a `bynk` with the command (v0.436.0 or newer).
+
 ### Changed
 
 - A save refreshes the project it is in, not the whole workspace. The Project
@@ -20,6 +27,14 @@ version).
   project that changed, a `bynk.toml` save rescans only the files under it for
   file decorations (bulk reads are bounded), and Show Compiled Output rebuilds
   only the views in the edited project, one compile per project.
+- Changing `bynk.executablePath` restarts the server.
+- `bynk.executablePath`, `bynk.bynkPath` and `bynk.dev.args` are
+  machine-scoped, so a workspace's settings cannot redirect them.
+- The pure unit tests run in plain Node (`npm run test:unit`), with a coverage
+  floor (`npm run test:unit:coverage`) and in CI right after the type check. The
+  webview renderers now have jsdom tests, including that markup in a name or
+  message renders as text.
+- The Mermaid live panels no longer keep their webview alive while hidden; they restore from the host when shown again.
 
 ### Fixed
 
@@ -27,19 +42,21 @@ version).
   left a view without highlighting until the next edit.
 - A `bynk migrate status` that started before a sweep can no longer put its
   pre-sweep answer back in the State Migrations cache.
-
-### Added
-
-- **Bynk: Tail Deployed Logs…** streams a deployed Worker's logs with
-  `bynk tail`, in a terminal, with stack frames rewritten to `.bynk` lines. It
-  asks for the environment, and for the context when the project has several.
-  Needs a `bynk` with the command (v0.436.0 or newer).
-
-### Fixed
-
 - Live panels (wire contract, agent state, sequence diagram and the rest) no longer show a stale render when commands or cursor moves overlap, and a refresh cut short by a cursor move into a handler with no model is redone.
 - Bynk Logs rebuilds its output channel once per buffer's worth of lines instead of on every line once the buffer is full.
 - Clicking through to a location in a view checks the message and reports a file that can no longer be opened, instead of failing silently.
+- The refined-type explorer evaluates predicates in a context with no host-realm objects (a mitigation: the real fix is the server sending predicates structurally).
+- Export OpenAPI saves only the unsaved `.bynk` files, not every dirty document.
+- The `@bynk` chat participant's Apply fix command rejects a malformed proposal with a message instead of throwing.
+- The Test CodeLens provider disposes its event subscriptions.
+- Starting and restarting the language server is serialized, so overlapping
+  restarts or a download no longer leave two servers running, and a successful
+  "Download Server" no longer shows "not running" (#31).
+- Activation no longer waits on the "no server" prompt or a server download;
+  the download can be cancelled and times out on a stalled connection (#31).
+- A language client that fails to start is no longer left assigned (#31).
+- The server's `--version` check no longer blocks the extension host, and the
+  status bar no longer shows a stale project name when editors switch quickly.
 - A debug session no longer freezes once the debugged CLI has written about
   64 KB: its output is read for the life of the session, and goes to the
   **Bynk Debug** output channel.
@@ -51,14 +68,6 @@ version).
   executable when the task starts (exit code 127 stays as a POSIX fallback).
 - The packaged VSIX no longer ships the compiled test build (`out/src/**`) when
   tests were built before packaging, and CI now fails if it would.
-
-### Changed
-
-- The Mermaid live panels no longer keep their webview alive while hidden; they restore from the host when shown again.
-- The pure unit tests run in plain Node (`npm run test:unit`), with a coverage
-  floor (`npm run test:unit:coverage`) and in CI right after the type check. The
-  webview renderers now have jsdom tests, including that markup in a name or
-  message renders as text.
 
 ## [0.436.0] - 2026-10-29
 

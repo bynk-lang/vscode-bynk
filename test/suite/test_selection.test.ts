@@ -18,7 +18,8 @@ import * as vscode from "vscode";
 
 import { applyDocument, type RunSink } from "../../src/testing";
 import { caseKey, planRun, type PlanCase, type TestRun } from "../../src/testPlan";
-import { FAKE_BYNK, useFakeBynk, waitFor, type FakeLogEntry } from "./fakeBynk";
+import { FAKE_BYNK, useFakeBynk, type FakeLogEntry } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 const FIXTURES = path.resolve(__dirname, "../../../test/fixtures");
 
@@ -301,7 +302,7 @@ describe("Run Tests in This File", () => {
     const from = fake.read().length;
 
     await vscode.commands.executeCommand("bynk.runTestsInFile", textFile);
-    await waitFor(() => runs(from).filter((a) => !a.includes("--suite")).length >= 3, "the per-case runs");
+    await waitFor(() => runs(from).filter((a) => !a.includes("--suite")).length >= 3, truthy, "the per-case runs");
 
     const ran = runs(from);
     assert.ok(ran[0].includes("--suite"), `the set was tried first: ${JSON.stringify(ran[0])}`);
@@ -312,7 +313,7 @@ describe("Run Tests in This File", () => {
     // And it remembers: the next run does not try the set again.
     const again = fake.read().length;
     await vscode.commands.executeCommand("bynk.runTestsInFile", textFile);
-    await waitFor(() => runs(again).length >= 3, "the second run's per-case processes");
+    await waitFor(() => runs(again).length >= 3, truthy, "the second run's per-case processes");
     assert.ok(
       runs(again).every((a) => !a.includes("--suite")),
       `no set was tried again, got ${JSON.stringify(runs(again))}`,
@@ -358,7 +359,7 @@ describe("Run Tests in This File", () => {
     const from = fake.read().length;
 
     await vscode.commands.executeCommand("testing.runAll");
-    await waitFor(() => runs(from).length > 0, "a project run");
+    await waitFor(() => runs(from).length > 0, truthy, "a project run");
 
     const ran = runs(from);
     assert.strictEqual(ran.length, 1, `one project run, got ${JSON.stringify(ran)}`);

@@ -7,7 +7,8 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 
-import { useFakeBynk, waitFor } from "./fakeBynk";
+import { useFakeBynk } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 interface Entry {
   label: string;
@@ -74,7 +75,7 @@ describe("Bynk State Migrations (#2468)", () => {
     if (process.platform === "win32") this.skip();
     this.timeout(30_000);
     await vscode.commands.executeCommand("bynk.migrate.sweep", { environment: "staging", context: "" });
-    await waitFor(() => planTabOpen("Bynk Sweep Plan: staging"), "the sweep plan");
+    await waitFor(() => planTabOpen("Bynk Sweep Plan: staging"), truthy, "the sweep plan");
     const runs = fake.read().filter((e) => e.argv?.[0] === "migrate");
     assert.ok(runs.every((r) => r.argv?.[1] === "status"), "only status ran");
     for (const r of runs) assert.ok(!r.argv!.includes("--yes"));

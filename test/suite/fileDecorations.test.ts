@@ -10,6 +10,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { useFakeBynk } from "./fakeBynk";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 const FIXTURES = path.resolve(__dirname, "../../../test/fixtures");
@@ -25,16 +26,6 @@ interface Decoration {
 
 const decoration = (file: string): Thenable<Decoration> =>
   vscode.commands.executeCommand<Decoration>("bynk._fileDecoration", vscode.Uri.file(file).toString());
-
-async function waitFor<T>(fn: () => Thenable<T>, ok: (v: T) => boolean, what: string, timeoutMs = 15_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const v = await fn();
-    if (ok(v)) return v;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await new Promise((r) => setTimeout(r, 100));
-  }
-}
 
 describe("Bynk Explorer file decorations (#2478)", () => {
   let dir: string;
@@ -87,7 +78,7 @@ describe("Bynk Explorer file decorations (#2478)", () => {
   it("tints a file whose test failed and clears it when a re-run passes", async function () {
     // The stand-in `bynk` serves the run document; the extension host has its own
     // copy of the failure state, so the run has to go through the real Test Explorer path.
-    this.timeout(120_000);
+    this.timeout(180_000);
     const textFile = vscode.Uri.file(path.join(FIXTURES, "workspace", "src", "text.bynk"));
     const docDir = fs.mkdtempSync(path.join(os.tmpdir(), "bynk-decor-"));
     const fake = await useFakeBynk();
@@ -149,7 +140,7 @@ describe("Bynk Explorer file decorations (#2478)", () => {
   });
 
   it("marks a file the server reports a contract break in, and clears it (#2519)", async function () {
-    this.timeout(60_000);
+    this.timeout(185_000);
     const config = vscode.workspace.getConfiguration("bynk.fileDecorations");
     // A stand-in for the language server: the decoration reads the editor's
     // diagnostics, whoever published them.

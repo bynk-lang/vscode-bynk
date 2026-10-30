@@ -19,15 +19,18 @@ function enabled(): boolean {
 
 class BynkTestCodeLensProvider implements vscode.CodeLensProvider {
   private readonly emitter = new vscode.EventEmitter<void>();
+  private readonly subscriptions: vscode.Disposable[] = [];
   readonly onDidChangeCodeLenses = this.emitter.event;
 
   constructor(private readonly api: TestApi) {
     // Refresh after a discovery settles, and when the toggle flips (so it takes
     // effect without reopening the file).
-    api.onDidChangeTests(() => this.emitter.fire());
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("bynk.testCodeLens")) this.emitter.fire();
-    });
+    this.subscriptions.push(
+      api.onDidChangeTests(() => this.emitter.fire()),
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration("bynk.testCodeLens")) this.emitter.fire();
+      }),
+    );
   }
 
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
@@ -53,6 +56,7 @@ class BynkTestCodeLensProvider implements vscode.CodeLensProvider {
   }
 
   dispose(): void {
+    for (const s of this.subscriptions) s.dispose();
     this.emitter.dispose();
   }
 }

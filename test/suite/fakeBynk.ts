@@ -47,16 +47,3 @@ export async function useFakeBynk(): Promise<{
     },
   };
 }
-
-/** Poll `cond` until it holds, or fail after `timeoutMs`. */
-export async function waitFor(
-  cond: () => boolean | Promise<boolean>,
-  what: string,
-  timeoutMs = 15_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!(await cond())) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, 100));
-  }
-}

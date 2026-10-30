@@ -6,7 +6,8 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 
-import { useFakeBynk, waitFor } from "./fakeBynk";
+import { useFakeBynk } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 const approvalProblems = () =>
   vscode.languages
@@ -48,7 +49,7 @@ describe("Bynk: Review Pending npm Requirements (#2473)", () => {
       const started = nextTask(vscode.tasks.onDidStartTask);
       await vscode.commands.executeCommand("bynk.startDevServer");
       await started;
-      await waitFor(() => approvalProblems().length === 2, "the pending packages in Problems");
+      await waitFor(() => approvalProblems().length === 2, truthy, "the pending packages in Problems");
       const messages = approvalProblems().map((d) => d.message);
       assert.ok(messages.some((m) => m.includes("`jose` ^6.0.0")));
       assert.ok(messages.some((m) => m.includes("`left-pad` ^1.3.0")));
@@ -71,6 +72,7 @@ describe("Bynk: Review Pending npm Requirements (#2473)", () => {
     await vscode.commands.executeCommand("bynk.approveRequirements");
     await waitFor(
       () => vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.label === "Bynk: npm Requirements")),
+      truthy,
       "the review panel",
     );
   });
@@ -86,7 +88,7 @@ describe("Bynk: Review Pending npm Requirements (#2473)", () => {
     const panelOpen = () =>
       vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.label === "Bynk: npm Requirements"));
     await vscode.commands.executeCommand("bynk.approveRequirements");
-    await waitFor(panelOpen, "the review panel");
+    await waitFor(panelOpen, truthy, "the review panel");
 
     // A package the listing does not have pending is ignored.
     await vscode.commands.executeCommand("bynk._approveAction", "approve", { package: "zod" }, false);

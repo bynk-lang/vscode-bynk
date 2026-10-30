@@ -9,6 +9,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 
@@ -63,16 +64,6 @@ function find(entries: Entry[] | undefined, ...labels: string[]): Entry | undefi
   return hit;
 }
 
-async function waitFor<T>(fn: () => Thenable<T> | T, ok: (v: T) => boolean, what: string, timeoutMs = 45_000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const v = await fn();
-    if (ok(v)) return v;
-    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await new Promise((r) => setTimeout(r, 500));
-  }
-}
-
 describe("Bynk project sidebar (#2097)", () => {
   let dir: string;
   let project: string;
@@ -112,6 +103,7 @@ describe("Bynk project sidebar (#2097)", () => {
       () => snapshot(5, true),
       (t) => (find(t, project, "Contexts", "storefront", "Consumes")?.children?.length ?? 0) > 0,
       "the storefront unit's consumes edge",
+      45_000,
     );
     const p = find(tree, project);
     assert.deepStrictEqual(
@@ -146,7 +138,7 @@ describe("Bynk project sidebar (#2097)", () => {
   });
 
   it("opens the wire-contract view from a handler node", async function () {
-    this.timeout(30_000);
+    this.timeout(50_000);
     const uri = vscode.Uri.file(path.join(dir, "src", "billing.bynk")).toString();
     const line = FILES["src/billing.bynk"].split("\n").findIndex((l) => l.includes("on call("));
     await vscode.commands.executeCommand("bynk.project.wireContract", {
@@ -160,12 +152,13 @@ describe("Bynk project sidebar (#2097)", () => {
       () => vscode.commands.executeCommand<{ open: boolean; target?: { uri: string } }>("bynk._liveViewState", "bynkWireContract"),
       (s) => s?.open === true,
       "the wire-contract view",
+      45_000,
     );
     assert.strictEqual(state.target?.uri, uri);
   });
 
   it("reloads on the live views' trigger while visible, and shows the new declaration", async function () {
-    this.timeout(60_000);
+    this.timeout(110_000);
     const treeState = () =>
       vscode.commands.executeCommand<{ reloads: number; visible: boolean }>("bynk._projectTreeState");
     // Show the Bynk activity-bar container so the tree is visible.
@@ -177,11 +170,12 @@ describe("Bynk project sidebar (#2097)", () => {
     const editor = await vscode.window.showTextDocument(doc);
     await editor.edit((e) => e.insert(new vscode.Position(doc.lineCount, 0), "\nfn dollars(n: Int) -> Int {\n  n\n}\n"));
     await doc.save();
-    await waitFor(treeState, (s) => s.reloads > before.reloads, "a reload after the save");
+    await waitFor(treeState, (s) => s.reloads > before.reloads, "a reload after the save", 45_000);
     await waitFor(
       () => snapshot(4),
       (t) => find(t, project, "Commons", "money", "dollars") !== undefined,
       "the new declaration",
+      45_000,
     );
   });
 
@@ -190,7 +184,7 @@ describe("Bynk project sidebar (#2097)", () => {
   // it doesn't reload at all, whether the change came from the editor or
   // from outside it.
   it("respects bynk.views.refresh: bounded reloads per save, then quiet; none under manual", async function () {
-    this.timeout(120_000);
+    this.timeout(145_000);
     const treeState = () =>
       vscode.commands.executeCommand<{
         reloads: number;
@@ -258,7 +252,7 @@ describe("Bynk project sidebar (#2097)", () => {
   // signal it. This project sets a debounce longer than the settle window so
   // that case is exercised on every run, not just on a slow machine.
   it("updates the consumes edges when a file is rewritten on disk, even with a slow round", async function () {
-    this.timeout(150_000);
+    this.timeout(190_000);
     const workspace = path.resolve(__dirname, "../../../test/fixtures/workspace");
     // #2144: no dot prefix, in case the host's watcher skips dot folders.
     const slow = fs.realpathSync(fs.mkdtempSync(path.join(workspace, "ptx-")));

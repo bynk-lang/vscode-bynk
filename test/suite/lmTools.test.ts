@@ -11,6 +11,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { useFakeBynk } from "./fakeBynk";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 
@@ -34,26 +35,18 @@ async function invoke(name: string, input: object): Promise<string> {
 }
 
 /** Invoke until `ok` holds: the server analyses asynchronously. */
-async function invokeUntil(
+function invokeUntil(
   name: string,
   input: object,
   ok: (text: string) => boolean,
   timeoutMs = 40_000,
 ): Promise<string> {
-  const start = Date.now();
-  for (;;) {
-    let text = "";
-    try {
-      text = await invoke(name, input);
-    } catch (e) {
-      text = String(e);
-    }
-    if (ok(text)) return text;
-    if (Date.now() - start > timeoutMs) {
-      throw new Error(`timed out after ${timeoutMs}ms waiting on ${name}; last result:\n${text}`);
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
+  return waitFor(
+    () => invoke(name, input).catch((e) => String(e)),
+    ok,
+    `${name} to answer`,
+    timeoutMs,
+  );
 }
 
 describe("Bynk language-model tools (#2463)", () => {
