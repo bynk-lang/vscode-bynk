@@ -12,12 +12,14 @@
 //   - test  → `bynk test --inspect`  (Node `--inspect-brk`, type-stripped `.ts`)
 //   - dev   → `bynk dev  --inspect`  (workerd via `wrangler dev --inspector-port`)
 
-import { spawn, ChildProcess } from "node:child_process";
+import { ChildProcess } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-import { bynkPath, compilerOverride } from "./tasks";
+import { bynkEnv } from "./cli";
+import { killTree, spawnTree } from "./proc";
+import { bynkPath } from "./tasks";
 import { BYNK_DESCRIPTION_GENERATOR } from "./debugValues";
 import { devServerRunning, stopDevServer } from "./devServer";
 import { launchFailureAction } from "./cliCore";
@@ -177,7 +179,13 @@ export function registerDebug(context: vscode.ExtensionContext): void {
         sidecarLabels.delete(key);
       }
     }),
-    { dispose: () => children.forEach((_, k) => killChild(children, k)) },
+    {
+      dispose: () => {
+        children.forEach((_, k) => killChild(children, k));
+        debugOutput?.dispose();
+        debugOutput = undefined;
+      },
+    },
   );
 }
 
@@ -336,7 +344,7 @@ class BynkDebugProvider implements vscode.DebugConfigurationProvider {
     if (filter.caseName) args.push("--case", filter.caseName);
     for (const suite of filter.suites ?? []) args.push("--suite", suite);
     for (const name of filter.cases ?? []) args.push("--case", name);
-    const child = spawnCli(bynkPath(), args, root.fsPath, compilerOverride());
+    const child = spawnCli(args, root.fsPath);
     const key = trackChild(this.children, child);
     try {
       const port = await waitForInspectorUrl(child, 30_000);
@@ -366,7 +374,7 @@ class BynkDebugProvider implements vscode.DebugConfigurationProvider {
     if (typeof config.context === "string" && config.context) {
       args.push("--context", config.context);
     }
-    const child = spawnCli(bynkPath(), args, root.fsPath);
+    const child = spawnCli(args, root.fsPath);
     const key = trackChild(this.children, child);
     try {
       await waitForInspector(port, child, 60_000);
@@ -382,17 +390,16 @@ class BynkDebugProvider implements vscode.DebugConfigurationProvider {
 // Process + inspector plumbing
 // ---------------------------------------------------------------------------
 
-/** Spawn a CLI in its own process group (`detached`) so killing it later takes
- *  the whole tree (bynkc→node, bynk→wrangler→workerd) with it. `bynkc` is
- *  passed through as `BYNK_BYNKC` (the `bynk.compilerPath` setting) so a
- *  pinned `bynkc` still applies now that `bynk` is what gets spawned. */
-function spawnCli(command: string, args: string[], cwd: string, bynkc?: string): ChildProcess {
-  return spawn(command, args, {
-    cwd,
-    detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: bynkc ? { ...process.env, BYNK_BYNKC: bynkc } : undefined,
-  });
+let debugOutput: vscode.OutputChannel | undefined;
+
+/** Spawn `bynk` through the shared `spawnTree`, so killing it later takes the
+ *  whole tree (bynkc→node, bynk→wrangler→workerd) with it and its output is
+ *  drained for the life of the session (an unread pipe freezes the debuggee once
+ *  it fills, #30). What it writes goes to the "Bynk Debug" output channel.
+ *  `bynkEnv` passes `bynk.compilerPath` through as `BYNK_BYNKC`. */
+function spawnCli(args: string[], cwd: string): ChildProcess {
+  debugOutput ??= vscode.window.createOutputChannel("Bynk Debug");
+  return spawnTree(bynkPath(), args, { cwd, env: bynkEnv(), output: debugOutput });
 }
 
 let childSeq = 0;
@@ -405,17 +412,7 @@ function trackChild(children: Map<string, ChildProcess>, child: ChildProcess): s
 function killChild(children: Map<string, ChildProcess>, key: string): void {
   const child = children.get(key);
   children.delete(key);
-  if (!child || child.killed || child.pid === undefined) return;
-  try {
-    // Negative pid → signal the whole process group (see `detached` above).
-    process.kill(-child.pid, "SIGTERM");
-  } catch {
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      /* already gone */
-    }
-  }
+  if (child) killTree(child);
 }
 
 /** Resolve with the inspector port parsed from a `ws://host:port/…` line on the
