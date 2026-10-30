@@ -25,6 +25,15 @@ version).
 - Export OpenAPI saves only the unsaved `.bynk` files, not every dirty document.
 - The `@bynk` chat participant's Apply fix command rejects a malformed proposal with a message instead of throwing.
 - The Test CodeLens provider disposes its event subscriptions.
+- The packaged VSIX no longer ships the compiled test build (`out/src/**`) when
+  tests were built before packaging, and CI now fails if it would.
+
+### Changed
+
+- The pure unit tests run in plain Node (`npm run test:unit`), with a coverage
+  floor (`npm run test:unit:coverage`) and in CI right after the type check. The
+  webview renderers now have jsdom tests, including that markup in a name or
+  message renders as text.
 
 ## [0.436.0] - 2026-10-29
 

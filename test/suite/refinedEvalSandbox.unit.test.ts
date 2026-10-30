@@ -71,30 +71,42 @@ describe("refinedEval sandbox (unit)", () => {
   });
 
   describe("hostile payloads return within the time limit", () => {
-    const bounded = (check: string): void => {
+    // Hostile code that hangs inside the context is stopped as a timeout; one that
+    // only throws, or breaks out of its wrapper, is an error. Neither hangs the host.
+    const bounded = (check: string, expected: "timeout" | "throws"): void => {
       const t0 = Date.now();
+      let kind = "none";
       try {
-        evaluateClauses([clause(check)], "a", 100);
+        kind = evaluateClauses([clause(check)], "a", 100).kind;
       } catch {
-        // a thrown verdict is fine; hanging is not
+        kind = "throws";
       }
       assert.ok(Date.now() - t0 < 2000, `${check} took ${Date.now() - t0}ms`);
+      assert.strictEqual(kind, expected, check);
     };
 
     it("a queued microtask loop", () => {
-      bounded("(Promise.resolve().then(function () { for (;;) {} }), true)");
+      bounded("(Promise.resolve().then(function () { for (;;) {} }), true)", "timeout");
     });
 
     it("a thrown object with a hostile getter", () => {
-      bounded('(function () { throw { get code() { for (;;) {} }, get name() { for (;;) {} } }; })()');
+      bounded('(function () { throw { get code() { for (;;) {} }, get name() { for (;;) {} } }; })()', "timeout");
     });
 
     it("a thrown object with a hostile toString", () => {
-      bounded('(function () { throw { toString: function () { for (;;) {} } }; })()');
+      bounded('(function () { throw { toString: function () { for (;;) {} } }; })()', "throws");
     });
 
     it("a thrown Proxy", () => {
-      bounded('(function () { throw new Proxy({}, { get: function () { for (;;) {} }, getPrototypeOf: function () { for (;;) {} } }); })()');
+      bounded('(function () { throw new Proxy({}, { get: function () { for (;;) {} }, getPrototypeOf: function () { for (;;) {} } }); })()', "timeout");
+    });
+
+    it("a predicate that breaks out of its wrapper and throws a hostile value", () => {
+      bounded('true; })(); throw { get code() { for (;;) {} } }; (function () { 1', "throws");
+    });
+
+    it("a syntax error is not a timeout", () => {
+      bounded("value >=", "throws");
     });
   });
 

@@ -8,6 +8,7 @@
 // may require only `vscode`, the worker nothing at all (a browser has no Node
 // builtins to fall back on), and the two bundles and the wasm module stay within
 // their size budgets (DECISION C).
+import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
 
@@ -70,7 +71,38 @@ function checkWeb() {
   console.log("Web bundle OK — self-contained and within budget.");
 }
 
-if (process.argv.includes("--web")) {
+// With `--package` it checks what `vsce package` would ship (#39). The VSIX
+// must hold only the bundles under `out/` (the extension, its webview
+// bundles, and the web build) and no sources, compiled test output or repo
+// tooling (anything outside the top-level entries below): `npm test` compiles the pure modules to `out/src/`, which a stale
+// `.vscodeignore` would silently ship.
+function checkPackage() {
+  const files = execFileSync("npx", ["--no", "vsce", "ls", "--no-dependencies"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  })
+    .split(/\r?\n/)
+    .filter(Boolean);
+  const allowedOut = /^out\/(?:[\w-]+\.js|web\/.+)$/;
+  const shipped = /^(?:out|assets|snippets|syntaxes|themes|walkthroughs)\/|^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE(?:-\w+)?(?:\.md)?|language-configuration\.json)$/;
+  const stray = files.filter((f) => !shipped.test(f) || (f.startsWith("out/") && !allowedOut.test(f)));
+  if (stray.length > 0) {
+    console.error(`The VSIX would ship ${stray.length} stray file(s):`);
+    for (const f of stray.slice(0, 20)) console.error(`  ${f}`);
+    if (stray.length > 20) console.error(`  … and ${stray.length - 20} more`);
+    console.error("Exclude them in .vscodeignore.");
+    process.exit(1);
+  }
+  if (!files.includes("out/extension.js")) {
+    console.error("The VSIX would not ship out/extension.js. Run `npm run build` first.");
+    process.exit(1);
+  }
+  console.log(`Package OK — ${files.length} files, no stray build output.`);
+}
+
+if (process.argv.includes("--package")) {
+  checkPackage();
+} else if (process.argv.includes("--web")) {
   checkWeb();
 } else {
   checkNode();

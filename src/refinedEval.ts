@@ -15,6 +15,7 @@
 // `prepareStackTrace` cannot be hooked, string `eval` is off, and a time limit
 // stops a slow pattern hanging the extension host.
 
+import { types } from "node:util";
 import * as vm from "node:vm";
 
 import type { CandidateVerdict, RefinedClause, RefinedModel } from "./webview/refinedTypes";
@@ -59,6 +60,15 @@ const PRELUDE =
   '"use strict"; Object.freeze(Error);' +
   ' Object.defineProperty(globalThis, "Error", { value: Error, writable: false, configurable: false });';
 
+/** Whether `err` is vm's own time-out error. A thrown value from the context
+ *  may be a `Proxy` or carry getters, so this reads it without running any of
+ *  its code: `isNativeError` is false for a `Proxy`, and a property descriptor
+ *  is read without calling a getter. */
+function isTimeout(err: unknown): boolean {
+  if (!types.isNativeError(err)) return false;
+  return Object.getOwnPropertyDescriptor(err, "code")?.value === "ERR_SCRIPT_EXECUTION_TIMEOUT";
+}
+
 /** `value` as source text for the context to evaluate, so the candidate is
  *  created inside it rather than passed in from the host. */
 function valueLiteral(value: bigint | number | string): string {
@@ -100,9 +110,11 @@ export function evaluateClauses(
         context,
         { timeout: timeoutMs },
       );
-    } catch {
-      // Only a time-out (or a predicate that broke out of its wrapper) gets here.
-      return { kind: "timeout" };
+    } catch (err) {
+      if (isTimeout(err)) return { kind: "timeout" };
+      // A compile error, or a predicate that threw past its wrapper: nothing
+      // about the thrown value is read.
+      throw new Error("the predicate could not be run");
     }
     if (typeof outcome === "string") throw new Error(`the predicate ${outcome}`);
     const holds = outcome;
