@@ -6,7 +6,8 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 
-import { useFakeBynk, waitFor } from "./fakeBynk";
+import { useFakeBynk } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 function planTabOpen(env: string): boolean {
   return vscode.window.tabGroups.all.some((g) =>
@@ -30,7 +31,7 @@ describe("Bynk deploy plan (#2101)", () => {
     if (process.platform === "win32") this.skip();
     this.timeout(30_000);
     await vscode.commands.executeCommand("bynk.showDeployPlan", { environment: "staging", context: "" });
-    await waitFor(() => planTabOpen("staging"), "the plan view");
+    await waitFor(() => planTabOpen("staging"), truthy, "the plan view");
 
     const runs = fake.read().filter((e) => e.argv?.[0] === "deploy");
     assert.strictEqual(runs.length, 1);

@@ -12,7 +12,8 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { FAKE_BYNK, useFakeBynk, waitFor, type FakeLogEntry } from "./fakeBynk";
+import { FAKE_BYNK, useFakeBynk, type FakeLogEntry } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 const FIXTURES = path.resolve(__dirname, "../../../test/fixtures");
 
@@ -83,7 +84,7 @@ describe("Watch (continuous test runs)", () => {
     const from = fake.read().length;
 
     await editorSave("// watch probe, saved\n");
-    await waitFor(() => since(from).runs.length >= 1, "the rerun after a save");
+    await waitFor(() => since(from).runs.length >= 1, truthy, "the rerun after a save");
     // The editor's save and the file watcher both report it; the quiet period folds
     // them into one rerun. Wait well past it before counting.
     await sleep(5_000);
@@ -125,7 +126,7 @@ describe("Watch (continuous test runs)", () => {
     await editorSave("// burst 2\n");
     await sleep(200);
     await editorSave("// burst 3\n");
-    await waitFor(() => since(from).runs.length >= 1, "the rerun after the burst");
+    await waitFor(() => since(from).runs.length >= 1, truthy, "the rerun after the burst");
     await sleep(5_000);
 
     assert.strictEqual(since(from).runs.length, 1, "three saves inside the quiet period are one rerun");
@@ -138,7 +139,7 @@ describe("Watch (continuous test runs)", () => {
     const from = fake.read().length;
 
     fs.writeFileSync(probe, "// changed on disk\n");
-    await waitFor(() => since(from).runs.length >= 1, "the rerun after an external change");
+    await waitFor(() => since(from).runs.length >= 1, truthy, "the rerun after an external change");
     await sleep(3_000);
 
     assert.strictEqual(since(from).runs.length, 1);
@@ -166,11 +167,11 @@ describe("Watch (continuous test runs)", () => {
     const from = fake.read().length;
 
     await editorSave("// first change\n");
-    await waitFor(() => since(from).events.includes("run"), "the first run to start");
+    await waitFor(() => since(from).events.includes("run"), truthy, "the first run to start");
     await sleep(1_000); // it is now in flight
     await editorSave("// second change, during the run\n");
 
-    await waitFor(() => since(from).runs.length >= 2, "the replacement run", 30_000);
+    await waitFor(() => since(from).runs.length >= 2, truthy, "the replacement run", 30_000);
     // The cancelled run was killed, and only then did the next one start.
     assert.deepStrictEqual(since(from).events.slice(0, 3), ["run", "SIGTERM", "run"]);
   });

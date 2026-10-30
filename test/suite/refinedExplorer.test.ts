@@ -10,6 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 
@@ -18,23 +19,6 @@ interface Model {
   base: string;
   clauses: Array<{ source: string; description: string; check: string }>;
   examples: string[];
-}
-
-async function waitFor<T>(
-  fn: () => Thenable<T | undefined>,
-  ok: (value: T) => boolean,
-  what: string,
-  timeoutMs = 40_000,
-): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const value = await fn();
-    if (value !== undefined && ok(value)) return value;
-    if (Date.now() - start > timeoutMs) {
-      throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`);
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
 }
 
 describe("Bynk refined-type explorer (#2470)", () => {
@@ -64,8 +48,9 @@ describe("Bynk refined-type explorer (#2470)", () => {
     const at = doc.positionAt(source.indexOf("Quantity)") + 1);
     const hovers = await waitFor(
       () => vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", doc.uri, at),
-      (list) => list.some((h) => h.contents.some((c) => typeof c !== "string" && "value" in c && c.value.includes("Try values"))),
+      (list) => !!list?.some((h) => h.contents.some((c) => typeof c !== "string" && "value" in c && c.value.includes("Try values"))),
       "the refined type's hover",
+      40_000,
     );
     const md = hovers
       .flatMap((h) => h.contents)

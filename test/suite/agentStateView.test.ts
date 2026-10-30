@@ -8,6 +8,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 const VIEW = "bynkAgentState";
@@ -71,16 +72,6 @@ function state(): Thenable<Snapshot> {
   return vscode.commands.executeCommand<Snapshot>("bynk._liveViewState", VIEW);
 }
 
-async function waitFor<T>(fn: () => Thenable<T> | T, ok: (v: T) => boolean, what: string, timeoutMs = 30_000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const v = await fn();
-    if (ok(v)) return v;
-    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await new Promise((r) => setTimeout(r, 200));
-  }
-}
-
 function lineOf(needle: string): number {
   return SRC.split("\n").findIndex((l) => l.includes(needle));
 }
@@ -129,13 +120,14 @@ describe("agent state view (#2196)", () => {
   });
 
   it("offers one Show State lens per agent", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     const lenses = await waitFor(
       async () =>
         ((await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)) ?? [])
           .filter((l) => l.command?.command === "bynk.showAgentState"),
       (l) => l.length >= 2,
       "the Show State lenses",
+      30_000,
     );
     assert.deepStrictEqual(
       lenses.map((l) => l.range.start.line).sort((a, b) => a - b),
@@ -150,22 +142,22 @@ describe("agent state view (#2196)", () => {
   });
 
   it("moves the highlight within the agent without re-requesting its model", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     editor = await vscode.window.showTextDocument(editor.document, vscode.ViewColumn.One);
     const before = await state();
     const inCancel = new vscode.Position(lineOf("status := Cancelled"), 8);
     editor.selection = new vscode.Selection(inCancel, inCancel);
-    const after = await waitFor(() => state(), (s) => s.focus === "cancel", "the highlight to move");
+    const after = await waitFor(() => state(), (s) => s.focus === "cancel", "the highlight to move", 30_000);
     assert.strictEqual(after.handler, before.handler, "still the same agent");
     assert.strictEqual(after.updates, before.updates, "no new model was rendered");
   });
 
   it("retargets to another agent, which has no state field", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     const before = await state();
     const inBump = new vscode.Position(lineOf("total := total + 1"), 6);
     editor.selection = new vscode.Selection(inBump, inBump);
-    const after = await waitFor(() => state(), (s) => s.handler !== before.handler, "a retarget to Counter");
+    const after = await waitFor(() => state(), (s) => s.handler !== before.handler, "a retarget to Counter", 30_000);
     assert.ok(after.handler?.includes("#Counter@"), `keyed on Counter: ${after.handler}`);
     assert.ok(after.hasPayload, "an agent with no state field still has a (machine-free) model");
     assert.strictEqual(after.focus, "bump");

@@ -228,12 +228,53 @@ export function expectedSha(sumsText: string, basename: string): string | undefi
   return undefined;
 }
 
-async function fetchBuffer(url: string): Promise<Buffer> {
-  const res = await fetch(url, { redirect: "follow" });
-  if (!res.ok) {
-    throw new Error(`GET ${url} → ${res.status} ${res.statusText}`);
+/** A download is abandoned when no bytes arrive for this long: a slow but
+ *  healthy transfer keeps resetting it, a stalled one doesn't. */
+const STALL_TIMEOUT_MS = 60_000;
+
+/** Thrown when the user (or a superseding start) cancels a download. */
+export class DownloadCancelled extends Error {
+  constructor() {
+    super("download cancelled");
   }
-  return Buffer.from(await res.arrayBuffer());
+}
+
+async function fetchBuffer(url: string, cancel?: AbortSignal): Promise<Buffer> {
+  const abort = new AbortController();
+  let stalled = false;
+  let timer: NodeJS.Timeout | undefined;
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      stalled = true;
+      abort.abort();
+    }, STALL_TIMEOUT_MS);
+  };
+  const onCancel = () => abort.abort();
+  if (cancel?.aborted) throw new DownloadCancelled();
+  cancel?.addEventListener("abort", onCancel);
+  arm();
+  try {
+    const res = await fetch(url, { redirect: "follow", signal: abort.signal });
+    if (!res.ok) {
+      throw new Error(`GET ${url} → ${res.status} ${res.statusText}`);
+    }
+    const chunks: Uint8Array[] = [];
+    if (res.body) {
+      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+        chunks.push(chunk);
+        arm();
+      }
+    }
+    return Buffer.concat(chunks);
+  } catch (e) {
+    if (cancel?.aborted) throw new DownloadCancelled();
+    if (stalled) throw new Error(`GET ${url} stalled: no data for ${STALL_TIMEOUT_MS / 1000}s`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    cancel?.removeEventListener("abort", onCancel);
+  }
 }
 
 /** Download, verify and cache `tools` for this platform and the extension's
@@ -245,6 +286,7 @@ async function downloadTools(
   output: vscode.OutputChannel,
   tools: readonly Tool[],
   what: string,
+  cancel?: AbortSignal,
 ): Promise<Map<Tool, string>> {
   const target = targetTriple();
   if (!target) {
@@ -262,43 +304,54 @@ async function downloadTools(
     {
       location: vscode.ProgressLocation.Notification,
       title: `Bynk: downloading ${what} ${version} (${target})`,
-      cancellable: false,
+      cancellable: true,
     },
-    async () => {
-      output.appendLine(`${log} fetching ${base}/SHA256SUMS`);
-      const sums = (await fetchBuffer(`${base}/SHA256SUMS`)).toString("utf8");
+    async (_progress, token) => {
+      const abort = new AbortController();
+      const sub = token?.onCancellationRequested(() => abort.abort());
+      const onCancel = () => abort.abort();
+      if (cancel?.aborted) abort.abort();
+      cancel?.addEventListener("abort", onCancel);
+      const signal = abort.signal;
+      try {
+        output.appendLine(`${log} fetching ${base}/SHA256SUMS`);
+        const sums = (await fetchBuffer(`${base}/SHA256SUMS`, signal)).toString("utf8");
 
-      const verified: [Tool, Buffer][] = [];
-      for (const tool of tools) {
-        const asset = toolAssetName(tool, target);
-        const want = expectedSha(sums, asset);
-        if (!want) {
-          throw new Error(`SHA256SUMS has no entry for ${asset}`);
+        const verified: [Tool, Buffer][] = [];
+        for (const tool of tools) {
+          const asset = toolAssetName(tool, target);
+          const want = expectedSha(sums, asset);
+          if (!want) {
+            throw new Error(`SHA256SUMS has no entry for ${asset}`);
+          }
+          output.appendLine(`${log} fetching ${base}/${asset}`);
+          const bin = await fetchBuffer(`${base}/${asset}`, signal);
+          const got = crypto.createHash("sha256").update(bin).digest("hex");
+          if (got !== want) {
+            throw new Error(
+              `checksum mismatch for ${asset}: expected ${want}, got ${got}`,
+            );
+          }
+          verified.push([tool, bin]);
         }
-        output.appendLine(`${log} fetching ${base}/${asset}`);
-        const bin = await fetchBuffer(`${base}/${asset}`);
-        const got = crypto.createHash("sha256").update(bin).digest("hex");
-        if (got !== want) {
-          throw new Error(
-            `checksum mismatch for ${asset}: expected ${want}, got ${got}`,
-          );
-        }
-        verified.push([tool, bin]);
-      }
 
-      const paths = new Map<Tool, string>();
-      for (const [tool, bin] of verified) {
-        const dest = cachedToolPath(context, version, target, tool);
-        await fs.promises.mkdir(path.dirname(dest), { recursive: true });
-        // Write-then-rename so a crash mid-write can't poison the cache with a
-        // truncated binary (the resolvers trust an existing file).
-        const tmp = `${dest}.tmp-${process.pid}-${crypto.randomUUID()}`;
-        await fs.promises.writeFile(tmp, bin, { mode: 0o755 });
-        await fs.promises.rename(tmp, dest);
-        output.appendLine(`${log} cached at ${dest}`);
-        paths.set(tool, dest);
+        const paths = new Map<Tool, string>();
+        for (const [tool, bin] of verified) {
+          const dest = cachedToolPath(context, version, target, tool);
+          await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+          // Write-then-rename so a crash mid-write can't poison the cache with a
+          // truncated binary (the resolvers trust an existing file).
+          const tmp = `${dest}.tmp-${process.pid}-${crypto.randomUUID()}`;
+          await fs.promises.writeFile(tmp, bin, { mode: 0o755 });
+          await fs.promises.rename(tmp, dest);
+          output.appendLine(`${log} cached at ${dest}`);
+          paths.set(tool, dest);
+        }
+        return paths;
+      } finally {
+        sub?.dispose();
+        cancel?.removeEventListener("abort", onCancel);
       }
-      return paths;
     },
   );
 }
@@ -309,8 +362,9 @@ async function downloadTools(
 export async function downloadServer(
   context: vscode.ExtensionContext,
   output: vscode.OutputChannel,
+  cancel?: AbortSignal,
 ): Promise<string> {
-  const paths = await downloadTools(context, output, ["bynkc-lsp"], "language server");
+  const paths = await downloadTools(context, output, ["bynkc-lsp"], "language server", cancel);
   return paths.get("bynkc-lsp")!;
 }
 
@@ -352,15 +406,12 @@ export function userSuppliedBynk(): boolean {
 }
 
 /** The server's `--version` string, or undefined if it can't be run. */
-export function readServerVersion(serverPath: string): string | undefined {
-  try {
-    return cp
-      .spawnSync(serverPath, ["--version"], { timeout: 2000 })
-      .stdout?.toString("utf8")
-      .trim();
-  } catch {
-    return undefined;
-  }
+export function readServerVersion(serverPath: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    cp.execFile(serverPath, ["--version"], { timeout: 2000 }, (err, stdout) =>
+      resolve(err ? undefined : stdout.trim()),
+    );
+  });
 }
 
 /** Pull a bare `MAJOR.MINOR.PATCH` out of a version string, tolerating a

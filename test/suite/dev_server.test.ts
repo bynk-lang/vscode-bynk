@@ -6,7 +6,8 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 
-import { useFakeBynk, waitFor } from "./fakeBynk";
+import { useFakeBynk } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 function nextTask(
   event: vscode.Event<vscode.TaskStartEvent | vscode.TaskEndEvent>,
@@ -49,7 +50,7 @@ describe("Bynk dev server (#2094)", () => {
     const execution = await started;
     assert.strictEqual(execution.task.definition.command, "dev");
 
-    await waitFor(() => fake.read().some((e) => e.argv?.[0] === "dev"), "the stand-in to start");
+    await waitFor(() => fake.read().some((e) => e.argv?.[0] === "dev"), truthy, "the stand-in to start");
     const argv = fake.read().find((e) => e.argv?.[0] === "dev")!.argv!;
     assert.deepStrictEqual(argv.slice(0, 3), ["dev", "--format", "json"]);
 
@@ -64,7 +65,7 @@ describe("Bynk dev server (#2094)", () => {
 
   it("puts a failing rebuild in Problems and clears it on the next good one", async function () {
     if (process.platform === "win32") this.skip();
-    this.timeout(45_000);
+    this.timeout(60_000);
     const devProblems = () =>
       vscode.languages
         .getDiagnostics()
@@ -77,11 +78,11 @@ describe("Bynk dev server (#2094)", () => {
       const started = nextTask(vscode.tasks.onDidStartTask);
       await vscode.commands.executeCommand("bynk.startDevServer");
       await started;
-      await waitFor(() => devProblems().length > 0, "the rebuild error in Problems");
+      await waitFor(() => devProblems().length > 0, truthy, "the rebuild error in Problems");
       const [diag] = devProblems();
       assert.strictEqual(diag.message, "fake rebuild error");
       assert.strictEqual(diag.code, "bynk.fake.rebuild");
-      await waitFor(() => devProblems().length === 0, "the good rebuild to clear Problems");
+      await waitFor(() => devProblems().length === 0, truthy, "the good rebuild to clear Problems");
       assert.ok(
         fake.read().some((e) => e.argv?.join(" ") === "check . --format short"),
         "the failing rebuild ran `bynk check . --format short`",
@@ -110,6 +111,7 @@ describe("Bynk dev server (#2094)", () => {
       );
       await waitFor(
         async () => (await lines()).some((l) => l.includes("slow handler")),
+        truthy,
         "the worker logs in the view",
       );
       const shown = await lines();

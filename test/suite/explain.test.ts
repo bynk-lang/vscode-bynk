@@ -10,6 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 const CODE = "bynk.resolve.unknown_type";
@@ -18,23 +19,6 @@ interface Explanation {
   title: string;
   markdown: string;
   href: string;
-}
-
-async function waitFor<T>(
-  fn: () => Thenable<T | undefined>,
-  ok: (value: T) => boolean,
-  what: string,
-  timeoutMs = 40_000,
-): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const value = await fn();
-    if (value !== undefined && ok(value)) return value;
-    if (Date.now() - start > timeoutMs) {
-      throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`);
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
 }
 
 describe("Bynk explain (#2098)", () => {
@@ -68,8 +52,9 @@ describe("Bynk explain (#2098)", () => {
           doc.uri,
           new vscode.Range(at, at),
         ),
-      (list) => list.some((a) => a.title === `Explain \`${CODE}\``),
+      (list) => !!list?.some((a) => a.title === `Explain \`${CODE}\``),
       "the Explain quick fix",
+      40_000,
     );
     const action = actions.find((a) => a.title === `Explain \`${CODE}\``)!;
     assert.strictEqual(action.kind?.value, "quickfix");
