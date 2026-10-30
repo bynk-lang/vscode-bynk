@@ -9,11 +9,16 @@ import { FlowScope, FlowTarget, LiveFlow } from "../../src/liveFlow";
 interface Deferred<T> {
   promise: Promise<T>;
   resolve(value: T): void;
+  reject(err: unknown): void;
 }
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => (resolve = r));
-  return { promise, resolve };
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 const tick = () => new Promise<void>((r) => setImmediate(r));
 
@@ -172,5 +177,87 @@ describe("LiveFlow", () => {
     h.requests[0].d.resolve("A");
     assert.strictEqual(await first, "superseded");
     assert.deepStrictEqual(h.rendered, ["B"]);
+  });
+
+  it("does not let a failed retarget supersede a newer show with a re-issue", async () => {
+    const h = harness();
+    h.openPanel();
+    h.flow.target = at("a");
+    const refreshed = h.flow.refresh();
+    const followed = h.flow.retarget(at("agent"), {});
+    const shown = h.flow.show(at("b"));
+    h.requests[1].d.reject(new Error("boom"));
+    await followed;
+    assert.strictEqual(h.requests.length, 3, "no refresh was issued over the show");
+    h.requests[2].d.resolve("B");
+    await tick();
+    h.lookups[0].d.resolve({});
+    await shown;
+    h.requests[0].d.resolve("A");
+    await refreshed;
+    assert.deepStrictEqual(h.rendered, ["B"]);
+    assert.strictEqual(h.flow.target?.uri, "b");
+  });
+
+  it("re-issues a lost refresh when the retarget has no client yet", async () => {
+    const h = harness();
+    h.openPanel();
+    h.flow.target = at("a");
+    void h.flow.refresh();
+    const followed = h.flow.retarget(at("b"), {});
+    h.requests[1].d.resolve(undefined);
+    assert.strictEqual(await followed, "empty");
+    assert.strictEqual(h.requests.length, 3);
+    assert.strictEqual(h.requests[2].uri, "a");
+  });
+
+  it("re-issues a lost refresh when a show finds nothing", async () => {
+    const h = harness();
+    h.openPanel();
+    h.flow.target = at("a");
+    void h.flow.refresh();
+    const shown = h.flow.show(at("b"));
+    h.requests[1].d.resolve(null);
+    await shown;
+    assert.strictEqual(h.requests.length, 3);
+    assert.strictEqual(h.requests[2].uri, "a");
+  });
+
+  it("re-issues a lost refresh when a show fails", async () => {
+    const h = harness();
+    h.openPanel();
+    h.flow.target = at("a");
+    void h.flow.refresh();
+    const shown = h.flow.show(at("b"));
+    h.requests[1].d.reject(new Error("boom"));
+    await shown;
+    assert.strictEqual(h.requests.length, 3);
+  });
+
+  it("does not let a refresh cancel a show in flight", async () => {
+    const h = harness();
+    h.openPanel();
+    h.flow.target = at("a");
+    const shown = h.flow.show(at("b"));
+    await h.flow.refresh(); // dropped while the show runs
+    assert.strictEqual(h.requests.length, 1);
+    h.requests[0].d.resolve("B");
+    await tick();
+    h.lookups[0].d.resolve({});
+    await shown;
+    assert.deepStrictEqual(h.rendered, ["B"]);
+    assert.strictEqual(h.flow.target?.uri, "b");
+  });
+
+  it("redoes the refresh it dropped when the show ends without rendering", async () => {
+    const h = harness();
+    h.openPanel();
+    h.flow.target = at("a");
+    const shown = h.flow.show(at("b"));
+    await h.flow.refresh();
+    h.requests[0].d.resolve(null);
+    await shown;
+    assert.strictEqual(h.requests.length, 2);
+    assert.strictEqual(h.requests[1].uri, "a");
   });
 });

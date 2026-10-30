@@ -53,23 +53,35 @@ export class LiveFlow<P, T extends FlowTarget> {
   /** The seq of the refresh now in flight, 0 when none. */
   private refreshSeq = 0;
   private refreshLost = false;
+  /** The seq of the show now in flight, 0 when none. */
+  private showSeq = 0;
 
   constructor(private readonly deps: FlowDeps<P, T>) {}
 
   /** Explicit command: fetch fresh, then open (or reuse) the panel. */
   async show(next: T): Promise<void> {
     const seq = this.supersede();
+    this.showSeq = seq;
+    try {
+      await this.showFrom(seq, next);
+    } finally {
+      if (this.showSeq === seq) this.showSeq = 0;
+    }
+  }
+
+  private async showFrom(seq: number, next: T): Promise<void> {
     let payload: P | null | undefined;
     try {
       payload = await this.deps.request(next, true, false);
     } catch (err) {
       this.deps.onError(err);
-      return;
+      return this.settle(seq);
     }
-    if (seq !== this.seq || payload === undefined) return;
+    if (seq !== this.seq) return;
+    if (payload === undefined) return this.settle(seq);
     if (!payload) {
       this.deps.onMiss();
-      return;
+      return this.settle(seq);
     }
     const scope = await this.deps.lookup(next);
     if (seq !== this.seq) return;
@@ -85,6 +97,12 @@ export class LiveFlow<P, T extends FlowTarget> {
     const panel = this.deps.panel();
     const target = this.target;
     if (!panel || !target) return;
+    if (this.showSeq !== 0) {
+      // A command is fetching the view anew; it must not be cancelled. If it
+      // ends without rendering, the refresh is redone.
+      this.refreshLost = true;
+      return;
+    }
     if (!this.deps.visible()) {
       this.deps.setDirty(true);
       return;
@@ -142,16 +160,20 @@ export class LiveFlow<P, T extends FlowTarget> {
     try {
       payload = await this.deps.request(target, false, false);
     } catch {
-      this.reissueLost();
+      this.settle(seq);
       return "empty";
     }
-    if (payload === undefined) return "empty";
-    if (seq !== this.seq || !this.deps.panel()) return "superseded";
+    if (seq !== this.seq) return "superseded";
+    if (payload === undefined) {
+      this.settle(seq);
+      return "empty";
+    }
+    if (!this.deps.panel()) return "superseded";
     // A handler with no model (a wire contract for an agent handler, say)
     // keeps the last view rather than blanking it — but a refresh this
     // retarget cut short is still owed.
     if (!payload) {
-      this.reissueLost();
+      this.settle(seq);
       return "empty";
     }
     this.refreshLost = false;
@@ -182,6 +204,13 @@ export class LiveFlow<P, T extends FlowTarget> {
     this.target = target;
     this.handler = scope.handler;
     this.focus = scope.focus;
+  }
+
+  /** A request ended without rendering: if nothing newer has started, redo
+   *  the refresh it cut short. */
+  private settle(seq: number): void {
+    if (this.showSeq === seq) this.showSeq = 0;
+    if (seq === this.seq) this.reissueLost();
   }
 
   private reissueLost(): void {

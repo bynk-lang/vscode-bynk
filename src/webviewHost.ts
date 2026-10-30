@@ -74,6 +74,10 @@ export async function revealLocation(uriStr: string, range: RevealRange): Promis
   if (!isRevealMessage({ type: "reveal", uri: uriStr, range })) return;
   try {
     const uri = vscode.Uri.parse(uriStr);
+    // A webview must not be able to open an arbitrary scheme: only local files
+    // and the schemes of the workspace's own folders.
+    const schemes = new Set(["file", ...(vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.scheme)]);
+    if (!schemes.has(uri.scheme)) return;
     const vsRange = new vscode.Range(
       new vscode.Position(range.start.line, range.start.character),
       new vscode.Position(range.end.line, range.end.character),
