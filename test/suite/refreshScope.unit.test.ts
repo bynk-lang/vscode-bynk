@@ -11,6 +11,7 @@ import {
   inScope,
   mapLimit,
   mergeScope,
+  ReloadQueue,
   rootsFor,
   statStamp,
 } from "../../src/refreshScope";
@@ -111,5 +112,53 @@ describe("Generations (#41)", () => {
     g.bump();
     assert.ok(!g.isCurrent("a", a));
     assert.ok(!g.isCurrent("c", c));
+  });
+});
+
+describe("ReloadQueue (#38)", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it("resolves at once when nothing is wanted, and does not wedge later reloads", async () => {
+    const passes: string[] = [];
+    const q = new ReloadQueue(async (scope) => void passes.push(scope === "all" ? "all" : [...scope].join()));
+    await q.start();
+    assert.deepStrictEqual(passes, []);
+    q.want("all");
+    await q.start();
+    assert.deepStrictEqual(passes, ["all"]);
+  });
+
+  it("merges what is asked for during a pass into one follow-up", async () => {
+    const passes: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const q = new ReloadQueue(async (scope) => {
+      passes.push(scope === "all" ? "all" : [...scope].sort().join());
+      if (passes.length === 1) await gate;
+    });
+    q.want(new Set(["a"]));
+    const done = q.start();
+    await tick();
+    q.want(new Set(["b"]));
+    q.want(new Set(["c"]));
+    const joined = q.start();
+    release();
+    await Promise.all([done, joined]);
+    assert.deepStrictEqual(passes, ["a", "b,c"]);
+  });
+
+  it("recovers after a failed pass", async () => {
+    let fail = true;
+    const passes: number[] = [];
+    const q = new ReloadQueue(async () => {
+      passes.push(1);
+      if (fail) throw new Error("boom");
+    });
+    q.want("all");
+    await assert.rejects(q.start(), /boom/);
+    fail = false;
+    q.want("all");
+    await q.start();
+    assert.strictEqual(passes.length, 2);
   });
 });

@@ -37,7 +37,7 @@ import {
 import { MigrationsStore, registerMigrations } from "./migrationsView";
 import { clearProjectRoots, projectRootFor } from "./projectRoots";
 import type { SymbolLike } from "./refreshScheduler";
-import { inScope, mapLimit, mergeScope, type Scope } from "./refreshScope";
+import { inScope, mapLimit, ReloadQueue, type Scope } from "./refreshScope";
 import type { ViewRefresh } from "./viewRefresh";
 import type { ArchLoc } from "./webview/architectureTypes";
 
@@ -132,11 +132,8 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
   private projects: Project[] = [];
-  /** The reload loop running, if any; reloads asked for meanwhile join it. */
-  private draining: Promise<void> | undefined;
-  /** What the next pass of the loop covers (`undefined`: nothing asked for). */
-  private wanted: Scope | undefined;
-  private wantFresh = false;
+  /** Reloads are serialized: those asked for during a pass join one follow-up. */
+  private readonly queue = new ReloadQueue((scope, fresh) => this.pass(scope, fresh));
   private loaded = false;
   private dirty = false;
   private retries = 0;
@@ -174,7 +171,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   invalidate(keys?: ReadonlySet<string>): void {
     if (!this.loaded) return; // nothing shown yet; the first getChildren loads
     void this.scopeOf(keys).then((scope) => {
-      this.wanted = mergeScope(this.wanted, scope);
+      this.queue.want(scope);
       if (this.visible()) void this.start();
       else this.dirty = true;
     });
@@ -197,36 +194,27 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   /** Reload the projects in `scope` (and whatever else was asked for while a
    *  load ran, in one follow-up pass). */
   reload(fresh = false, scope: Scope = "all"): Promise<void> {
-    this.wanted = mergeScope(this.wanted, scope);
-    this.wantFresh ||= fresh;
+    this.queue.want(scope, fresh);
     return this.start();
   }
 
-  /** Run (or join) the reload loop over what is `wanted`. */
   private start(): Promise<void> {
     this.dirty = false;
-    this.draining ??= this.drain();
-    return this.draining;
+    return this.queue.start();
   }
 
-  private async drain(): Promise<void> {
-    while (this.wanted !== undefined) {
-      const scope = this.wanted;
-      const fresh = this.wantFresh;
-      this.wanted = undefined;
-      this.wantFresh = false;
-      this.reloads++;
-      // The State Migrations node re-reads `bynk migrate status` with the
-      // rest, for the projects that reload.
-      if (scope === "all") this.migrations.clear();
-      else for (const root of scope) this.migrations.clear(vscode.Uri.parse(root));
+  private async pass(scope: Scope, fresh: boolean): Promise<void> {
+    this.reloads++;
+    // The State Migrations node re-reads `bynk migrate status` with the
+    // rest, for the projects that reload.
+    if (scope === "all") this.migrations.clear();
+    else for (const root of scope) this.migrations.clear(vscode.Uri.parse(root));
+    try {
       await this.load(fresh, scope);
       this.emitter.fire(undefined);
+    } finally {
+      this.scheduleRetry();
     }
-    // Cleared here, in the same tick as the loop's last check, so a reload
-    // asked for right after joins nothing that has already finished.
-    this.draining = undefined;
-    this.scheduleRetry();
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
@@ -426,7 +414,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     const missing = new Set(this.projects.filter((p) => p.modelMissing).map((p) => p.root.toString()));
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;
-      this.wanted = mergeScope(this.wanted, missing);
+      this.queue.want(missing);
       if (this.loaded && this.visible()) void this.start();
       else this.dirty = true;
     }, MODEL_RETRY_MS);

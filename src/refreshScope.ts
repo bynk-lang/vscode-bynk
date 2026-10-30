@@ -111,3 +111,42 @@ export function filesAffectedBy(
   for (const [k, f] of files) if (roots.has(f.root)) out.add(k);
   return [...out];
 }
+
+/** Serialized, coalescing reloads: what is asked for while a pass runs is
+ *  merged into one follow-up pass, and callers all wait for the loop to settle. */
+export class ReloadQueue {
+  private wanted: Scope | undefined;
+  private wantFresh = false;
+  private running: Promise<void> | undefined;
+
+  constructor(private readonly pass: (scope: Scope, fresh: boolean) => Promise<void>) {}
+
+  want(scope: Scope, fresh = false): void {
+    this.wanted = mergeScope(this.wanted, scope);
+    this.wantFresh ||= fresh;
+  }
+
+  /** Run (or join) the loop over what is wanted; resolves at once when nothing is. */
+  start(): Promise<void> {
+    if (this.running) return this.running;
+    if (this.wanted === undefined) return Promise.resolve();
+    // `loop` always awaits a pass before it can finish, so `running` is set
+    // before its `finally` clears it.
+    this.running = this.loop();
+    return this.running;
+  }
+
+  private async loop(): Promise<void> {
+    try {
+      while (this.wanted !== undefined) {
+        const scope = this.wanted;
+        const fresh = this.wantFresh;
+        this.wanted = undefined;
+        this.wantFresh = false;
+        await this.pass(scope, fresh);
+      }
+    } finally {
+      this.running = undefined;
+    }
+  }
+}
