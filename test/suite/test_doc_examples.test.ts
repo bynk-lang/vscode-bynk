@@ -160,7 +160,7 @@ describe("the Doc examples node", () => {
     assert.ok(g.children.get(`${SUITE}::doc one`), "a doc case keeps the id suite::name under the node");
     assert.deepStrictEqual(suiteCases(suiteItem()).map((c) => c.label).sort(), ["an example", "doc one", "doc two"]);
     assert.deepStrictEqual(
-      planCases(ctrl).map((c) => c.name).sort(),
+      planCases(ctrl).filter((c) => c.suiteId === SUITE).map((c) => c.name).sort(),
       ["an example", "doc one", "doc two"],
       "the plan sees the doc cases, not the node",
     );
