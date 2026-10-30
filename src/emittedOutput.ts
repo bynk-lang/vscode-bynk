@@ -14,7 +14,6 @@
 // not locked scrolling); the lookups are in `emittedMap.ts`.
 
 import * as vscode from "vscode";
-import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { buildModules, buildProjectModules } from "./emittedBuild";
@@ -24,6 +23,7 @@ import {
   type EmittedFile,
   type LineRange,
 } from "./emittedMap";
+import { projectRootFor } from "./projectRoots";
 import { groupByRoot } from "./refreshScope";
 import type { ViewRefresh } from "./viewRefresh";
 
@@ -42,15 +42,9 @@ interface View {
   stale: boolean;
 }
 
-/** The directory of the nearest `bynk.toml` above `file`, or `undefined`. */
-export function projectRootOf(file: string): string | undefined {
-  let dir = path.dirname(file);
-  for (;;) {
-    if (fs.existsSync(path.join(dir, "bynk.toml"))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
-  }
+/** The project directory of `file` (see `projectRootFor`), as a path. */
+export async function projectRootOf(file: vscode.Uri): Promise<string | undefined> {
+  return (await projectRootFor(file))?.fsPath;
 }
 
 /** The unsaved `.bynk` buffers under `root`: absolute path -> text. */
@@ -110,7 +104,7 @@ export function registerEmittedOutput(
   /** Build the modules for `source` from the project on disk plus its
    *  unsaved buffers, or say why not. */
   async function build(source: vscode.Uri): Promise<EmittedFile[] | string> {
-    const root = projectRootOf(source.fsPath);
+    const root = await projectRootOf(source);
     if (!root) return "the file is not in a Bynk project (no bynk.toml above it)";
     const result = await withToken(`view:${source.toString()}`, (token) =>
       buildModules(root, source.fsPath, dirtyBuffers(root), token),
@@ -223,7 +217,10 @@ export function registerEmittedOutput(
    *  compiling keeps the last good output on screen (and stays stale: its lines
    *  no longer line up). */
   async function refresh(roots: ReadonlySet<string> | undefined): Promise<void> {
-    const byRoot = groupByRoot([...views].map(([key, v]) => ({ key, source: v.source.fsPath, root: projectRootOf(v.source.fsPath) })));
+    const located = await Promise.all(
+      [...views].map(async ([key, v]) => ({ key, source: v.source.fsPath, root: await projectRootOf(v.source) })),
+    );
+    const byRoot = groupByRoot(located);
     await Promise.all(
       [...byRoot].map(async ([root, members]) => {
         if (roots && !roots.has(root)) return;
@@ -250,11 +247,11 @@ export function registerEmittedOutput(
    *  of unknown project changed (then every view rebuilds). */
   let dirty: Set<string> | undefined = new Set();
   let timer: NodeJS.Timeout | undefined;
-  const scheduleRefresh = (uris: Iterable<string>) => {
+  const scheduleRefresh = async (uris: Iterable<string>): Promise<void> => {
     if (views.size === 0) return;
     for (const u of uris) {
       const parsed = vscode.Uri.parse(u);
-      const root = parsed.scheme === "file" ? projectRootOf(parsed.fsPath) : undefined;
+      const root = parsed.scheme === "file" ? await projectRootOf(parsed) : undefined;
       if (root) dirty?.add(root);
       else dirty = undefined;
     }
@@ -283,10 +280,10 @@ export function registerEmittedOutput(
           clearHighlights(vscode.Uri.parse(generatedKey), view);
         }
       }
-      scheduleRefresh([key]);
+      void scheduleRefresh([key]);
     }),
     // Saves and changes made outside the editor (a git checkout, codegen).
-    hub.onDidRefresh((keys) => scheduleRefresh(keys)),
+    hub.onDidRefresh((keys) => void scheduleRefresh(keys)),
     vscode.workspace.onDidCloseTextDocument((doc) => {
       if (doc.uri.scheme !== EMITTED_SCHEME) return;
       const key = doc.uri.toString();

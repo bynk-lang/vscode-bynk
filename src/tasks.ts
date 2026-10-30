@@ -9,6 +9,7 @@
 // only via `BYNK_BYNKC`, or sitting next to `bynk` off PATH) now works here too.
 
 import * as os from "node:os";
+import * as path from "node:path";
 import * as vscode from "vscode";
 
 import { reportBynkNotFound } from "./doctor";
@@ -42,19 +43,22 @@ export function compilerOverride(): string | undefined {
   return p || undefined;
 }
 
-/** The `bynkc: check` build task: `bynk check . --format short`, run at the
- *  workspace root, errors routed through `$bynkc`. */
-function checkTask(definition: vscode.TaskDefinition = { type: TASK_TYPE }): vscode.Task {
+/** The `bynkc: check` build task for one project: `bynk check . --format short`,
+ *  run in the project's own directory (`folder`, or `folder/project` for a
+ *  nested one), errors routed through `$bynkc`. */
+function checkTask(folder?: vscode.WorkspaceFolder, project?: string): vscode.Task {
   const override = compilerOverride();
-  const exec = new vscode.ShellExecution(
-    bynkPath(),
-    ["check", ".", "--format", "short"],
-    override ? { env: { BYNK_BYNKC: override } } : undefined,
-  );
+  const base = folder ?? vscode.workspace.workspaceFolders?.[0];
+  const cwd = base && (project ? vscode.Uri.joinPath(base.uri, project) : base.uri).fsPath;
+  const exec = new vscode.ShellExecution(bynkPath(), ["check", ".", "--format", "short"], {
+    ...(cwd ? { cwd } : {}),
+    ...(override ? { env: { BYNK_BYNKC: override } } : {}),
+  });
+  const definition: vscode.TaskDefinition = project ? { type: TASK_TYPE, project } : { type: TASK_TYPE };
   const task = new vscode.Task(
     definition,
-    vscode.TaskScope.Workspace,
-    "check",
+    folder ?? vscode.TaskScope.Workspace,
+    project ? `check (${project})` : "check",
     "bynkc",
     exec,
     ["$bynkc"],
@@ -63,12 +67,36 @@ function checkTask(definition: vscode.TaskDefinition = { type: TASK_TYPE }): vsc
   return task;
 }
 
+/** One check task per project in the workspace, each in its own directory so
+ *  a nested project is checked where its `bynk.toml` is. A workspace with no
+ *  manifest still gets the plain task. */
+async function checkTasks(): Promise<vscode.Task[]> {
+  const manifests = await vscode.workspace.findFiles("**/bynk.toml", "**/node_modules/**");
+  const tasks: vscode.Task[] = [];
+  for (const manifest of manifests) {
+    const folder = vscode.workspace.getWorkspaceFolder(manifest);
+    if (!folder) continue;
+    const project = path.posix.relative(folder.uri.path, path.posix.dirname(manifest.path));
+    tasks.push(checkTask(folder, project || undefined));
+  }
+  tasks.sort((a, b) => a.name.localeCompare(b.name));
+  return tasks.length > 0 ? tasks : [checkTask()];
+}
+
 export function registerTasks(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.tasks.registerTaskProvider(TASK_TYPE, {
-      provideTasks: () => [checkTask()],
-      resolveTask: (task) =>
-        task.definition.type === TASK_TYPE ? checkTask(task.definition) : undefined,
+      provideTasks: checkTasks,
+      resolveTask: (task) => {
+        if (task.definition.type !== TASK_TYPE) return undefined;
+        const project = typeof task.definition.project === "string" ? task.definition.project : undefined;
+        const folder = typeof task.scope === "object" ? task.scope : undefined;
+        const resolved = checkTask(folder, project);
+        // Keep the user's definition (their tasks.json entry) as written.
+        const out = new vscode.Task(task.definition, resolved.scope ?? vscode.TaskScope.Workspace, resolved.name, "bynkc", resolved.execution, ["$bynkc"]);
+        out.group = vscode.TaskGroup.Build;
+        return out;
+      },
     }),
     // #2095: `bynk` itself missing is the one gap the Doctor can't diagnose, so
     // say how to fix it. Found by resolving the executable as the task starts

@@ -45,6 +45,7 @@ version).
   webview renderers now have jsdom tests, including that markup in a name or
   message renders as text.
 - The Mermaid live panels no longer keep their webview alive while hidden; they restore from the host when shown again.
+- One project-root rule everywhere (#40): the nearest `bynk.toml` at or above a file, never above its workspace folder, so a stray `~/bynk.toml` no longer makes the LM tools or `/fix` run `bynk` against the home directory. The `bynkc: check` task is now one per project, each in its own directory, and `launch.json` debugging uses a nested project holding the active file.
 
 ### Fixed
 
