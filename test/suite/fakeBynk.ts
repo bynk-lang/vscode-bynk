@@ -14,6 +14,12 @@ export interface FakeLogEntry {
   argv?: string[];
   cwd?: string;
   signal?: string;
+  /** The `bynk` process that wrote the entry. */
+  pid?: number;
+  /** A child the stand-in started and left running, for a test to find gone. */
+  grandchild?: number;
+  /** Its exit code, written as it exits. */
+  exit?: number;
 }
 
 /** Point `bynk.bynkPath` at the stand-in and log its invocations; returns an
@@ -46,4 +52,18 @@ export async function useFakeBynk(): Promise<{
       fs.rmSync(dir, { recursive: true, force: true });
     },
   };
+}
+
+/** Whether `pid` is still running. A zombie that nothing has reaped yet is gone. */
+export function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  try {
+    return !/^\d+ \(.*\) Z/.test(fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
+  } catch {
+    return true; // no /proc (macOS): signal 0 answered
+  }
 }
