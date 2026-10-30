@@ -3,17 +3,19 @@
 // `bynk.bynkPath` setting at this file. It never touches Cloudflare, wrangler or
 // the network: each command prints a canned answer in the driver's own format.
 //
-// Every invocation appends `{ argv, cwd }` to `$BYNK_FAKE_LOG` (when set), and
-// a signal it receives appends `{ signal }`, so a test can assert exactly what
-// the extension ran and how it stopped it.
+// Every invocation appends `{ argv, cwd }` to `$BYNK_FAKE_LOG` (when set), a
+// signal it receives appends `{ signal }`, and its exit appends `{ exit }`, so a
+// test can assert exactly what the extension ran and how it stopped it. Each
+// entry carries the `pid`, for a test that checks no process was left behind.
 
 const fs = require("fs");
 const net = require("net");
 
 const log = process.env.BYNK_FAKE_LOG;
 const record = (entry) => {
-  if (log) fs.appendFileSync(log, JSON.stringify(entry) + "\n");
+  if (log) fs.appendFileSync(log, JSON.stringify({ ...entry, pid: process.pid }) + "\n");
 };
+process.on("exit", (code) => record({ exit: code }));
 
 const args = process.argv.slice(2);
 record({ argv: args, cwd: process.cwd() });
@@ -77,6 +79,10 @@ if (args[0] === "book") {
   };
   process.on("SIGTERM", () => stop("SIGTERM", 143));
   process.on("SIGINT", () => stop("SIGINT", 130));
+} else if (args[0] === "openapi") {
+  // `bynk openapi <root> --out <file>`: writes a stub document to `--out`.
+  fs.writeFileSync(args[args.indexOf("--out") + 1], '{"openapi":"3.1.0","info":{"title":"fake","version":"0"}}\n');
+  process.exit(0);
 } else if (args[0] === "deploy") {
   if (args.includes("--dry-run") && args.includes("json")) {
     // The pinned plan the extension's unit tests read, as the dry run prints it.

@@ -14,6 +14,10 @@ export interface FakeLogEntry {
   argv?: string[];
   cwd?: string;
   signal?: string;
+  /** The `bynk` process that wrote the entry. */
+  pid?: number;
+  /** Its exit code, written as it exits. */
+  exit?: number;
 }
 
 /** Point `bynk.bynkPath` at the stand-in and log its invocations; returns an
