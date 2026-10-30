@@ -47,9 +47,9 @@ describe("Bynk toolchain, deploy and tail commands (#44)", () => {
     this.timeout(30_000);
     // The plan view's title names the plan's own environment (the pinned plan's).
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
-    await waitFor(() => tabOpen("Bynk Deploy Plan: staging"), (open) => !open, "an earlier plan view to close");
+    await waitFor(() => tabOpen("Bynk Deploy Plan: staging"), (open) => !open, "an earlier plan view to close", 10_000);
     await vscode.commands.executeCommand("bynk.deploy", { environment: "staging", context: "" });
-    await waitFor(() => tabOpen("Bynk Deploy Plan: staging"), truthy, "the plan view");
+    await waitFor(() => tabOpen("Bynk Deploy Plan: staging"), truthy, "the plan view", 15_000);
     const deploys = runs("deploy");
     assert.strictEqual(deploys.length, 1);
     assert.deepStrictEqual(deploys[0].argv, ["deploy", "--dry-run", "--format", "json", "--env", "staging"]);
@@ -72,19 +72,22 @@ describe("Bynk toolchain, deploy and tail commands (#44)", () => {
   it("bynk.tailLogs probes the driver, then opens a terminal that tails the environment's Worker", async function () {
     if (process.platform === "win32") this.skip();
     this.timeout(60_000);
-    await vscode.commands.executeCommand("bynk.tailLogs", { environment: "staging", context: "billing" });
-    // The terminal's process is started by the window, not the extension host, so
-    // it does not inherit the stand-in's log: read what it was asked to run instead.
-    const terminal = await waitFor(
-      () => vscode.window.terminals.find((t) => t.name === "Bynk Tail (staging)"),
-      (t) => t !== undefined,
-      "the tail terminal",
-      20_000,
-    );
-    const options = terminal!.creationOptions as vscode.TerminalOptions;
-    assert.strictEqual(options.shellPath, FAKE_BYNK);
-    assert.deepStrictEqual(options.shellArgs, ["tail", "--env", "staging", "--context", "billing"]);
-    assert.deepStrictEqual(runs("tail").map((e) => e.argv), [["tail", "--help"]], "the probe ran first");
-    vscode.window.terminals.filter((t) => t.name === "Bynk Tail (staging)").forEach((t) => t.dispose());
+    try {
+      await vscode.commands.executeCommand("bynk.tailLogs", { environment: "staging", context: "billing" });
+      // The terminal's process is started by the window, not the extension host, so
+      // it does not inherit the stand-in's log: read what it was asked to run instead.
+      const terminal = await waitFor(
+        () => vscode.window.terminals.find((t) => t.name === "Bynk Tail (staging)"),
+        (t) => t !== undefined,
+        "the tail terminal",
+        20_000,
+      );
+      const options = terminal!.creationOptions as vscode.TerminalOptions;
+      assert.strictEqual(options.shellPath, FAKE_BYNK);
+      assert.deepStrictEqual(options.shellArgs, ["tail", "--env", "staging", "--context", "billing"]);
+      assert.deepStrictEqual(runs("tail").map((e) => e.argv), [["tail", "--help"]], "the probe ran first");
+    } finally {
+      vscode.window.terminals.filter((t) => t.name === "Bynk Tail (staging)").forEach((t) => t.dispose());
+    }
   });
 });

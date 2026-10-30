@@ -9,6 +9,7 @@ import * as os from "os";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { playgroundLink } from "../../src/playgroundLink";
 import { useFakeBynk } from "./fakeBynk";
 import { truthy, waitFor } from "./util";
 
@@ -42,7 +43,8 @@ describe("Bynk playground, capability path and run-all commands (#44)", () => {
   it("bynk.openInPlayground opens the playground link for the selection, in the browser", async () => {
     const doc = await vscode.workspace.openTextDocument({ language: "bynk", content: "fn shout(s: String) -> String {\n  s\n}\n" });
     const editor = await vscode.window.showTextDocument(doc);
-    editor.selection = new vscode.Selection(0, 0, 2, 1);
+    editor.selection = new vscode.Selection(0, 0, 0, "fn shout(s: String) -> String".length);
+    const selected = doc.getText(editor.selection);
     const opened: vscode.Uri[] = [];
     const undo = replace(vscode.env, "openExternal", async (u: vscode.Uri) => (opened.push(u), true), "vscode.env.openExternal");
     try {
@@ -51,13 +53,15 @@ describe("Bynk playground, capability path and run-all commands (#44)", () => {
       undo();
     }
     assert.strictEqual(opened.length, 1);
-    assert.strictEqual(opened[0].scheme, "https");
-    assert.strictEqual(opened[0].authority, "playground.bynk-lang.dev");
-    assert.ok(opened[0].fragment.length > 0, "the program travels in the fragment");
+    const expected = await playgroundLink(selected);
+    assert.ok(expected.ok);
+    assert.strictEqual(opened[0].toString(true), expected.url, "the link carries the selection, not the whole file");
+    assert.notStrictEqual(selected, doc.getText());
   });
 
   it("bynk.openInPlayground tells the user when no Bynk file is open", async () => {
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await waitFor(() => vscode.window.activeTextEditor, (e) => e === undefined, "the editors to close", 10_000);
     const told: string[] = [];
     const opened: vscode.Uri[] = [];
     const undoWin = replace(win, "showInformationMessage", async (m: string) => (told.push(m), undefined), "showInformationMessage");
