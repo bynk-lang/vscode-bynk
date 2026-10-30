@@ -44,14 +44,28 @@ if (args[0] === "book") {
   const sleeper = require("child_process").spawn("sleep", ["300"], { stdio: "ignore" });
   sleeper.unref();
   record({ grandchild: sleeper.pid });
-  const server = net.createServer((socket) => socket.end());
+  // `BYNK_FAKE_DEV=http` (#67): serve HTTP, answering each request with what
+  // it received (method, path, headers, body) as JSON, under the context name
+  // `BYNK_FAKE_DEV_CONTEXT` (so a Send Request test can match its unit).
+  const server =
+    process.env.BYNK_FAKE_DEV === "http"
+      ? require("http").createServer((req, res) => {
+          let body = "";
+          req.on("data", (chunk) => (body += chunk));
+          req.on("end", () => {
+            res.writeHead(201, { "content-type": "application/json", "x-fake": "echo" });
+            res.end(JSON.stringify({ method: req.method, url: req.url, headers: req.headers, body }));
+          });
+        })
+      : net.createServer((socket) => socket.end());
   server.listen(0, "127.0.0.1", () => {
     const port = server.address().port;
+    const name = process.env.BYNK_FAKE_DEV_CONTEXT || "fixture";
     process.stderr.write("fake bynk dev: serving 1 context.\n");
     process.stdout.write(
       JSON.stringify({
         event: "serving",
-        contexts: [{ name: "fixture", port, url: `http://localhost:${port}`, inspector_port: null }],
+        contexts: [{ name, port, url: `http://localhost:${port}`, inspector_port: null }],
       }) + "\n",
     );
  

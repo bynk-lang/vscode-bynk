@@ -15,6 +15,7 @@
 export interface VsCodeApi {
   postMessage(message: unknown): void;
   setState(state: unknown): void;
+  getState?(): unknown;
 }
 
 export interface ViewState {
@@ -97,10 +98,24 @@ export function startLiveView<P>(
   return { rerender: () => void run(latest) };
 }
 
+/** #67: a page's own state (a form draft), kept beside the target in the
+ *  webview state, so it survives the page being hidden and reloaded. The host
+ *  reads only the target's fields back (`parseTarget`). */
+export function loadPageState(api: VsCodeApi): unknown {
+  const state = api.getState?.() as { page?: unknown } | undefined;
+  return state?.page;
+}
+
+export function savePageState(api: VsCodeApi, page: unknown): void {
+  const state = (api.getState?.() ?? {}) as Record<string, unknown>;
+  api.setState({ ...state, page });
+}
+
 /** Persist the target and redraw the toolbar for it. */
 function applyView(api: VsCodeApi, view: ViewState | null): void {
   if (!view || !view.target?.uri) return;
-  api.setState(view.target);
+  const page = loadPageState(api);
+  api.setState(page === undefined ? view.target : { ...view.target, page });
   const bar = document.getElementById("bynk-toolbar");
   if (!bar) return;
   bar.textContent = "";

@@ -37,6 +37,7 @@ import {
 import { MigrationsStore, registerMigrations } from "./migrationsView";
 import { clearProjectRoots, projectRootFor } from "./projectRoots";
 import type { SymbolLike } from "./refreshScheduler";
+import { isHttpHandler } from "./sendRequest";
 import { inScope, mapLimit, ReloadQueue, type Scope } from "./refreshScope";
 import type { ViewRefresh } from "./viewRefresh";
 import type { ArchLoc } from "./webview/architectureTypes";
@@ -51,7 +52,7 @@ type Node =
   | { type: "edge"; dir: "consumes" | "consumedBy"; edge: EdgeRef }
   | { type: "migrations"; root: vscode.Uri }
   | { type: "migrationClass"; root: vscode.Uri; status: ClassStatus }
-  | { type: "decl"; uri: string; symbol: SymbolLike; handler: boolean; label: string }
+  | { type: "decl"; uri: string; symbol: SymbolLike; handler: boolean; label: string; http?: boolean }
   | { type: "message"; label: string };
 
 interface Project {
@@ -314,7 +315,9 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
           hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
         );
         item.iconPath = new vscode.ThemeIcon(SYMBOL_ICONS[s.kind] ?? "symbol-misc");
-        item.contextValue = node.handler ? "bynkHandler" : "bynkDeclaration";
+        // #67: an HTTP handler is told apart for Send Request; the other
+        // handler actions take either.
+        item.contextValue = node.http ? "bynkHttpHandler" : node.handler ? "bynkHandler" : "bynkDeclaration";
         const r = s.selectionRange;
         item.command = openCommand({
           uri: node.uri,
@@ -553,6 +556,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
       symbol,
       handler,
       label: handler ? handlerLabel(doc, symbol) : symbol.name,
+      http: handler && isHttpHandler(doc, symbol.range),
     };
   }
 }
@@ -661,6 +665,9 @@ export function registerProjectTree(
     }),
     vscode.commands.registerCommand("bynk.project.wireContract", (node?: DeclNode) => {
       if (node) return vscode.commands.executeCommand("bynk.showWireContract", node.uri, node.symbol.selectionRange.start);
+    }),
+    vscode.commands.registerCommand("bynk.project.sendRequest", (node?: DeclNode) => {
+      if (node) return vscode.commands.executeCommand("bynk.sendRequest", node.uri, node.symbol.selectionRange.start);
     }),
     // Test seams (not contributed): the rendered tree, `depth` levels deep,
     // and the reload count / visibility.
