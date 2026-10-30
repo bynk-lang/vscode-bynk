@@ -292,13 +292,15 @@ export function itemRefs(i: TreeNode): ItemRef[] {
     i.children.forEach((suite) => void suites.push({ suiteId: suite.id }));
     return suites;
   }
-  if (isDocGroupId(i.id)) {
+  if (i.id === docGroupId(parent.id)) {
     const cases: ItemRef[] = [];
     i.children.forEach((c) => void cases.push({ suiteId: parent.id, name: c.label }));
-    return cases;
+    // An empty group stands for nothing. No reference at all would read as "everything",
+    // so it is a suite reference that matches no case, as a pruned suite's is.
+    return cases.length > 0 ? cases : [{ suiteId: i.id }];
   }
   if (!parent.parent) return [{ suiteId: i.id }];
-  const suite = isDocGroupId(parent.id) && parent.parent ? parent.parent : parent;
+  const suite = parent.id === docGroupId(parent.parent.id) ? parent.parent : parent;
   return [{ suiteId: suite.id, name: i.label }];
 }
 

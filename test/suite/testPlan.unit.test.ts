@@ -845,6 +845,15 @@ describe("itemRefs: what a Testing view item stands for", () => {
     assert.ok(docA.parent?.parent?.parent === project, "the case really is at depth 4");
   });
 
+  it("takes an empty group for nothing, never for everything", () => {
+    const bare = node("p2|bynk-test:unit:bare", "bare", node("p2", "p2"));
+    const empty = node(docGroupId(bare.id), "Doc examples", bare);
+    const refs = itemRefs(empty);
+    assert.ok(refs.length > 0, "an empty include list would mean everything");
+    const all: PlanCase[] = [{ suiteId: bare.id, name: "x" }];
+    assert.deepStrictEqual(planRun(all, { include: refs }, { sets: true }).steps, []);
+  });
+
   it("lets an excluded group take its doc cases out of an included suite", () => {
     const all: PlanCase[] = [plain, docA, docB].map((n) => ({ suiteId: SUITE, name: n.label }));
     const plan = planRun(all, { include: itemRefs(suite), exclude: itemRefs(group) }, { sets: true });

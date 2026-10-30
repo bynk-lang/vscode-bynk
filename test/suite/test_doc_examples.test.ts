@@ -66,15 +66,20 @@ describe("the Doc examples node", () => {
   let fake: Awaited<ReturnType<typeof useFakeBynk>>;
   let dir: string;
 
-  /** Point the stand-in at a document of `cases` in one suite. */
-  function serve(cases: JsonCase[]): void {
+  /** A second suite, so that running one suite is a narrowing of the project. */
+  const OTHER: JsonSuite = { name: "other", kind: "unit", cases: [ordinary("elsewhere", 9)] };
+  const reported: string[] = [];
+
+  /** Point the stand-in at a document of `cases` in the `docs` suite, beside `other`. */
+  function serve(suites: JsonSuite[]): void {
     const file = path.join(dir, "doc.json");
-    fs.writeFileSync(file, JSON.stringify({ passed: cases.length, failed: 0, suites: [{ ...SUITE_DEF, cases }] }));
+    fs.writeFileSync(file, JSON.stringify({ passed: 1, failed: 0, suites }));
     process.env.BYNK_FAKE_TEST_DOC = file;
   }
   const load = (cases: JsonCase[]): void => {
-    serve(cases);
-    reconcile(ctrl, env.seeds, [{ ...SUITE_DEF, cases }], ROOT, true);
+    const suites = [{ ...SUITE_DEF, cases }, OTHER];
+    serve(suites);
+    reconcile(ctrl, env.seeds, suites, ROOT, true);
   };
   const suiteItem = (): vscode.TestItem => {
     const s = ctrl.items.get(ROOT.toString())?.children.get(SUITE);
@@ -91,6 +96,7 @@ describe("the Doc examples node", () => {
   async function run(include?: vscode.TestItem[], exclude?: vscode.TestItem[]): Promise<string[]> {
     const from = fake.read().length;
     const cts = new vscode.CancellationTokenSource();
+    reported.length = 0;
     try {
       await runHandler(env, new vscode.TestRunRequest(include, exclude), cts.token);
     } finally {
@@ -106,8 +112,28 @@ describe("the Doc examples node", () => {
     fs.chmodSync(FAKE_BYNK, 0o755);
     fake = await useFakeBynk();
     ctrl = vscode.tests.createTestController("bynk-doc-examples-test", "Doc examples test");
+    // The same controller, but a run's passed cases are recorded.
+    const bound = (o: object, k: string | symbol): unknown => {
+      const v = (o as Record<string | symbol, unknown>)[k];
+      return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(o) : v;
+    };
+    const recording = new Proxy(ctrl, {
+      get: (t, k) =>
+        k === "createTestRun"
+          ? (...a: Parameters<vscode.TestController["createTestRun"]>) =>
+              new Proxy(t.createTestRun(...a), {
+                get: (rt, rk) =>
+                  rk === "passed"
+                    ? (item: vscode.TestItem, d?: number) => {
+                        reported.push(item.id);
+                        rt.passed(item, d);
+                      }
+                    : bound(rt, rk),
+              })
+          : bound(t, k),
+    });
     env = {
-      ctrl,
+      ctrl: recording,
       problems: vscode.languages.createDiagnosticCollection("bynk-doc-examples-test"),
       seeds: seedState(),
       hub: null as unknown as ViewRefresh,
@@ -159,6 +185,8 @@ describe("the Doc examples node", () => {
   it("moves a case between the node and the suite, with the same id", () => {
     load([ordinary("flips", 1), doc("stays", 2)]);
     const id = `${SUITE}::flips`;
+    env.seeds.pins.set(id, { seed: "0x5f3a", fingerprint: [] });
+    env.seeds.failures.set(id, { seed: "0x5f3a", counterexample: "p = 1" });
     assert.ok(suiteItem().children.get(id));
     load([doc("flips", 1), doc("stays", 2)]);
     assert.strictEqual(suiteItem().children.get(id), undefined, "gone from the suite");
@@ -167,6 +195,10 @@ describe("the Doc examples node", () => {
     assert.ok(suiteItem().children.get(id));
     assert.strictEqual(group()?.children.get(id), undefined);
     assert.deepStrictEqual(names(group() as vscode.TestItem), ["stays"]);
+    assert.ok(env.seeds.pins.has(id), "the pin survives both moves");
+    assert.ok(env.seeds.failures.has(id), "so does the remembered failure");
+    env.seeds.pins.clear();
+    env.seeds.failures.clear();
   });
 
   it("maps a request for the node, or for a case under it, to the real suite", () => {
@@ -197,7 +229,14 @@ describe("the Doc examples node", () => {
     this.timeout(60_000);
     load([ordinary("an example", 1), doc("doc one", 2), doc("doc two", 3)]);
     const argv = await run([suiteItem()]);
+    assert.deepStrictEqual(flagValues(argv, "--suite"), ["docs"]);
     assert.deepStrictEqual(flagValues(argv, "--case"), [], `no case filter: ${argv}`);
+    await waitFor(
+      () => [...reported].sort(),
+      (r) => ["an example", "doc one", "doc two"].every((n) => r.includes(`${SUITE}::${n}`)),
+      "results for the suite's ordinary and doc cases",
+    );
+    assert.ok(!reported.includes(`${SUITE.replace("docs", "other")}::elsewhere`), "the other suite did not run");
   });
 
   it("runs the suite without its doc examples when the node is excluded", async function () {
