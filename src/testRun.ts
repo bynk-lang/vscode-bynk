@@ -27,6 +27,7 @@ import { parseCompileDiagnostics } from "./testDiagnosticsCore";
 import { seedFor } from "./testSeeds";
 import { offersSkipUnsupported, targetDetail, DEV_TARGET } from "./testTargets";
 import { rememberSeeds, suiteFingerprint, type SeedState } from "./testSeedState";
+import type { RunEnv } from "./testEnv";
 import { runBynkcTest, runBynkcTestStream } from "./testDriver";
 import { applyDocument, coverageDetail, placeHandlers } from "./testReport";
 import {
@@ -41,16 +42,6 @@ import {
 } from "./testTree";
 
 /** A run against a named target (`bynk test --against`). */
-/** What a run and a discovery share: the controller, the Problems collection, the seed
- *  memory and the views' symbol cache. Owned by `registerTesting`, passed in. */
-export interface RunEnv {
-  ctrl: vscode.TestController;
-  problems: vscode.DiagnosticCollection;
-  seeds: SeedState;
-  hub: ViewRefresh;
-  driverSupport: DriverSupport;
-}
-
 export interface AgainstRun {
   target: string;
   /** Pass `--skip-unsupported`: offered as a retry, never the default. */

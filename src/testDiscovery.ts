@@ -9,7 +9,7 @@ import { carriesTiers, suiteFile, type JsonSuite, type TestRun } from "./testPla
 import { fingerprintOf, migrateLegacyPins } from "./testSeeds";
 import { describePins, savePins, type SeedState } from "./testSeedState";
 import { runBynkcTest } from "./testDriver";
-import type { RunEnv } from "./testRun";
+import type { RunEnv } from "./testEnv";
 import { forEachCase, projectItem, prune, upsertCase, upsertSuite, workspaceRoots } from "./testTree";
 
 /** Discover tests without running them: shell `bynk test --no-run --format

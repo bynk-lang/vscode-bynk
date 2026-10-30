@@ -76,4 +76,6 @@ export function toTerminalText(text: string): string {
   return text.replace(/\r?\n/g, "\r\n");
 }
 
+// The definition is in its own import-free module so the webview bundles can share it
+// (this file pulls in `node:path`); re-exported for the host-side importers.
 export { escapeHtml } from "./escapeHtml";

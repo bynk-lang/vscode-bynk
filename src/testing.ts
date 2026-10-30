@@ -31,7 +31,8 @@ import { describePins, loadPins, savePins, suiteFingerprint, type SeedState } fr
 import { pickTarget } from "./testTargetPicker";
 import { discover } from "./testDiscovery";
 import { detailedCoverage } from "./testReport";
-import { runHandler, type RunEnv } from "./testRun";
+import type { RunEnv } from "./testEnv";
+import { runHandler } from "./testRun";
 import { caseItem, fileKey, findCase, findSuite, forEachCase, planCases, requestRef, requestedRoots } from "./testTree";
 
 // The surface the integration tests and `testCodeLens.ts` reach through here.
@@ -53,7 +54,7 @@ export function registerTesting(
   hub: ViewRefresh,
   driverSupport: DriverSupport,
 ): TestApi {
-  // What a driver understands is learned from its refusals (see `driverSupport`),
+  // What a driver understands is learned from its refusals (see `DriverSupport` in testStream.ts),
   // so it is forgotten when the user points the extension at a different binary.
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
