@@ -76,14 +76,4 @@ export function toTerminalText(text: string): string {
   return text.replace(/\r?\n/g, "\r\n");
 }
 
-/** Escape text for an HTML text node or a double-quoted attribute, for the
- *  host-rendered views (deploy plan, doctor) that build their markup from CLI
- *  output. */
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+export { escapeHtml } from "./escapeHtml";

@@ -103,7 +103,7 @@ function codeOf(d: vscode.Diagnostic): string | undefined {
   return raw === undefined ? undefined : String(raw);
 }
 
-const SEVERITY: Record<vscode.DiagnosticSeverity, DiagnosticLine["severity"]> = {
+export const SEVERITY: Record<vscode.DiagnosticSeverity, DiagnosticLine["severity"]> = {
   [vscode.DiagnosticSeverity.Error]: "error",
   [vscode.DiagnosticSeverity.Warning]: "warning",
   [vscode.DiagnosticSeverity.Information]: "info",

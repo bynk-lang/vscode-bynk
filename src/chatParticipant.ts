@@ -30,7 +30,7 @@ import {
   runCommand,
 } from "./chatCore";
 import { checkInProject, checkScratch } from "./chatCheck";
-import { relPath } from "./lmToolsCore";
+import { relPath, SEVERITY } from "./lmToolsCore";
 import { workspaceRootFor } from "./projectRoots";
 
 const PARTICIPANT_ID = "bynk.chat";
@@ -44,13 +44,6 @@ const MODEL_TOOLS = [
   "bynk_explain_diagnostic",
   "bynk_search_book",
 ];
-
-const SEVERITY: Record<vscode.DiagnosticSeverity, "error" | "warning" | "info" | "hint"> = {
-  [vscode.DiagnosticSeverity.Error]: "error",
-  [vscode.DiagnosticSeverity.Warning]: "warning",
-  [vscode.DiagnosticSeverity.Information]: "info",
-  [vscode.DiagnosticSeverity.Hint]: "hint",
-};
 
 function editorContext(): EditorContext {
   const editor = vscode.window.activeTextEditor;
