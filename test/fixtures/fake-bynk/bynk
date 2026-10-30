@@ -230,6 +230,21 @@ if (args[0] === "book") {
   // `bynk test --inspect`: there is no inspector here. A driver that predates the set
   // filter rejects one as clap does (`BYNK_FAKE_SETS=unsupported`); anything else
   // exits, which a debug launch reports as a process that never became ready.
+  // `BYNK_FAKE_CHATTY=1` (#30): a debuggee that writes far more than a pipe holds
+  // (about 64 KB) to stdout and stderr before it exits. It blocks on the write
+  // until the extension reads, so it only gets to exit 0 if its output is drained.
+  if (process.env.BYNK_FAKE_CHATTY) {
+    const line = "x".repeat(1023) + "\n";
+    for (let i = 0; i < 256; i++) {
+      process.stdout.write(line);
+      process.stderr.write(line);
+    }
+    process.stderr.write("Debugger listening on ws://127.0.0.1:9229/fake\n");
+    // Not `process.exit`: that would drop writes still queued behind a full pipe,
+    // and the point is that they are not dropped but waited on.
+    process.exitCode = 0;
+    return;
+  }
   const isSet = args.includes("--suite") || args.filter((a) => a === "--case").length > 1;
   if (process.env.BYNK_FAKE_SETS === "unsupported" && isSet) {
     process.stderr.write("error: unexpected argument '--suite' found\n");
