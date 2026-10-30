@@ -3,6 +3,7 @@
 src/**
 test/**
 out/test/**
+out/src/**
 .gitignore
 tsconfig.json
 tsconfig.test.json
@@ -18,3 +19,10 @@ wasm/**
 .vscode-test-web/**
 .bynk-test-bin/**
 .contract-cache/**
+# Repo tooling: build scripts, CI, and test/coverage config.
+scripts/**
+.github/**
+.c8rc.json
+.mocharc.json
+coverage/**
+.claude/**
