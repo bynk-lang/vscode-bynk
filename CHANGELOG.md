@@ -54,6 +54,10 @@ version).
 
 ### Fixed
 
+- A project directory deleted while its file is open no longer makes Debug,
+  test runs or the dev server say `bynk` is not installed. The cached project
+  root is re-checked on use, and a start that fails because its working
+  directory is gone now names that directory.
 - Open Show Compiled Output views no longer cancel each other's builds, which
   left a view without highlighting until the next edit.
 - A `bynk migrate status` that started before a sweep can no longer put its

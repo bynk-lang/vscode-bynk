@@ -91,3 +91,23 @@ function isExecutableFile(platform: NodeJS.Platform): (file: string) => boolean 
     }
   };
 }
+
+/** Why a spawn failed with `ENOENT`: Node reports a missing working directory
+ *  with the same code as a missing executable, so `bynk` is only "not found"
+ *  when the directory it was to run in exists (#61). `exists` is injected. */
+export function classifySpawnError(
+  err: unknown,
+  cwd: string | undefined,
+  exists: (dir: string) => boolean,
+): "missing-cwd" | "missing-command" | "other" {
+  if ((err as { code?: unknown } | null)?.code !== "ENOENT") return "other";
+  return cwd !== undefined && !exists(cwd) ? "missing-cwd" : "missing-command";
+}
+
+/** The code a start failure carries once it is known to be a missing project
+ *  directory, not a missing command. */
+export const MISSING_CWD = "BYNK_MISSING_CWD";
+
+export function missingCwdMessage(cwd: string): string {
+  return `the project directory ${cwd} no longer exists (was it deleted or moved?)`;
+}

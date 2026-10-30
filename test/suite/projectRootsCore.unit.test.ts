@@ -4,7 +4,7 @@
 
 import * as assert from "assert";
 
-import { containingFolder, inWorkspace, resolveRoot } from "../../src/projectRootsCore";
+import { containingFolder, inWorkspace, resolveRoot, RootCache } from "../../src/projectRootsCore";
 
 const fsWith =
   (...manifests: string[]) =>
@@ -72,5 +72,60 @@ describe("project roots (#40)", () => {
 
   it("handles a manifest at the filesystem root only when it is the folder", async () => {
     assert.strictEqual(await resolveRoot("/a.bynk", ["/"], fsWith("/")), "/");
+  });
+});
+
+describe("root cache (#61)", () => {
+  const counted = () => {
+    const calls = { resolve: 0, check: 0 };
+    return { calls, live: new Set<string>(["/p"]) };
+  };
+
+  it("serves a hit with one manifest check, not a second walk", async () => {
+    const { calls, live } = counted();
+    const cache = new RootCache<string>();
+    const resolve = async () => (calls.resolve++, "/p");
+    const check = async (r: string) => (calls.check++, live.has(r));
+    assert.strictEqual(await cache.get("k", resolve, check), "/p");
+    assert.strictEqual(await cache.get("k", resolve, check), "/p");
+    assert.deepStrictEqual(calls, { resolve: 1, check: 1 });
+  });
+
+  it("drops a root whose manifest is gone and resolves again", async () => {
+    const live = new Set(["/outer", "/outer/inner"]);
+    const cache = new RootCache<string>();
+    const resolve = async () => (live.has("/outer/inner") ? "/outer/inner" : live.has("/outer") ? "/outer" : undefined);
+    const check = async (r: string) => live.has(r);
+    assert.strictEqual(await cache.get("k", resolve, check), "/outer/inner");
+    live.delete("/outer/inner");
+    assert.strictEqual(await cache.get("k", resolve, check), "/outer");
+    live.delete("/outer");
+    assert.strictEqual(await cache.get("k", resolve, check), undefined);
+  });
+
+  it("clear forgets every entry", async () => {
+    const cache = new RootCache<string>();
+    let n = 0;
+    const resolve = async () => `/r${++n}`;
+    const check = async () => true;
+    assert.strictEqual(await cache.get("k", resolve, check), "/r1");
+    cache.clear();
+    assert.strictEqual(await cache.get("k", resolve, check), "/r2");
+  });
+});
+
+describe("root cache, concurrent stale hits (#61)", () => {
+  it("lets two callers that both find a stale entry share one fresh resolve", async () => {
+    const cache = new RootCache<string>();
+    let resolves = 0;
+    let live = true;
+    const resolve = async () => (resolves++, live ? "/p" : undefined);
+    const check = async (r: string) => live && r === "/p";
+    await cache.get("k", resolve, check);
+    live = false;
+    const [a, b] = await Promise.all([cache.get("k", resolve, check), cache.get("k", resolve, check)]);
+    assert.strictEqual(a, undefined);
+    assert.strictEqual(b, undefined);
+    assert.strictEqual(resolves, 2, "one initial resolve, one shared re-resolve");
   });
 });

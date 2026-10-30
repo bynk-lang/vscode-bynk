@@ -20,6 +20,7 @@ import * as vscode from "vscode";
 import { bynkEnv, findProjectRoot } from "./cli";
 import { projectRootFor } from "./projectRoots";
 import { killTree, spawnTree } from "./proc";
+import { MISSING_CWD } from "./procCore";
 import { bynkPath } from "./tasks";
 import { BYNK_DESCRIPTION_GENERATOR } from "./debugValues";
 import { devServerRunning, stopDevServer } from "./devServer";
@@ -311,7 +312,8 @@ class BynkDebugProvider implements vscode.DebugConfigurationProvider {
     } catch (e) {
       // #2095: a debug launch that fails on a missing tool offers the Doctor,
       // scoped to what this mode needs (Node + tsc|tsx, or wrangler).
-      if (launchFailureAction(e) === "install") void reportBynkNotFound();
+      if ((e as { code?: unknown } | null)?.code === MISSING_CWD) void vscode.window.showErrorMessage(`Bynk debug: ${(e as Error).message}`);
+      else if (launchFailureAction(e) === "install") void reportBynkNotFound();
       else void offerDoctor(`Bynk debug: ${String(e)}`, mode === "dev" ? "deploy" : "test");
       return undefined;
     }
