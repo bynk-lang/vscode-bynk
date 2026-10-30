@@ -84,6 +84,27 @@ describe("Bynk: Send Request (#67)", () => {
     assert.deepStrictEqual(lines, [lineOf('GET("/ping")'), lineOf('PUT("/items/:id")')]);
   });
 
+  it("marks HTTP handlers in the Project view, for its Send Request action", async function () {
+    this.timeout(60_000);
+    interface Entry {
+      label: string;
+      contextValue?: string;
+      children?: Entry[];
+    }
+    const find = (list: Entry[] | undefined, ...labels: string[]): Entry | undefined =>
+      labels.reduce<Entry | undefined>((hit, l) => (hit ? hit.children : list)?.find((e) => e.label === l), undefined);
+    const tree = await waitFor(
+      () => vscode.commands.executeCommand<Entry[]>("bynk._projectTreeSnapshot", 6, true),
+      (t) => (find(t, path.basename(dir), "Contexts", "shop", "inner")?.children?.length ?? 0) > 0,
+      "the tree to list the shop context's handlers",
+      60_000,
+    );
+    const values = (service: string) =>
+      find(tree, path.basename(dir), "Contexts", "shop", service)?.children?.map((e) => e.contextValue);
+    assert.deepStrictEqual(values("api"), ["bynkHttpHandler", "bynkHttpHandler"]);
+    assert.deepStrictEqual(values("inner"), ["bynkHandler"]);
+  });
+
   it("builds the form from the wire contract, and says the dev server is not running", async function () {
     this.timeout(60_000);
     const at = new vscode.Position(lineOf('PUT("/items/:id")') + 1, 4);
@@ -110,10 +131,13 @@ describe("Bynk: Send Request (#67)", () => {
     this.timeout(60_000);
     process.env.BYNK_FAKE_DEV = "http";
     process.env.BYNK_FAKE_DEV_CONTEXT = "shop";
+    const before = await vscode.commands.executeCommand<{ refreshes: number }>("bynk._liveViewState", "bynkSendRequest");
     await vscode.commands.executeCommand("bynk.startDevServer");
     // The panel follows the dev server: its target turns ready.
     const p = (await waitFor(payload, (q) => q?.target.kind === "ready", "the panel to see the dev server", 30_000))!;
     assert.ok(p.target.kind === "ready");
+    const after = await vscode.commands.executeCommand<{ refreshes: number }>("bynk._liveViewState", "bynkSendRequest");
+    assert.strictEqual(after.refreshes, before.refreshes, "a dev server change re-requests no model");
 
     const r = await vscode.commands.executeCommand<SrResult>("bynk._sendRequestSend", {
       path: { id: "a b" },

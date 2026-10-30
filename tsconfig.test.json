@@ -55,6 +55,7 @@
     "src/webview/state.ts",
     "src/webview/architecture.ts",
     "src/webview/refinedExplorer.ts",
+    "src/webview/sendRequest.ts",
     "src/webview/live.ts"
   ],
   // A fixture project's adapter binding module is data for the web suite, not

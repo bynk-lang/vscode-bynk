@@ -32,7 +32,12 @@ interface PageState {
 
 const state: PageState = readState();
 const results = new Map<string, SrResult>();
-let sendingKey: string | undefined;
+/** Each route's latest send, by the id the page gave it; a result for an
+ *  older one (a send it replaced) is ignored. */
+const latest = new Map<string, number>();
+/** The routes with a send in flight. */
+const sending = new Set<string>();
+let nextId = 1;
 let shown: { payload: SrPayload; shape: string } | undefined;
 
 function readState(): PageState {
@@ -153,7 +158,9 @@ function render(root: HTMLElement, payload: SrPayload | null): void {
   send.addEventListener("click", sendNow);
   const cancel = el("button", { className: "sr-secondary", text: "Cancel" });
   cancel.id = "sr-cancel";
-  cancel.addEventListener("click", () => api.postMessage({ type: "cancel" }));
+  cancel.addEventListener("click", () => {
+    if (shown) api.postMessage({ type: "cancel", key: shown.payload.key });
+  });
   const url = el("span", { className: "sr-url" });
   url.id = "sr-url";
   formEl.append(el("div", { className: "sr-actions" }, send, cancel, url));
@@ -216,24 +223,29 @@ function renderButtons(): void {
   const send = document.getElementById("sr-send") as HTMLButtonElement | null;
   const cancel = document.getElementById("sr-cancel") as HTMLButtonElement | null;
   if (!send || !cancel || !shown) return;
-  const sending = sendingKey === shown.payload.key;
-  send.disabled = sending || shown.payload.target.kind !== "ready";
-  cancel.hidden = !sending;
+  const busy = sending.has(shown.payload.key);
+  send.disabled = busy || shown.payload.target.kind !== "ready";
+  cancel.hidden = !busy;
 }
 
+/** Send the shown route's form, as the Send button does; Ctrl/Cmd+Enter
+ *  comes here too, so it checks what the button's disabled state says. */
 function sendNow(): void {
   if (!shown || shown.payload.target.kind !== "ready") return;
   const { key, unit } = shown.payload;
+  if (sending.has(key)) return;
+  const id = nextId++;
+  latest.set(key, id);
   const d = draft(key);
   const body = (document.getElementById("sr-body") as HTMLTextAreaElement | null)?.value ?? "";
-  api.postMessage({ type: "send", key, input: { path: { ...d.path }, headers: state.headers[unit] ?? "", body } });
+  api.postMessage({ type: "send", key, id, input: { path: { ...d.path }, headers: state.headers[unit] ?? "", body } });
 }
 
 function renderResult(): void {
   const r = document.getElementById("sr-response");
   if (!r || !shown) return;
   r.textContent = "";
-  if (sendingKey === shown.payload.key) {
+  if (sending.has(shown.payload.key)) {
     r.append(card("Response", el("p", { className: "sr-muted", text: "Sending…" })));
     return;
   }
@@ -257,20 +269,20 @@ function renderResult(): void {
   const parts: Node[] = [el("p", {}, status, meta), headers];
   if (result.body !== "") parts.push(el("pre", { text: result.body }));
   else parts.push(el("p", { className: "sr-muted", text: "Empty body." }));
-  if (result.truncated) parts.push(el("p", { className: "sr-note", text: "Showing the first 1 MiB of the body." }));
+  if (result.partial) parts.push(el("p", { className: "sr-note", text: result.partial }));
   r.append(card("Response", ...parts));
 }
 
 window.addEventListener("message", (event: MessageEvent<SrHostMessage>) => {
   const msg = event.data;
-  if (msg?.type === "sending") {
-    sendingKey = msg.key;
+  if (msg?.type !== "sending" && msg?.type !== "result") return;
+  if (latest.get(msg.key) !== msg.id) return; // a send this one replaced
+  if (msg.type === "sending") {
+    sending.add(msg.key);
     results.delete(msg.key);
-  } else if (msg?.type === "result") {
-    if (sendingKey === msg.key) sendingKey = undefined;
-    results.set(msg.key, msg.result);
   } else {
-    return;
+    sending.delete(msg.key);
+    results.set(msg.key, msg.result);
   }
   if (shown?.payload.key === msg.key) {
     renderButtons();

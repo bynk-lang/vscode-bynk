@@ -143,6 +143,15 @@ describe("sendRequestCore", () => {
     assert.deepStrictEqual(parseHeaders("ok: 1\nnot a header"), { error: "Header line 2 isn't Name: value." });
   });
 
+  it("refuses headers fetch would reject, naming the line", () => {
+    const framing = parseHeaders("X-A: 1\nTransfer-Encoding: chunked");
+    assert.ok("error" in framing && /^Header line 2: Transfer-Encoding can't be set/.test(framing.error));
+    assert.ok("error" in parseHeaders("expect: 100-continue"));
+    const wide = parseHeaders("X-Name: 日本");
+    assert.ok("error" in wide && /beyond U\+00FF/.test(wide.error));
+    assert.deepStrictEqual(parseHeaders("X-Name: café\tok"), { headers: [["X-Name", "café\tok"]] }, "Latin-1 and tab pass");
+  });
+
   describe("buildRequest", () => {
     const put: RouteForm = { method: "PUT", path: "/items/:id", pathParams: ["id"], body: { kind: "json", skeleton: "{}" }, readsHeaders: false };
 
@@ -215,5 +224,7 @@ describe("sendRequestCore", () => {
     assert.ok(isHttpHandlerHeader(["  @cache(maxAge: 60)", '  on GET("/x") () -> X {']));
     assert.ok(!isHttpHandlerHeader(["  on call() -> Effect[Int] {"]));
     assert.ok(!isHttpHandlerHeader(["  fn f() {", '  on GET("/") () {']));
+    const commented = [...Array(12).fill("  // a long note"), "  @cache(maxAge: 60)", '  on GET("/x") () -> X {'];
+    assert.ok(isHttpHandlerHeader(commented), "however many comment lines come first");
   });
 });

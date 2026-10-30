@@ -1118,27 +1118,27 @@
         },
         {
           "command": "bynk.project.sequenceDiagram",
-          "when": "view == bynk.project && viewItem == bynkHandler && !isWeb",
+          "when": "view == bynk.project && (viewItem == bynkHandler || viewItem == bynkHttpHandler) && !isWeb",
           "group": "inline@1"
         },
         {
           "command": "bynk.project.wireContract",
-          "when": "view == bynk.project && viewItem == bynkHandler && !isWeb",
+          "when": "view == bynk.project && (viewItem == bynkHandler || viewItem == bynkHttpHandler) && !isWeb",
           "group": "inline@2"
         },
         {
           "command": "bynk.project.sequenceDiagram",
-          "when": "view == bynk.project && viewItem == bynkHandler && !isWeb",
+          "when": "view == bynk.project && (viewItem == bynkHandler || viewItem == bynkHttpHandler) && !isWeb",
           "group": "bynk@1"
         },
         {
           "command": "bynk.project.wireContract",
-          "when": "view == bynk.project && viewItem == bynkHandler && !isWeb",
+          "when": "view == bynk.project && (viewItem == bynkHandler || viewItem == bynkHttpHandler) && !isWeb",
           "group": "bynk@2"
         },
         {
           "command": "bynk.project.sendRequest",
-          "when": "view == bynk.project && viewItem == bynkHandler && !isWeb",
+          "when": "view == bynk.project && viewItem == bynkHttpHandler && !isWeb",
           "group": "bynk@3"
         }
       ]

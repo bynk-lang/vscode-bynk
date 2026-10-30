@@ -95,6 +95,9 @@ export interface LiveViewSpec<P> {
   /** #67: a page message the panel does not handle itself, with a way to
    *  answer the page that sent it. */
   onMessage?(message: { type: string }, post: (message: unknown) => void): void;
+  /** #67: the payload the page now shows, after each render (`null` when it
+   *  shows nothing) — not a request's answer, which may be dropped as stale. */
+  onRender?(payload: P | null): void;
 }
 
 /** Debounce for cursor-follow, so a burst of selection events (arrow keys,
@@ -207,6 +210,14 @@ export class LivePanel<P> implements vscode.Disposable {
       return;
     }
     await this.flow.restore(target);
+  }
+
+  /** #67: show `change(payload)` in place of the payload on show, without a
+   *  new request (something outside the model moved, such as the dev server).
+   *  Nothing happens when no panel is open or it shows nothing. */
+  repost(change: (payload: P) => P): void {
+    if (!this.panel || this.lastJson === undefined || this.lastJson === "null") return;
+    this.render(change(JSON.parse(this.lastJson) as P));
   }
 
   /** Test seam: what the panel is showing. */
@@ -439,6 +450,7 @@ export class LivePanel<P> implements vscode.Disposable {
     if (!panel) return;
     const json = JSON.stringify(payload);
     panel.title = this.spec.title(payload);
+    this.spec.onRender?.(payload);
     if (!this.pageLoaded) {
       panel.webview.html = this.html(panel.webview, payload);
       this.pageLoaded = true;

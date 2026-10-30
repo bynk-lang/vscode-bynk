@@ -294,6 +294,16 @@ describe("Bynk manifest — UI surface (slice 5)", () => {
         `${command} is an inline action on ${item} nodes`,
       );
     }
+    // #67: Send Request is offered on HTTP handlers only; the other handler
+    // actions take an HTTP handler too.
+    const send = (menus["view/item/context"] ?? []).find((m) => m.command === "bynk.project.sendRequest");
+    assert.strictEqual(send?.when, "view == bynk.project && viewItem == bynkHttpHandler && !isWeb");
+    for (const command of ["bynk.project.sequenceDiagram", "bynk.project.wireContract"]) {
+      assert.ok(
+        inline.some((m) => m.command === command && m.when?.includes("viewItem == bynkHttpHandler")),
+        `${command} is offered on HTTP handler nodes too`,
+      );
+    }
     // The tree-node commands take a node argument, so they stay out of the palette.
     const palette = menus.commandPalette ?? [];
     for (const command of ["bynk.project.sequenceDiagram", "bynk.project.wireContract", "bynk.project.showDocumentation"]) {

@@ -152,8 +152,14 @@ export function fillPath(
   return missing.length > 0 ? { missing } : { path: filled };
 }
 
+/** Headers Node's `fetch` refuses to send (undici's `UND_ERR_INVALID_ARG` /
+ *  `UND_ERR_NOT_SUPPORTED`): it manages the framing itself. */
+const UNSENDABLE_HEADERS = new Set(["transfer-encoding", "keep-alive", "upgrade", "expect"]);
+
 /** `Name: value` lines as header pairs. Blank lines and `#` comments are
- *  skipped; any other line that is not a header is an error, naming it. */
+ *  skipped; any other line that is not a header, or is one `fetch` would
+ *  refuse, is an error naming the line, so it is not reported later as the
+ *  dev server being unreachable. */
 export function parseHeaders(text: string): { headers: [string, string][] } | { error: string } {
   const headers: [string, string][] = [];
   const lines = text.split(/\r?\n/);
@@ -162,6 +168,13 @@ export function parseHeaders(text: string): { headers: [string, string][] } | { 
     if (line === "" || line.startsWith("#")) continue;
     const m = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+)\s*:\s*(.*)$/.exec(line);
     if (!m) return { error: `Header line ${i + 1} isn't Name: value.` };
+    if (UNSENDABLE_HEADERS.has(m[1].toLowerCase())) {
+      return { error: `Header line ${i + 1}: ${m[1]} can't be set; the request's framing is managed for you.` };
+    }
+    // A header value is Latin-1 octets, without control characters (tab aside).
+    if (/[^\t\x20-\x7e\x80-\xff]/.test(m[2])) {
+      return { error: `Header line ${i + 1}: the value has a character a header can't carry (control or beyond U+00FF).` };
+    }
     headers.push([m[1], m[2]]);
   }
   return { headers };
@@ -278,19 +291,24 @@ export type SrResult =
       body: string;
       /** The body was JSON and is shown pretty-printed. */
       json: boolean;
-      truncated: boolean;
+      /** Why the body shown is not the whole body (cut at the size limit, or
+       *  still streaming when the time limit came). */
+      partial?: string;
     }
   | { kind: "error"; message: string; method?: string; url?: string };
 
-/** Host → page. */
+/** Host → page. `id` is the page's own number for the send, so a result for
+ *  an older send of the same route is not taken for the latest one's. */
 export type SrHostMessage =
-  | { type: "sending"; key: string }
-  | { type: "result"; key: string; result: SrResult };
+  | { type: "sending"; key: string; id: number }
+  | { type: "result"; key: string; id: number; result: SrResult };
 
-/** Page → host, beyond the live view's own messages. */
+/** Page → host, beyond the live view's own messages. Each route has at most
+ *  one request in flight: a new send to it replaces the last, a send to
+ *  another route leaves it be. */
 export type SrPageMessage =
-  | { type: "send"; key: string; input: SendInput }
-  | { type: "cancel" }
+  | { type: "send"; key: string; id: number; input: SendInput }
+  | { type: "cancel"; key: string }
   | { type: "startDev" };
 
 /** The response body as shown: pretty-printed when it is JSON (by its

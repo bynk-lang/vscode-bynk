@@ -17,7 +17,6 @@ import type { LanguageClient } from "vscode-languageclient/node";
 
 import { devServerState, onDidChangeDevServer } from "./devServer";
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
-import { handlerSymbols } from "./refreshScheduler";
 import {
   buildRequest,
   devTarget,
@@ -32,9 +31,11 @@ import {
   type SrResult,
 } from "./sendRequestCore";
 import type { ViewRefresh } from "./viewRefresh";
+import { registerHandlerLens } from "./viewsCodeLens";
 import { requestWireContract } from "./wireContract";
 
-/** How long a request may take before it is abandoned. */
+/** How long a request may take before it is abandoned: before the response
+ *  starts, an error; while its body is still arriving (a stream), what came. */
 const TIMEOUT_MS = 30_000;
 /** The most of a response body the panel shows. */
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -67,9 +68,19 @@ const SR_CSS = `
 `;
 
 export function registerSendRequest(context: vscode.ExtensionContext, hub: ViewRefresh): LivePanel<SrPayload> {
-  /** The latest payload, which a send is checked against and built from. */
-  let current: SrPayload | null = null;
-  let inflight: AbortController | undefined;
+  /** The payload the page shows, which a send is checked against and built from. */
+  let shown: SrPayload | null = null;
+  /** The request in flight for each route. */
+  const inflight = new Map<string, AbortController>();
+
+  const start = (key: string, id: number, input: SendInput, post: (m: SrHostMessage) => void): Promise<void> => {
+    inflight.get(key)?.abort();
+    const abort = new AbortController();
+    inflight.set(key, abort);
+    return send(shown, key, id, input, abort, post).finally(() => {
+      if (inflight.get(key) === abort) inflight.delete(key);
+    });
+  };
 
   const view = new LivePanel<SrPayload>(
     context,
@@ -81,22 +92,19 @@ export function registerSendRequest(context: vscode.ExtensionContext, hub: ViewR
       bodyCss: SR_CSS,
       followsCursor: true,
       title: (p) => (p ? `Send ${p.form.method} ${p.form.path}` : "Bynk Send Request"),
-      request: async (client, target) => {
-        const payload = await requestPayload(client, target);
-        if (payload) current = payload;
-        return payload;
+      request: requestPayload,
+      onRender: (payload) => {
+        shown = payload;
       },
       missMessage: 'Bynk: place the cursor on an HTTP handler, such as on GET("/…"), to send it a request.',
       onMessage: (message, post) => {
         const m = message as SrPageMessage;
         switch (m.type) {
           case "send":
-            inflight?.abort();
-            inflight = new AbortController();
-            void send(current, m.key, m.input, inflight, post);
+            if (typeof m.key === "string" && typeof m.id === "number") void start(m.key, m.id, m.input, post);
             break;
           case "cancel":
-            inflight?.abort();
+            if (typeof m.key === "string") inflight.get(m.key)?.abort();
             break;
           case "startDev":
             void vscode.commands.executeCommand("bynk.startDevServer");
@@ -108,21 +116,20 @@ export function registerSendRequest(context: vscode.ExtensionContext, hub: ViewR
   );
   context.subscriptions.push(
     view,
-    { dispose: () => inflight?.abort() },
-    // Where a request goes follows the dev server: re-pull so the page's
-    // target line and Send button keep up. An unchanged payload is not re-sent.
-    onDidChangeDevServer(() => void view.refresh()),
+    { dispose: () => inflight.forEach((a) => a.abort()) },
+    // Where a request goes follows the dev server. Only the target changes,
+    // so recompute it on the shown payload rather than re-request the model.
+    onDidChangeDevServer(() => view.repost((p) => ({ ...p, target: devTarget(p.unit, devServerState()) }))),
     // Test seam (not contributed): send `input` for the shown route as the
     // page's Send would, resolving to what the page would be posted.
     vscode.commands.registerCommand("bynk._sendRequestSend", (input: SendInput) => {
-      const abort = new AbortController();
       return new Promise<SrResult>((resolve) => {
-        void send(current, current?.key ?? "", input, abort, (m) => {
+        void start(shown?.key ?? "", 0, input, (m) => {
           if (m.type === "result") resolve(m.result);
         });
       });
     }),
-    vscode.commands.registerCommand("bynk._sendRequestPayload", () => current),
+    vscode.commands.registerCommand("bynk._sendRequestPayload", () => shown),
     vscode.commands.registerCommand("bynk.sendRequest", (uriArg?: unknown, positionArg?: unknown) => {
       const target = commandTarget(uriArg, positionArg, true);
       if (!target) {
@@ -132,8 +139,29 @@ export function registerSendRequest(context: vscode.ExtensionContext, hub: ViewR
       return view.show(target);
     }),
   );
-  registerCodeLens(context, hub);
+  // On by default, unlike the `Wire contract` lens: it is only on `from http`
+  // handlers, and it is the way in.
+  registerHandlerLens(context, hub, {
+    setting: "sendRequest.codeLens",
+    enabledByDefault: true,
+    title: "Send request",
+    tooltip: "Send this handler a request on the dev server",
+    command: "bynk.sendRequest",
+    filter: (document, h) => isHttpHandler(document, h.symbol.range),
+  });
   return view;
+}
+
+/** Whether the handler whose symbol spans `range` is an HTTP one: its header
+ *  (`on GET("/x")`), past any annotations and comments, says so. */
+export function isHttpHandler(
+  document: vscode.TextDocument,
+  range: { start: { line: number }; end: { line: number } },
+): boolean {
+  const last = Math.min(range.end.line, document.lineCount - 1);
+  const lines: string[] = [];
+  for (let l = range.start.line; l <= last; l++) lines.push(document.lineAt(l).text);
+  return isHttpHandlerHeader(lines);
 }
 
 async function requestPayload(client: LanguageClient, target: ViewTarget): Promise<SrPayload | null> {
@@ -157,12 +185,13 @@ async function requestPayload(client: LanguageClient, target: ViewTarget): Promi
 async function send(
   payload: SrPayload | null,
   key: string,
+  id: number,
   input: SendInput,
   abort: AbortController,
   post: (message: SrHostMessage) => void,
 ): Promise<void> {
   const fail = (message: string, method?: string, url?: string): void =>
-    post({ type: "result", key, result: { kind: "error", message, method, url } });
+    post({ type: "result", key, id, result: { kind: "error", message, method, url } });
   if (!payload || payload.key !== key) {
     fail("This handler's route changed. Check the form and send again.");
     return;
@@ -179,7 +208,7 @@ async function send(
     return;
   }
   const { method, url, headers, body } = built.request;
-  post({ type: "sending", key });
+  post({ type: "sending", key, id });
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
@@ -188,38 +217,83 @@ async function send(
   const started = Date.now();
   try {
     // `manual`: a redirect is the answer to show, not one to follow.
-    const res = await fetch(url, { method, headers, body, redirect: "manual", signal: abort.signal });
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    const ms = Date.now() - started;
+    let res: Response;
+    try {
+      res = await fetch(url, { method, headers, body, redirect: "manual", signal: abort.signal });
+    } catch (e) {
+      if (abort.signal.aborted) fail(timedOut ? `No response after ${TIMEOUT_MS / 1000} s.` : "Cancelled.", method, url);
+      else fail(fetchFailure(url, e), method, url);
+      return;
+    }
+    const read = await readBody(res, () => abort.signal.aborted);
+    if (abort.signal.aborted && !timedOut) {
+      fail("Cancelled.", method, url);
+      return;
+    }
     const contentType = res.headers.get("content-type");
-    const truncated = bytes.length > MAX_BODY_BYTES;
-    const shown = truncated ? bytes.subarray(0, MAX_BODY_BYTES) : bytes;
+    const partial = read.cut
+      ? `Showing the first ${MAX_BODY_BYTES / 1024 / 1024} MiB of the body.`
+      : timedOut
+        ? `The body was still arriving after ${TIMEOUT_MS / 1000} s; this is what came.`
+        : undefined;
     const text = isTextual(contentType)
-      ? new TextDecoder().decode(shown)
-      : `(${bytes.length} bytes of ${contentType}, not shown)`;
-    const { body: formatted, json } = truncated ? { body: text, json: false } : formatBody(contentType, text);
+      ? new TextDecoder().decode(read.bytes, { stream: partial !== undefined })
+      : `(${read.bytes.length}${partial ? "+" : ""} bytes of ${contentType}, not shown)`;
+    const { body: shownBody, json } = partial ? { body: text, json: false } : formatBody(contentType, text);
     const result: SrResult = {
       kind: "response",
       method,
       url,
       status: res.status,
       statusText: res.statusText,
-      ms,
+      ms: Date.now() - started,
       headers: [...res.headers.entries()],
-      body: formatted,
+      body: shownBody,
       json,
-      truncated,
+      partial,
     };
-    post({ type: "result", key, result });
+    post({ type: "result", key, id, result });
   } catch (e) {
-    if (abort.signal.aborted) {
-      fail(timedOut ? `No response after ${TIMEOUT_MS / 1000} s.` : "Cancelled.", method, url);
-    } else {
-      fail(`Could not reach ${url}: ${networkReason(e)}`, method, url);
-    }
+    fail(`The response broke off: ${e instanceof Error ? e.message : String(e)}`, method, url);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Read at most `MAX_BODY_BYTES` of the body, then stop (and cancel the
+ *  stream): a large download is not held whole, and a stream that never ends
+ *  yields what came before the request was aborted. */
+async function readBody(res: Response, aborted: () => boolean): Promise<{ bytes: Uint8Array; cut: boolean }> {
+  const reader = res.body?.getReader();
+  if (!reader) return { bytes: new Uint8Array(0), cut: false };
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let cut = false;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      size += value.length;
+      if (size > MAX_BODY_BYTES) {
+        cut = true;
+        break;
+      }
+    }
+  } catch (e) {
+    if (!aborted()) throw e;
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+  const bytes = new Uint8Array(Math.min(size, MAX_BODY_BYTES));
+  let at = 0;
+  for (const c of chunks) {
+    const part = c.subarray(0, bytes.length - at);
+    bytes.set(part, at);
+    at += part.length;
+    if (at === bytes.length) break;
+  }
+  return { bytes, cut };
 }
 
 /** The page's input is untrusted shape: keep only strings. */
@@ -251,62 +325,14 @@ function isTextual(contentType: string | null): boolean {
   return /^text\/|json|xml|javascript|x-www-form-urlencoded/i.test(contentType);
 }
 
-/** Node's fetch hides the socket error in `cause` (`ECONNREFUSED`). */
-function networkReason(e: unknown): string {
+/** Why `fetch` rejected. Node's fetch hides the reason in `cause`: a socket
+ *  error (`ECONNREFUSED`) means the server was not reached, but undici's own
+ *  codes (`UND_ERR_*`), or none, mean the request itself was refused before
+ *  anything was sent. */
+function fetchFailure(url: string, e: unknown): string {
   const cause = (e as { cause?: { code?: unknown; message?: unknown } } | undefined)?.cause;
-  if (typeof cause?.code === "string") return cause.code;
-  if (typeof cause?.message === "string") return cause.message;
-  return e instanceof Error ? e.message : String(e);
-}
-
-// A `Send request` CodeLens above each HTTP handler, behind
-// `bynk.sendRequest.codeLens`. Unlike the opt-in `Wire contract` lens it is
-// on by default: it is only on `from http` handlers, and it is the way in.
-function codeLensEnabled(): boolean {
-  return vscode.workspace.getConfiguration("bynk").get<boolean>("sendRequest.codeLens", true);
-}
-
-class SendRequestCodeLensProvider implements vscode.CodeLensProvider, vscode.Disposable {
-  private readonly emitter = new vscode.EventEmitter<void>();
-  readonly onDidChangeCodeLenses = this.emitter.event;
-  private readonly sub: vscode.Disposable;
-
-  constructor(private readonly hub: ViewRefresh) {
-    this.sub = vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("bynk.sendRequest.codeLens")) this.emitter.fire();
-    });
-  }
-
-  async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
-    if (!codeLensEnabled()) return [];
-    const uri = document.uri.toString();
-    const lenses: vscode.CodeLens[] = [];
-    for (const h of handlerSymbols(await this.hub.documentSymbols(document))) {
-      const first = h.symbol.range.start.line;
-      const last = Math.min(h.symbol.range.end.line, first + 8, document.lineCount - 1);
-      const lines: string[] = [];
-      for (let l = first; l <= last; l++) lines.push(document.lineAt(l).text);
-      if (!isHttpHandlerHeader(lines)) continue;
-      const start = h.symbol.selectionRange.start;
-      lenses.push(
-        new vscode.CodeLens(new vscode.Range(start.line, start.character, start.line, start.character), {
-          title: "Send request",
-          tooltip: "Send this handler a request on the dev server",
-          command: "bynk.sendRequest",
-          arguments: [uri, { line: start.line, character: start.character }],
-        }),
-      );
-    }
-    return lenses;
-  }
-
-  dispose(): void {
-    this.sub.dispose();
-    this.emitter.dispose();
-  }
-}
-
-function registerCodeLens(context: vscode.ExtensionContext, hub: ViewRefresh): void {
-  const provider = new SendRequestCodeLensProvider(hub);
-  context.subscriptions.push(provider, vscode.languages.registerCodeLensProvider({ language: "bynk" }, provider));
+  const code = typeof cause?.code === "string" ? cause.code : undefined;
+  if (code && !code.startsWith("UND_ERR_")) return `Could not reach ${url}: ${code}`;
+  const detail = typeof cause?.message === "string" ? cause.message : e instanceof Error ? e.message : String(e);
+  return `The request couldn't be sent as written: ${detail}`;
 }
