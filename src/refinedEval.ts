@@ -1,27 +1,22 @@
 // #2470: checks a candidate against a refined type's clauses, for the explorer
 // panel (`refinedExplorer.ts`). Pure of `vscode`, so it unit-tests directly.
 //
-// Each clause's `check` is the condition the emitter lowers for `.of`, printed
-// by the server as a JavaScript expression over `value`. The server sends no
-// structured form of it yet, so the text is run — a MITIGATION (#35), not a
-// boundary: `node:vm` is not a sandbox, and safety still rests on the server
-// emitting only the closed set of predicate forms (the one user-written part,
-// a `Matches` pattern, sits inside a string literal). The real fix is the
-// server sending predicates structurally, to be interpreted here without JS.
-//
-// Until then nothing from the host realm is reachable from the predicate: the
-// context's global is a null-prototype object, `value` is built inside the
-// context from a quoted literal (never a host object), `Error` is frozen so
-// `prepareStackTrace` cannot be hooked, string `eval` is off, and a time limit
-// stops a slow pattern hanging the extension host.
+// Each clause carries `predicate`, its condition in structured form (#35,
+// bynk-lang/bynk#2588), interpreted here without running any server-supplied
+// code. The one thing still run is a `matches` pattern as a regular
+// expression: user-written, and able to backtrack without end, so only that
+// test runs in a `node:vm` context under a time limit (a RegExp cannot be
+// interrupted on the host thread). The pattern and value go in as strings.
 
-import { types } from "node:util";
 import * as vm from "node:vm";
 
 import type { CandidateVerdict, RefinedClause, RefinedModel } from "./webview/refinedTypes";
 
-/** How long one clause may run. */
+/** How long one pattern may run. */
 export const CLAUSE_TIMEOUT_MS = 250;
+
+/** The first server release that sends `predicate`. */
+export const PREDICATE_MIN_VERSION = "v0.443.0";
 
 const INT_MIN = -(2n ** 63n);
 const INT_MAX = 2n ** 63n - 1n;
@@ -55,71 +50,111 @@ export function parseCandidate(
   }
 }
 
-/** Locks `Error` (so `prepareStackTrace` cannot be hooked) and its binding. */
-const PRELUDE =
-  '"use strict"; Object.freeze(Error);' +
-  ' Object.defineProperty(globalThis, "Error", { value: Error, writable: false, configurable: false });';
+type Value = bigint | number | string;
+type ClauseOutcome = "holds" | "fails" | "timeout" | { unchecked: string };
 
-/** Whether `err` is vm's own time-out error. A thrown value from the context
- *  may be a `Proxy` or carry getters, so this reads it without running any of
- *  its code: `isNativeError` is false for a `Proxy`, and a property descriptor
- *  is read without calling a getter. */
-function isTimeout(err: unknown): boolean {
-  if (!types.isNativeError(err)) return false;
-  return Object.getOwnPropertyDescriptor(err, "code")?.value === "ERR_SCRIPT_EXECUTION_TIMEOUT";
+/** A JSON bound as a `bigint`. `Int` bounds beyond 2^53 reach here already
+ *  rounded to a double (JSON.parse, in the language client), so a bound that
+ *  large can be off by the rounding; the ±2^63 ends are powers of two, exact. */
+function intBound(n: unknown): bigint | undefined {
+  return typeof n === "number" && Number.isInteger(n) ? BigInt(n) : undefined;
 }
 
-/** `value` as source text for the context to evaluate, so the candidate is
- *  created inside it rather than passed in from the host. */
-function valueLiteral(value: bigint | number | string): string {
-  switch (typeof value) {
-    case "bigint":
-      return `${value}n`;
-    case "number":
-      return Object.is(value, -0) ? "-0" : String(value);
+function lengthOf(n: unknown): number | undefined {
+  return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : undefined;
+}
+
+/** Whether `value` matches `^(?:pattern)$`. Only this runs in a context: a null-
+ *  prototype global holding two strings, no string codegen, and a time limit
+ *  that also covers queued microtasks. The result is a number, never an object. */
+function matchesPattern(pattern: string, value: string, timeoutMs: number): "holds" | "fails" | "timeout" | { unchecked: string } {
+  const context = vm.createContext(Object.create(null), {
+    codeGeneration: { strings: false, wasm: false },
+    microtaskMode: "afterEvaluate",
+  });
+  const sandbox = vm.runInContext("globalThis", context) as Record<string, unknown>;
+  sandbox.pattern = pattern;
+  sandbox.value = value;
+  let outcome: unknown;
+  try {
+    outcome = vm.runInContext(
+      `(function () { try { return new RegExp("^(?:" + pattern + ")$").test(value) ? 1 : 0; }` + ` catch (e) { return 2; } })()`,
+      context,
+      { timeout: timeoutMs },
+    );
+  } catch (err) {
+    // Only the time limit stops a script that cannot throw; a thrown value is not read.
+    return (err as { code?: unknown } | null)?.code === "ERR_SCRIPT_EXECUTION_TIMEOUT"
+      ? "timeout"
+      : { unchecked: "the pattern could not be run" };
+  }
+  if (outcome === 1) return "holds";
+  if (outcome === 0) return "fails";
+  return { unchecked: "the pattern is not a valid regular expression" };
+}
+
+function evaluateClause(clause: RefinedClause, value: Value, timeoutMs: number): ClauseOutcome {
+  const p = clause.predicate;
+  if (p === undefined || p === null || typeof p !== "object") {
+    return { unchecked: `needs bynk ${PREDICATE_MIN_VERSION} or newer` };
+  }
+  const notApplicable = { unchecked: "the condition does not apply to this type" };
+  switch (p.kind) {
+    case "nonNegative":
+    case "positive": {
+      if (typeof value === "string") return notApplicable;
+      const ok = p.kind === "positive" ? (typeof value === "bigint" ? value > 0n : value > 0) : typeof value === "bigint" ? value >= 0n : value >= 0;
+      return ok ? "holds" : "fails";
+    }
+    case "range": {
+      if (typeof value === "bigint") {
+        const min = intBound(p.min);
+        const max = intBound(p.max);
+        if (min === undefined || max === undefined) return { unchecked: "the bounds are not whole numbers" };
+        return value >= min && value <= max ? "holds" : "fails";
+      }
+      if (typeof value === "number") {
+        if (typeof p.min !== "number" || typeof p.max !== "number") return { unchecked: "the bounds are not numbers" };
+        return value >= p.min && value <= p.max ? "holds" : "fails";
+      }
+      return notApplicable;
+    }
+    case "nonEmpty":
+      return typeof value === "string" ? (value.length > 0 ? "holds" : "fails") : notApplicable;
+    case "minLength":
+    case "maxLength":
+    case "length": {
+      if (typeof value !== "string") return notApplicable;
+      const n = lengthOf(p.length);
+      if (n === undefined) return { unchecked: "the length is not a whole number" };
+      const ok = p.kind === "minLength" ? value.length >= n : p.kind === "maxLength" ? value.length <= n : value.length === n;
+      return ok ? "holds" : "fails";
+    }
+    case "matches":
+      if (typeof value !== "string") return notApplicable;
+      if (typeof p.pattern !== "string") return { unchecked: "the pattern is not text" };
+      return matchesPattern(p.pattern, value, timeoutMs);
     default:
-      return JSON.stringify(value);
+      // A form this extension predates.
+      return { unchecked: `needs a newer extension (unknown condition)` };
   }
 }
 
 /** Evaluate every clause against `value`; all failures are reported. */
 export function evaluateClauses(
   clauses: readonly RefinedClause[],
-  value: bigint | number | string,
+  value: Value,
   timeoutMs: number = CLAUSE_TIMEOUT_MS,
 ): CandidateVerdict {
   const failures: Array<{ source: string; message: string }> = [];
-  const literal = valueLiteral(value);
+  const unchecked: Array<{ source: string; reason: string }> = [];
   for (const clause of clauses) {
-    // A null-prototype global: a host `Object` is no way to a host `Function`.
-    // `afterEvaluate` runs queued microtasks inside the time limit, so a
-    // `Promise.then` loop cannot outlive it.
-    const context = vm.createContext(Object.create(null), {
-      codeGeneration: { strings: false, wasm: false },
-      microtaskMode: "afterEvaluate",
-    });
-    let outcome: unknown;
-    try {
-      vm.runInContext(PRELUDE + `var value = ${literal};`, context, { timeout: timeoutMs });
-      // The predicate's outcome is reduced to a primitive inside the context,
-      // under the time limit: a thrown value is never handed to the host, which
-      // would run its getters or `toString` unbounded.
-      outcome = vm.runInContext(
-        `(function () { try { return (${clause.check}) === true; }` +
-          ` catch (e) { try { return "threw " + String(e && e.name).slice(0, 64); } catch (_) { return "threw"; } } })()`,
-        context,
-        { timeout: timeoutMs },
-      );
-    } catch (err) {
-      if (isTimeout(err)) return { kind: "timeout" };
-      // A compile error, or a predicate that threw past its wrapper: nothing
-      // about the thrown value is read.
-      throw new Error("the predicate could not be run");
-    }
-    if (typeof outcome === "string") throw new Error(`the predicate ${outcome}`);
-    const holds = outcome;
-    if (holds !== true) failures.push({ source: clause.source, message: clause.message });
+    const outcome = evaluateClause(clause, value, timeoutMs);
+    if (outcome === "timeout") return { kind: "timeout" };
+    if (outcome === "fails") failures.push({ source: clause.source, message: clause.message });
+    else if (outcome !== "holds") unchecked.push({ source: clause.source, reason: outcome.unchecked });
   }
+  if (unchecked.length > 0) return { kind: "unchecked", failures, unchecked };
   return failures.length === 0 ? { kind: "valid" } : { kind: "invalid", failures };
 }
 
@@ -127,11 +162,5 @@ export function evaluateClauses(
 export function checkCandidate(model: RefinedModel, text: string): CandidateVerdict {
   const parsed = parseCandidate(model.base, text);
   if (!parsed.ok) return { kind: "unreadable", message: parsed.message };
-  try {
-    return evaluateClauses(model.clauses, parsed.value);
-  } catch (err) {
-    // A clause that throws (a `Matches` pattern V8's `RegExp` rejects though the
-    // compiler accepted it) still owes the panel an answer for this text.
-    return { kind: "unreadable", message: `This value could not be checked: ${String(err)}` };
-  }
+  return evaluateClauses(model.clauses, parsed.value);
 }

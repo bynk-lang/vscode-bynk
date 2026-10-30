@@ -44,14 +44,22 @@ function renderVerdict(into: HTMLElement, verdict: CandidateVerdict): void {
       into.classList.add("rx-bad");
       into.append(el("strong", undefined, "✗ "), document.createTextNode("Checking took too long and was stopped."));
       return;
-    case "invalid": {
+    case "invalid":
+    case "unchecked": {
       into.classList.add("rx-bad");
-      into.append(el("strong", undefined, "✗ invalid"));
+      into.append(el("strong", undefined, verdict.failures.length > 0 ? "✗ invalid" : "? could not be checked"));
       const list = el("ul");
       for (const f of verdict.failures) {
         const li = el("li");
         li.append(el("code", undefined, f.source), document.createTextNode(` — ${f.message}`));
         list.append(li);
+      }
+      if (verdict.kind === "unchecked") {
+        for (const u of verdict.unchecked) {
+          const li = el("li");
+          li.append(el("code", undefined, u.source), document.createTextNode(` — could not be checked: ${u.reason}`));
+          list.append(li);
+        }
       }
       into.append(list);
     }
