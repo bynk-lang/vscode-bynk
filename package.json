@@ -28,6 +28,7 @@
     "onWebviewPanel:bynkDocumentation",
     "onWebviewPanel:bynkArchitectureMap",
     "onWebviewPanel:bynkWireContract",
+    "onWebviewPanel:bynkSendRequest",
     "onWebviewPanel:bynkContractDiff",
     "onWebviewPanel:bynkAgentState"
   ],
@@ -534,6 +535,12 @@
         "icon": "$(plug)"
       },
       {
+        "command": "bynk.sendRequest",
+        "title": "Send Request",
+        "category": "Bynk",
+        "icon": "$(send)"
+      },
+      {
         "command": "bynk.showContractDiff",
         "title": "Show Contract Diff",
         "category": "Bynk",
@@ -712,6 +719,12 @@
         "icon": "$(plug)"
       },
       {
+        "command": "bynk.project.sendRequest",
+        "title": "Send Request",
+        "category": "Bynk",
+        "icon": "$(send)"
+      },
+      {
         "command": "bynk.chat.applyFix",
         "title": "Apply @bynk Fix",
         "category": "Bynk"
@@ -809,6 +822,10 @@
         },
         {
           "command": "bynk.showWireContract",
+          "when": "editorLangId == bynk && !isWeb"
+        },
+        {
+          "command": "bynk.sendRequest",
           "when": "editorLangId == bynk && !isWeb"
         },
         {
@@ -925,6 +942,10 @@
         },
         {
           "command": "bynk.project.wireContract",
+          "when": "false"
+        },
+        {
+          "command": "bynk.project.sendRequest",
           "when": "false"
         },
         {
@@ -1114,6 +1135,11 @@
           "command": "bynk.project.wireContract",
           "when": "view == bynk.project && viewItem == bynkHandler && !isWeb",
           "group": "bynk@2"
+        },
+        {
+          "command": "bynk.project.sendRequest",
+          "when": "view == bynk.project && viewItem == bynkHandler && !isWeb",
+          "group": "bynk@3"
         }
       ]
     },
@@ -1459,6 +1485,11 @@
           "type": "boolean",
           "default": false,
           "description": "Show a `Wire contract` CodeLens above each service and agent handler, beside the language server's `Show Sequence` lens. The editor title-bar buttons open the same views without it."
+        },
+        "bynk.sendRequest.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a `Send request` CodeLens above each `from http` handler. It opens **Bynk: Send Request**, which sends the handler a request on the dev server."
         },
         "bynk.dependencies.upgradeLenses": {
           "type": "boolean",

@@ -92,6 +92,9 @@ export interface LiveViewSpec<P> {
   request(client: LanguageClient, target: ViewTarget, refresh: ViewRefresh, fresh: boolean): Promise<P | null>;
   /** Shown when an explicit command finds nothing. */
   missMessage: string;
+  /** #67: a page message the panel does not handle itself, with a way to
+   *  answer the page that sent it. */
+  onMessage?(message: { type: string }, post: (message: unknown) => void): void;
 }
 
 /** Debounce for cursor-follow, so a burst of selection events (arrow keys,
@@ -397,6 +400,12 @@ export class LivePanel<P> implements vscode.Disposable {
         case "ready":
           this.onReady();
           break;
+        default: {
+          const other = message as { type?: unknown } | undefined;
+          if (typeof other?.type === "string") {
+            this.spec.onMessage?.(other as { type: string }, (m) => void panel.webview.postMessage(m));
+          }
+        }
       }
     });
   }

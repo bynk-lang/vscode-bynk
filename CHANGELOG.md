@@ -14,6 +14,15 @@ version).
 
 ### Added
 
+- **Bynk: Send Request** sends a request to the `from http` handler at the
+  cursor, on the dev server, and shows the status, timing, headers and body. The
+  form comes from the handler's wire contract: one field per `:name` path
+  parameter, a headers box shared by the context's routes, and a JSON body
+  pre-filled with a skeleton of the body's type. Like the wire contract it
+  follows the cursor unless pinned, and it offers to start the dev server when
+  none is running. A `Send request` CodeLens above each HTTP handler opens it
+  (`bynk.sendRequest.codeLens`, on by default), as does the Project view's
+  handler menu. (#67)
 - **Doc examples node in the Testing view.** A suite with doc-comment examples
   now shows a "Doc examples" child holding them. Running it runs just those
   cases; running the suite still runs everything. The `doc-example` tag is

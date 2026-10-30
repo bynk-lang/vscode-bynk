@@ -43,6 +43,7 @@ import { refinedExplorerClientFeature, trustExplorerLink } from "./refinedExplor
 import { registerArchitectureMap } from "./architectureMap";
 import { registerAgentStateView } from "./agentStateView";
 import { registerContractDiff } from "./contractDiff";
+import { registerSendRequest } from "./sendRequest";
 import { registerWireContract } from "./wireContract";
 import { registerFeatures } from "./features";
 import { ViewRefresh } from "./viewRefresh";
@@ -130,6 +131,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     bynkDocumentation: registerDocumentationView(context, viewRefresh) as LivePanel<unknown>,
     bynkArchitectureMap: registerArchitectureMap(context, viewRefresh) as LivePanel<unknown>,
     bynkWireContract: registerWireContract(context, viewRefresh) as LivePanel<unknown>,
+    // #67: the request runner, on the wire contract's model.
+    bynkSendRequest: registerSendRequest(context, viewRefresh) as LivePanel<unknown>,
     // #2467: project-scoped, like the architecture map.
     bynkContractDiff: registerContractDiff(context, viewRefresh) as LivePanel<unknown>,
     // #2196: the agent state view — agent-scoped, so it follows the cursor

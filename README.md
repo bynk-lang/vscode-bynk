@@ -192,6 +192,16 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   **Bynk: Sweep State Migrations…** shows the sweep plan and runs `bynk migrate
   sweep` in a terminal for you to confirm there; production environments first
   ask you to type their name.
+- **Send Request** — the `Send request` CodeLens above a `from http` handler
+  (or **Bynk: Send Request**) opens a panel that sends that handler a request on
+  the dev server. It has a field per `:name` path parameter, a headers box
+  (shared by the context's routes, so an `Authorization` header is typed once)
+  and, for a route with a `body`, a JSON body pre-filled from the body's type.
+  It shows the response's status, timing, headers and body, pretty-printed when
+  it is JSON. It follows the cursor from handler to handler unless pinned, keeps
+  what you typed per route, and offers to start the dev server when none is
+  running. The request is sent by the extension, only ever to the URL the dev
+  server reports for the handler's context.
 - **Export OpenAPI** — **Bynk: Export OpenAPI…** writes an OpenAPI 3.1 document
   for the project's `from http` services with `bynk openapi`, as JSON or YAML by
   the file name you choose. It needs a `bynk` that has the command, and offers to
@@ -351,6 +361,7 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Documentation** | The active file's declarations, rendered as a reference page. |
 | **Bynk: Show Architecture Map** | A whole-project map of contexts and adapters, their `consumes` edges, and what each one binds. |
 | **Bynk: Show Wire Contract** | The JSON wire shape of the service handler at the cursor. Follows the cursor into other handlers unless pinned. |
+| **Bynk: Send Request** | Send the HTTP handler at the cursor a request on the dev server: path parameters, headers and a JSON body pre-filled from its type, then the response. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Show Agent State** | The state machines of the agent at the cursor: for each `store` Cell of an enum or sum type, a state diagram generated from its handlers and a handler × state table of what each handler does from each state, with moves a `transition` would refuse at commit marked ⚠, and each handler's effects — what it writes, reads and calls on each path (shown instead for an agent with no state field). Follows the cursor from agent to agent, highlighting the handler under it. |
 | **Bynk: Show Contract Diff** | Boundary changes since `bynk.schema.lock` and service contracts that differ from `bynk.deploy.lock`'s live record, each marked compatible or breaking. Refreshes when either lock changes. |
 | **Bynk: Show Compiled Output** | The TypeScript the compiler emits for the active file, read-only, beside it. Compiled from your unsaved buffers through `bynk compile`; the cursor in either editor highlights the matching lines in the other, and the output follows your edits. |
@@ -399,6 +410,7 @@ its own, and is restored after **Developer: Reload Window**.
 | `bynk.inlineDocRendering.enable` | `true` | Render `--- … ---` doc comments in place with light Markdown styling while reading the source. |
 | `bynk.views.refresh` | `onSave` | When open model views re-request their model: `onSave`, `onType` (about 500 ms after the last edit), or `manual` (the view's Refresh button). A hidden view catches up when shown. |
 | `bynk.viewsCodeLens` | `false` | Show a `Wire contract` CodeLens above each service and agent handler, beside the `Show Sequence` lens. |
+| `bynk.sendRequest.codeLens` | `true` | Show a `Send request` CodeLens above each `from http` handler, opening **Bynk: Send Request**. |
 | `bynk.fileDecorations.contextBadge` | `auto` | Two-letter Explorer badge naming each file's context (and each test file's), with the full name in the tooltip. Commons and adapters carry none. |
 | `bynk.fileDecorations.failedTests` | `true` | Tint a file red in the Explorer (and its folders) when a test in it failed in the last run. |
 | `bynk.fileDecorations.contractBreaks` | `true` | Mark a file in the Explorer (and its folders) with a `!` badge and a warning tint when the language server reports a contract break in it against `bynk.schema.lock`. |

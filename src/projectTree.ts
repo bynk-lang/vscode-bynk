@@ -662,6 +662,9 @@ export function registerProjectTree(
     vscode.commands.registerCommand("bynk.project.wireContract", (node?: DeclNode) => {
       if (node) return vscode.commands.executeCommand("bynk.showWireContract", node.uri, node.symbol.selectionRange.start);
     }),
+    vscode.commands.registerCommand("bynk.project.sendRequest", (node?: DeclNode) => {
+      if (node) return vscode.commands.executeCommand("bynk.sendRequest", node.uri, node.symbol.selectionRange.start);
+    }),
     // Test seams (not contributed): the rendered tree, `depth` levels deep,
     // and the reload count / visibility.
     vscode.commands.registerCommand("bynk._projectTreeSnapshot", async (depth = 3, reload = false) => {

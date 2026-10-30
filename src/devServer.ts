@@ -52,6 +52,16 @@ interface BynkTaskDefinition extends vscode.TaskDefinition {
 }
 
 let controller: DevServerController | undefined;
+const stateChanged = new vscode.EventEmitter<void>();
+
+/** #67: the running session's state (its contexts' URLs), for the Send
+ *  Request panel; `undefined` when no session runs. */
+export function devServerState(): DevState | undefined {
+  return controller?.running ? controller.state : undefined;
+}
+
+/** Fires on every change to the dev session's state. */
+export const onDidChangeDevServer = stateChanged.event;
 
 /** Whether a `bynk dev` session is running (for DECISION C in debug.ts). */
 export function devServerRunning(): boolean {
@@ -68,6 +78,7 @@ export function registerDevServer(context: vscode.ExtensionContext, approvals: A
   const c = controller;
   context.subscriptions.push(
     c,
+    stateChanged,
     // #2474: the workers' logs.
     vscode.commands.registerCommand("bynk.showLogs", () => c.logs.show()),
     // With an argument, `{ minLevel, contexts? }` sets the filter directly (for
@@ -126,6 +137,10 @@ class DevServerController implements vscode.Disposable {
 
   get running(): boolean {
     return this.session !== undefined && !this.session.exited;
+  }
+
+  get state(): DevState | undefined {
+    return this.session?.state;
   }
 
   /** The `bynk: dev` task for a definition. Built from the same definition
@@ -243,6 +258,7 @@ class DevServerController implements vscode.Disposable {
   }
 
   private render(state: DevState): void {
+    stateChanged.fire();
     if (state.phase === "stopped") {
       this.item.hide();
       return;

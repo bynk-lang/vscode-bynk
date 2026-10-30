@@ -82,7 +82,8 @@ export function registerWireContract(
   return view;
 }
 
-async function requestWireContract(
+/** Also the Send Request panel's model (#67). */
+export async function requestWireContract(
   client: LanguageClient,
   target: ViewTarget,
 ): Promise<WcPayload | null> {
