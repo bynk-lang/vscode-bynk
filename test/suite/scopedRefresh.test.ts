@@ -10,7 +10,8 @@ import * as path from "path";
 
 import * as vscode from "vscode";
 
-import { useFakeBynk, waitFor } from "./fakeBynk";
+import { useFakeBynk } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 
@@ -46,7 +47,7 @@ describe("Scoped refresh on save (#38)", () => {
       dirs.push(dir);
     }
     await vscode.commands.executeCommand("workbench.view.extension.bynk");
-    await waitFor(async () => (await treeState()).visible, "the project view to be visible", 10_000);
+    await waitFor(async () => (await treeState()).visible, truthy, "the project view to be visible", 10_000);
     await vscode.commands.executeCommand("bynk._projectTreeSnapshot", 2, true);
   });
 
@@ -70,7 +71,7 @@ describe("Scoped refresh on save (#38)", () => {
     const editor = await vscode.window.showTextDocument(doc);
     await editor.edit((e) => e.insert(new vscode.Position(doc.lineCount, 0), "\nfn two() -> Int {\n  2\n}\n"));
     await doc.save();
-    await waitFor(async () => (await treeState()).reloads > reloads, "a reload after the save");
+    await waitFor(async () => (await treeState()).reloads > reloads, truthy, "a reload after the save");
 
     assert.strictEqual(depsRuns(dirA()), beforeA, "the edited project's manifest did not change");
     assert.strictEqual(depsRuns(dirB()), beforeB, "the other project was not touched");
@@ -82,8 +83,8 @@ describe("Scoped refresh on save (#38)", () => {
     const beforeB = depsRuns(dirB());
     const reloads = (await treeState()).reloads;
     fs.appendFileSync(path.join(dirA(), "bynk.toml"), "\n[dependencies]\n");
-    await waitFor(async () => (await treeState()).reloads > reloads, "a reload after the manifest edit");
-    await waitFor(() => depsRuns(dirA()) > beforeA, "deps to run for the edited project");
+    await waitFor(async () => (await treeState()).reloads > reloads, truthy, "a reload after the manifest edit");
+    await waitFor(() => depsRuns(dirA()) > beforeA, truthy, "deps to run for the edited project");
     assert.strictEqual(depsRuns(dirB()), beforeB, "the other project's deps are cached");
   });
 });

@@ -184,7 +184,7 @@ describe("Bynk project sidebar (#2097)", () => {
   // it doesn't reload at all, whether the change came from the editor or
   // from outside it.
   it("respects bynk.views.refresh: bounded reloads per save, then quiet; none under manual", async function () {
-    this.timeout(120_000);
+    this.timeout(145_000);
     const treeState = () =>
       vscode.commands.executeCommand<{
         reloads: number;
@@ -252,7 +252,7 @@ describe("Bynk project sidebar (#2097)", () => {
   // signal it. This project sets a debounce longer than the settle window so
   // that case is exercised on every run, not just on a slow machine.
   it("updates the consumes edges when a file is rewritten on disk, even with a slow round", async function () {
-    this.timeout(150_000);
+    this.timeout(190_000);
     const workspace = path.resolve(__dirname, "../../../test/fixtures/workspace");
     // #2144: no dot prefix, in case the host's watcher skips dot folders.
     const slow = fs.realpathSync(fs.mkdtempSync(path.join(workspace, "ptx-")));

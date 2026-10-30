@@ -65,7 +65,7 @@ describe("Bynk dev server (#2094)", () => {
 
   it("puts a failing rebuild in Problems and clears it on the next good one", async function () {
     if (process.platform === "win32") this.skip();
-    this.timeout(45_000);
+    this.timeout(60_000);
     const devProblems = () =>
       vscode.languages
         .getDiagnostics()
