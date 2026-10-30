@@ -5,14 +5,19 @@
 // architecture-model cache keys on it, and everything that runs `bynk` roots
 // at it, so a stray manifest in a parent directory is never a project.
 
-import * as os from "node:os";
 import * as vscode from "vscode";
 
 import { inWorkspace, resolveRoot, type RootOptions } from "./projectRootsCore";
 
+// No `node:` import: the web build bundles this module, where there is no home.
+function homeDir(): string | undefined {
+  const home = typeof process === "undefined" ? undefined : process.env.HOME || process.env.USERPROFILE;
+  return home ? vscode.Uri.file(home).path : undefined;
+}
+
 const options = (): RootOptions => ({
-  home: vscode.Uri.file(os.homedir()).path,
-  caseInsensitive: process.platform === "win32",
+  home: homeDir(),
+  caseInsensitive: typeof process !== "undefined" && process.platform === "win32",
 });
 
 const cache = new Map<string, Promise<vscode.Uri | undefined>>();

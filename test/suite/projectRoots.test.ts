@@ -60,7 +60,13 @@ describe("Project roots with a nested project (#40)", () => {
       const nestedFile = vscode.Uri.file(path.join(nested, "src", "a.bynk"));
       const outerFile = vscode.Uri.file(path.join(WORKSPACE, "src", "a.bynk"));
       const boom = (uri: vscode.Uri) => vscode.languages.getDiagnostics(uri).filter((d) => d.source === "bynkc");
-      await waitFor(() => boom(nestedFile), present, "the error in the nested project's Problems", 40_000);
+      const landed = () =>
+        vscode.languages
+          .getDiagnostics()
+          .filter(([, ds]) => ds.some((d) => d.source === "bynkc"))
+          .map(([u]) => u.fsPath);
+      await waitFor(landed, present, "the error in Problems", 40_000);
+      assert.deepStrictEqual(landed(), [nestedFile.fsPath]);
       assert.deepStrictEqual(boom(outerFile), [], "not on the same path under the workspace folder");
     } finally {
       await vscode.workspace.getConfiguration("bynk").update("bynkPath", previous, vscode.ConfigurationTarget.Global);
