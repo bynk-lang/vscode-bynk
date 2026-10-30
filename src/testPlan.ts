@@ -254,6 +254,56 @@ export interface PlanCase {
   tier?: Tier;
 }
 
+/** The id of a suite's "Doc examples" group node. A case id is `${suiteId}::${name}`
+ *  and a suite id holds no `#doc-examples`, so the group's id can collide with
+ *  neither, and holds no `::` for the seed pins to slice at. */
+export const DOC_GROUP_SUFFIX = "#doc-examples";
+
+export function docGroupId(suiteId: string): string {
+  return `${suiteId}${DOC_GROUP_SUFFIX}`;
+}
+
+export function isDocGroupId(id: string): boolean {
+  return id.endsWith(DOC_GROUP_SUFFIX) && !id.includes("::");
+}
+
+/** The suite a group node's id belongs to. */
+export function suiteIdOfGroup(groupId: string): string {
+  return groupId.slice(0, groupId.length - DOC_GROUP_SUFFIX.length);
+}
+
+/** The part of a Testing view item that reference-making reads, so it can be
+ *  planned (and tested) without `vscode`. */
+export interface TreeNode {
+  id: string;
+  label: string;
+  parent?: TreeNode;
+  children: { forEach(fn: (child: TreeNode) => void): void };
+}
+
+/** The references an include/exclude item stands for: a top-level item is a project
+ *  (all its suites), its child a suite, a "Doc examples" group the doc cases of its
+ *  suite, and any deeper item a case of its suite (the suite being the case's
+ *  parent, or its grandparent when the parent is the group). */
+export function itemRefs(i: TreeNode): ItemRef[] {
+  const parent = i.parent;
+  if (!parent) {
+    const suites: ItemRef[] = [];
+    i.children.forEach((suite) => void suites.push({ suiteId: suite.id }));
+    return suites;
+  }
+  if (i.id === docGroupId(parent.id)) {
+    const cases: ItemRef[] = [];
+    i.children.forEach((c) => void cases.push({ suiteId: parent.id, name: c.label }));
+    // An empty group stands for nothing. No reference at all would read as "everything",
+    // so it is a suite reference that matches no case, as a pruned suite's is.
+    return cases.length > 0 ? cases : [{ suiteId: i.id }];
+  }
+  if (!parent.parent) return [{ suiteId: i.id }];
+  const suite = parent.id === docGroupId(parent.parent.id) ? parent.parent : parent;
+  return [{ suiteId: suite.id, name: i.label }];
+}
+
 /** A requested or excluded item: a whole suite (no `name`) or one case. */
 export interface ItemRef {
   suiteId: string;

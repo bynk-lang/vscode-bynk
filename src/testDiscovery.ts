@@ -10,7 +10,7 @@ import { fingerprintOf, migrateLegacyPins } from "./testSeeds";
 import { describePins, savePins, type SeedState } from "./testSeedState";
 import { runBynkcTest } from "./testDriver";
 import type { RunEnv } from "./testEnv";
-import { forEachCase, projectItem, prune, upsertCase, upsertSuite, workspaceRoots } from "./testTree";
+import { findCaseById, forEachCase, projectItem, prune, pruneCases, upsertCase, upsertSuite, workspaceRoots } from "./testTree";
 
 /** Discover tests without running them: shell `bynk test --no-run --format
  *  json` (a pure compile that lists suites/cases — no `tsc`, no `node`, no test
@@ -100,7 +100,7 @@ export function reconcile(
     for (const c of suite.cases) {
       liveCases.add(upsertCase(ctrl, suiteItem, c, root, legacy ? suite.kind : undefined).id);
     }
-    prune(suiteItem.children, liveCases);
+    pruneCases(suiteItem, liveCases);
   }
   prune(project.children, liveSuites);
   const liveCaseIds = new Set<string>();
@@ -113,7 +113,7 @@ export function reconcile(
   if (onlyProject && migrateLegacyPins(seeds.pins, root.toString())) changed = true;
   for (const key of [...seeds.pins.keys()]) {
     const suiteId = key.slice(0, key.indexOf("::"));
-    if (liveSuites.has(suiteId) && !project.children.get(suiteId)?.children.get(key)) {
+    if (liveSuites.has(suiteId) && !findCaseById(ctrl, suiteId, key)) {
       seeds.pins.delete(key);
       changed = true;
     }

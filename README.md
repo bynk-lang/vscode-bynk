@@ -94,6 +94,9 @@ case's result appears as that case finishes, with its duration (a `bynk` that
 predates the stream is run with `--format json` instead). Compile failures land
 in the Problems panel, and a failing assertion links to its `.bynk` line.
 
+- **Doc examples.** A suite with doc-comment examples shows a **Doc examples**
+  node holding them (they also carry the `doc-example` tag for the view's
+  filter). Run the node to run just those cases; run the suite to run everything.
 - **Running a selection.** What you select is what runs and what is reported:
   any selection of cases and suites is one `bynk test` process, narrowed with
   `--suite` and a repeated `--case`, and only the tests you picked are reported.

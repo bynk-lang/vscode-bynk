@@ -14,6 +14,11 @@ version).
 
 ### Added
 
+- **Doc examples node in the Testing view.** A suite with doc-comment examples
+  now shows a "Doc examples" child holding them. Running it runs just those
+  cases; running the suite still runs everything. The `doc-example` tag is
+  unchanged, and case ids, seed pins, file runs and code lenses work as before.
+  No new `bynk test` flag is needed.
 - **Bynk: Tail Deployed Logs…** streams a deployed Worker's logs with
   `bynk tail`, in a terminal, with stack frames rewritten to `.bynk` lines. It
   asks for the environment, and for the context when the project has several.

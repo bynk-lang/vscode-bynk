@@ -9,12 +9,16 @@ import * as assert from "assert";
 import {
   PER_CASE_LIMIT,
   caseKey,
+  docGroupId,
+  isDocGroupId,
+  suiteIdOfGroup,
   casesInFile,
   coverageScope,
   debugTarget,
   declarationNotes,
   handlerForCall,
   isDocExample,
+  itemRefs,
   isWanted,
   outcomeOf,
   planRun,
@@ -28,6 +32,7 @@ import {
   tierOf,
   unreported,
   type PlanCase,
+  type TreeNode,
 } from "../../src/testPlan";
 import {
   fingerprintOf,
@@ -768,5 +773,90 @@ describe("doc-comment example cases (#2461)", () => {
     assert.strictEqual(isDocExample({ origin: "doc" }), true);
     assert.strictEqual(isDocExample({}), false);
     assert.strictEqual(isDocExample({ origin: "other" }), false);
+  });
+});
+
+describe("the Doc examples group node's id", () => {
+  const SUITE = "file:///proj|bynk-test:unit:orders";
+
+  it("is recognised, and names its suite back", () => {
+    const id = docGroupId(SUITE);
+    assert.ok(isDocGroupId(id));
+    assert.strictEqual(suiteIdOfGroup(id), SUITE);
+  });
+
+  it("can never be a case id: a case key holds `::` and the group id does not", () => {
+    assert.ok(!docGroupId(SUITE).includes("::"));
+    assert.ok(!isDocGroupId(caseKey(SUITE, "ends with #doc-examples")));
+    assert.ok(!isDocGroupId(SUITE));
+  });
+
+  it("leaves a seed pin's slice at the first `::` on the case's real suite", () => {
+    const key = caseKey(SUITE, "adds");
+    assert.strictEqual(key.slice(0, key.indexOf("::")), SUITE);
+  });
+
+  it("plans a group's doc cases as the suite plus one case each, leaving the rest out", () => {
+    const all: PlanCase[] = [
+      { suiteId: SUITE, name: "ordinary" },
+      { suiteId: SUITE, name: "doc a" },
+      { suiteId: SUITE, name: "doc b" },
+    ];
+    const group = [{ suiteId: SUITE, name: "doc a" }, { suiteId: SUITE, name: "doc b" }];
+    assert.deepStrictEqual(planRun(all, { include: group }, { sets: true }).steps, [
+      { suites: ["orders"], cases: ["doc a", "doc b"] },
+    ]);
+    // Excluding the group's cases from the suite leaves the ordinary one.
+    assert.deepStrictEqual(planRun(all, { include: [{ suiteId: SUITE }], exclude: group }, { sets: true }).steps, [
+      { caseName: "ordinary" },
+    ]);
+  });
+});
+
+describe("itemRefs: what a Testing view item stands for", () => {
+  const SUITE = "p|bynk-test:unit:orders";
+  const node = (id: string, label: string, parent?: TreeNode): TreeNode & { kids: TreeNode[] } => {
+    const n = { id, label, parent, kids: [] as TreeNode[], children: { forEach: (fn: (c: TreeNode) => void) => n.kids.forEach(fn) } };
+    parent && (parent as { kids?: TreeNode[] }).kids?.push(n);
+    return n;
+  };
+  const project = node("p", "p");
+  const suite = node(SUITE, "orders", project);
+  const plain = node(caseKey(SUITE, "plain"), "plain", suite);
+  const group = node(docGroupId(SUITE), "Doc examples", suite);
+  const docA = node(caseKey(SUITE, "doc a"), "doc a", group);
+  const docB = node(caseKey(SUITE, "doc b"), "doc b", group);
+
+  it("takes a project for its suites and a suite for itself", () => {
+    assert.deepStrictEqual(itemRefs(project), [{ suiteId: SUITE }]);
+    assert.deepStrictEqual(itemRefs(suite), [{ suiteId: SUITE }]);
+  });
+
+  it("takes the group for one reference per doc case, of the real suite", () => {
+    assert.deepStrictEqual(itemRefs(group), [
+      { suiteId: SUITE, name: "doc a" },
+      { suiteId: SUITE, name: "doc b" },
+    ]);
+  });
+
+  it("takes a case under the suite, or under the group at depth 4, for a case of the suite", () => {
+    assert.deepStrictEqual(itemRefs(plain), [{ suiteId: SUITE, name: "plain" }]);
+    assert.deepStrictEqual(itemRefs(docB), [{ suiteId: SUITE, name: "doc b" }]);
+    assert.ok(docA.parent?.parent?.parent === project, "the case really is at depth 4");
+  });
+
+  it("takes an empty group for nothing, never for everything", () => {
+    const bare = node("p2|bynk-test:unit:bare", "bare", node("p2", "p2"));
+    const empty = node(docGroupId(bare.id), "Doc examples", bare);
+    const refs = itemRefs(empty);
+    assert.ok(refs.length > 0, "an empty include list would mean everything");
+    const all: PlanCase[] = [{ suiteId: bare.id, name: "x" }];
+    assert.deepStrictEqual(planRun(all, { include: refs }, { sets: true }).steps, []);
+  });
+
+  it("lets an excluded group take its doc cases out of an included suite", () => {
+    const all: PlanCase[] = [plain, docA, docB].map((n) => ({ suiteId: SUITE, name: n.label }));
+    const plan = planRun(all, { include: itemRefs(suite), exclude: itemRefs(group) }, { sets: true });
+    assert.deepStrictEqual(plan.steps, [{ caseName: "plain" }]);
   });
 });
