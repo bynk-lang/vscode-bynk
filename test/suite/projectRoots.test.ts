@@ -1,8 +1,8 @@
 // #40: one project-root rule, bounded by the workspace folder, with a nested
 // project in the workspace — inside the extension host. The `bynkc: check`
-// task is one per project, each in its own directory with its diagnostics on
-// that project's files. (That a lookup never leaves the workspace folder is
-// covered by projectRootsCore.unit.test.ts.)
+// task is one per project, each reporting on its own project's files. (That a
+// lookup never leaves the workspace folder is covered by
+// projectRootsCore.unit.test.ts.)
 
 import * as assert from "assert";
 import * as fs from "fs";
@@ -44,9 +44,9 @@ describe("Project roots with a nested project (#40)", () => {
     if (process.platform === "win32") this.skip();
     this.timeout(60_000);
     // A stand-in `bynk` that reports one error the way the driver prints it:
-    // a path relative to the project it ran in.
+    // a path relative to where it ran, with the project named as its argument.
     const script = path.join(dir, "bynk-reports-error");
-    fs.writeFileSync(script, '#!/bin/sh\necho "src/a.bynk:1:1: error[test.boom]: boom"\nexit 1\n', { mode: 0o755 });
+    fs.writeFileSync(script, '#!/bin/sh\necho "$2/src/a.bynk:1:1: error[test.boom]: boom"\nexit 1\n', { mode: 0o755 });
     const config = vscode.workspace.getConfiguration("bynk");
     const previous = config.inspect<string>("bynkPath")?.globalValue;
     await config.update("bynkPath", script, vscode.ConfigurationTarget.Global);
@@ -73,17 +73,18 @@ describe("Project roots with a nested project (#40)", () => {
     }
   });
 
-  it("offers one check task per project, each in its own directory", async function () {
+  it("offers one check task per project, a nested one named by path", async function () {
     this.timeout(60_000);
     const tasks = await waitFor(
       () => vscode.tasks.fetchTasks({ type: "bynkc" }),
       (all) => all.some((t) => typeof t.definition.project === "string" && t.definition.project.endsWith("apps/web")),
       "a check task for the nested project",
     );
-    const cwdOf = (t: vscode.Task): string | undefined => (t.execution as vscode.ShellExecution).options?.cwd;
+    const argsOf = (t: vscode.Task): string[] =>
+      ((t.execution as vscode.ShellExecution).args ?? []).map((a) => (typeof a === "string" ? a : a.value));
     const web = tasks.find((t) => String(t.definition.project).endsWith("apps/web"))!;
-    assert.ok(same(cwdOf(web), nested), String(cwdOf(web)));
+    assert.deepStrictEqual(argsOf(web).slice(0, 2), ["check", web.definition.project]);
     const root = tasks.find((t) => t.definition.project === undefined)!;
-    assert.ok(same(cwdOf(root), WORKSPACE), String(cwdOf(root)));
+    assert.deepStrictEqual(argsOf(root).slice(0, 2), ["check", "."]);
   });
 });

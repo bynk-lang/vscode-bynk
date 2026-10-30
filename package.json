@@ -1279,7 +1279,7 @@
         "source": "bynkc",
         "fileLocation": [
           "relative",
-          "${cwd}"
+          "${workspaceFolder}"
         ],
         "pattern": {
           "regexp": "^(.+?):(\\d+):(\\d+): (error|warning)\\[([^\\]]+)\\]: (.+)$",

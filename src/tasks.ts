@@ -43,14 +43,15 @@ export function compilerOverride(): string | undefined {
   return p || undefined;
 }
 
-/** The `bynkc: check` build task for one project: `bynk check . --format short`,
- *  run in the project's own directory (`folder`, or `folder/project` for a
- *  nested one), errors routed through `$bynkc`. */
+/** The `bynkc: check` build task for one project: `bynk check <project>
+ *  --format short`, errors routed through `$bynkc`. `bynk` prints diagnostic
+ *  paths relative to where it runs, and the matcher resolves them against the
+ *  workspace folder (`${cwd}` there is not the task's `cwd`), so it runs *in*
+ *  the workspace folder and names a nested project as its argument. */
 function checkTask(folder?: vscode.WorkspaceFolder, project?: string): vscode.Task {
   const override = compilerOverride();
-  const base = folder ?? vscode.workspace.workspaceFolders?.[0];
-  const cwd = base && (project ? vscode.Uri.joinPath(base.uri, project) : base.uri).fsPath;
-  const exec = new vscode.ShellExecution(bynkPath(), ["check", ".", "--format", "short"], {
+  const cwd = (folder ?? vscode.workspace.workspaceFolders?.[0])?.uri.fsPath;
+  const exec = new vscode.ShellExecution(bynkPath(), ["check", project ?? ".", "--format", "short"], {
     ...(cwd ? { cwd } : {}),
     ...(override ? { env: { BYNK_BYNKC: override } } : {}),
   });
@@ -83,8 +84,7 @@ async function folderHolding(project: string | undefined): Promise<vscode.Worksp
   return folders[0];
 }
 
-/** One check task per project in the workspace, each in its own directory so
- *  a nested project is checked where its `bynk.toml` is. A workspace with no
+/** One check task per project in the workspace, a nested one checked by name. A workspace with no
  *  manifest still gets the plain task. */
 async function checkTasks(): Promise<vscode.Task[]> {
   const manifests = await vscode.workspace.findFiles("**/bynk.toml", "**/node_modules/**");
