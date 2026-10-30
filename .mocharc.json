@@ -1,0 +1,7 @@
+{
+  "spec": ["out/test/suite/*.unit.test.js"],
+  "ignore": [
+    "out/test/suite/server_version.unit.test.js",
+    "out/test/suite/toolchain.unit.test.js"
+  ]
+}
