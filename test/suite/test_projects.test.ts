@@ -38,17 +38,19 @@ describe("Testing view with two projects", () => {
   before(async () => {
     fs.chmodSync(FAKE_BYNK, 0o755);
     dir = fs.realpathSync(fs.mkdtempSync(path.join(WORKSPACE, ".proj-")));
-    for (const [name, file] of [["a", "alpha"], ["b", "beta"]]) {
+    for (const name of ["a", "b"]) {
       const root = path.join(dir, name);
       fs.mkdirSync(path.join(root, "src"), { recursive: true });
       fs.writeFileSync(path.join(root, "bynk.toml"), `[project]\nname = "${name}"\n\n[paths]\ninclude = ["src"]\n`);
-      fs.writeFileSync(path.join(root, "src", `${file}.bynk`), "commons c {\n  fn f() -> Int { 1 }\n}\n");
+      for (const file of ["alpha", "beta"]) {
+        fs.writeFileSync(path.join(root, "src", `${file}.bynk`), "commons c {\n  fn f() -> Int { 1 }\n}\n");
+      }
       fs.writeFileSync(path.join(root, "README.md"), `# ${name}\n`);
     }
     a = path.join(dir, "a");
     b = path.join(dir, "b");
     // Both projects list the same suite and case, declared in their own `alpha.bynk`
-    // (`beta.bynk` for B has none): the ids alone must tell them apart.
+    // (`beta.bynk` declares none): the ids alone must tell them apart.
     const doc = {
       passed: 1,
       failed: 0,
