@@ -25,6 +25,15 @@ describe("@bynk chat participant (#2465)", () => {
   });
 
   after(async () => {
+    // **Apply fix** leaves the buffer dirty. Revert it before deleting the file:
+    // a dirty buffer outlives its editor, and anything later in the run that
+    // saves dirty Bynk buffers would write the fixed source back to disk.
+    const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === file);
+    if (doc?.isDirty) {
+      await vscode.window.showTextDocument(doc);
+      await vscode.commands.executeCommand("workbench.action.files.revert");
+      assert.ok(!doc.isDirty, "the applied fix is reverted");
+    }
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     fs.rmSync(file, { force: true });
   });
