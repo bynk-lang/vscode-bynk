@@ -34,7 +34,7 @@ version).
 
 - Changing `bynk.executablePath` restarts the server.
 - `bynk.executablePath`, `bynk.bynkPath` and `bynk.dev.args` are
-  machine-overridable, so a workspace's settings cannot redirect them.
+  machine-scoped, so a workspace's settings cannot redirect them.
 
 ## [0.436.0] - 2026-10-29
 

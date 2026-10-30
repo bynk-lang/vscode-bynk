@@ -17,6 +17,7 @@ import {
 import {
   compareVersions,
   downloadServer,
+  DownloadCancelled,
   expectedServerVersion,
   isBelowMinVersion,
   parseVersion,
@@ -203,7 +204,7 @@ function startServer(
   opts: { interactive: boolean; forceDownload?: boolean },
 ): Promise<void> {
   return startQueue
-    .run((superseded) => startServerNow(context, opts, superseded))
+    .run((superseded, signal) => startServerNow(context, opts, superseded, signal))
     .catch((e) => {
       output.appendLine(`[server] start failed: ${String(e)}`);
       setServerItem("error", "Bynk LSP: failed");
@@ -214,10 +215,14 @@ async function startServerNow(
   context: vscode.ExtensionContext,
   opts: { interactive: boolean; forceDownload?: boolean },
   superseded: () => boolean,
+  signal: AbortSignal,
 ): Promise<void> {
+  // Queued behind a start, then overtaken (or the extension is shutting down):
+  // don't stop the client, download, or prompt for work that is replaced.
+  if (superseded()) return;
   await stopClient();
 
-  const resolved = await ensureServer(context, opts);
+  const resolved = await ensureServer(context, opts, signal);
   if (superseded()) return;
   if (!resolved) {
     setServerItem("error", "Bynk LSP: not running");
@@ -291,7 +296,6 @@ async function startServerNow(
   };
 
   const started = new LanguageClient("bynk", "Bynk LSP", serverOptions, clientOptions);
-  client = started;
   // #2098: tells the server this client runs `bynk.explainDiagnostic`, so it
   // offers the "Explain …" quick fix.
   started.registerFeature(explainClientFeature());
@@ -301,8 +305,6 @@ async function startServerNow(
   try {
     await started.start();
   } catch (e) {
-    // Don't leave a dead client for `whenClient()` and the feature getters.
-    if (client === started) client = undefined;
     await started.dispose().catch(() => undefined);
     output.appendLine(`[server] failed to start: ${String(e)}`);
     void vscode.window
@@ -319,7 +321,9 @@ async function startServerNow(
     return;
   }
 
-  // A later start is queued behind this one and stops this client first.
+  // Published only once running, so `whenClient()` never hands out a client
+  // that then fails to start. A later start stops it first.
+  client = started;
   if (superseded()) return;
   viewRefresh?.clientStarted();
   void checkVersionMatch(context, resolved);
@@ -333,6 +337,7 @@ async function startServerNow(
 async function ensureServer(
   context: vscode.ExtensionContext,
   opts: { interactive: boolean; forceDownload?: boolean },
+  signal: AbortSignal,
 ): Promise<ResolvedServer | undefined> {
   if (!opts.forceDownload) {
     const existing = resolveExistingServer(context);
@@ -363,9 +368,11 @@ async function ensureServer(
   }
 
   try {
-    const path = await downloadServer(context, output);
+    const path = await downloadServer(context, output, signal);
     return { path, source: "downloaded" };
   } catch (e) {
+    // Cancelled by the user, or overtaken by a later start: not a failure.
+    if (e instanceof DownloadCancelled || signal.aborted) return undefined;
     output.appendLine(`[server] download failed: ${String(e)}`);
     reportNoServer(
       `Bynk: couldn't download the language server (${serverVersion(context)}). ` +
@@ -548,6 +555,9 @@ function setServerItem(state: "ok" | "error", text: string): void {
 let projectItemSeq = 0;
 
 function updateProjectItem(): void {
+  // Bumped on every call, hiding included, so a read still in flight can't
+  // show the item over an editor that has since stopped being Bynk.
+  const seq = ++projectItemSeq;
   const show =
     vscode.window.activeTextEditor?.document.languageId === "bynk";
   if (!projectNameItem || !serverItem) return;
@@ -556,7 +566,6 @@ function updateProjectItem(): void {
     serverItem.hide();
     return;
   }
-  const seq = ++projectItemSeq;
   void readProjectName().then((name) => {
     // A newer editor switch started its own read; don't show this stale name.
     if (seq !== projectItemSeq) return;

@@ -75,4 +75,27 @@ describe("StartQueue", () => {
     await assert.rejects(bad, /boom/);
     assert.strictEqual(await good, "ok");
   });
+
+  it("lets a superseded task skip its work, and aborts its signal", async () => {
+    const q = new StartQueue();
+    let worked = 0;
+    let aborted = false;
+    const a = q.run(async (superseded, signal) => {
+      await tick();
+      aborted = signal.aborted;
+      if (superseded()) return;
+      worked++;
+    });
+    // b is queued while a runs; c while b waits: b never starts real work.
+    const b = q.run(async (superseded) => {
+      if (superseded()) return;
+      worked++;
+    });
+    const c = q.run(async () => {
+      worked++;
+    });
+    await Promise.all([a, b, c]);
+    assert.strictEqual(aborted, true);
+    assert.strictEqual(worked, 1, "only the last task did its work");
+  });
 });
