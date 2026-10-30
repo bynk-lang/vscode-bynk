@@ -11,6 +11,7 @@
 import * as vscode from "vscode";
 
 import { reportBynkNotFound } from "./doctor";
+import { findExecutable } from "./procCore";
 import { managedBynkPath } from "./toolchain";
 
 const TASK_TYPE = "bynkc";
@@ -65,11 +66,16 @@ export function registerTasks(context: vscode.ExtensionContext): void {
       resolveTask: (task) =>
         task.definition.type === TASK_TYPE ? checkTask(task.definition) : undefined,
     }),
-    // #2095: the shell's "command not found" (127) means `bynk` itself is
-    // missing, the one gap the Doctor can't diagnose, so say how to fix it.
-    vscode.tasks.onDidEndTaskProcess((e) => {
-      if (e.execution.task.definition.type === TASK_TYPE && e.exitCode === 127) {
-        void reportBynkNotFound("command not found");
+    // #2095: `bynk` itself missing is the one gap the Doctor can't diagnose, so
+    // say how to fix it. Found by resolving the executable as the task starts,
+    // not from the shell's exit code (127 is a POSIX shell's; cmd and PowerShell
+    // never produce it).
+    vscode.tasks.onDidStartTask((e) => {
+      if (
+        e.execution.task.definition.type === TASK_TYPE &&
+        !findExecutable(bynkPath(), { platform: process.platform, env: process.env })
+      ) {
+        void reportBynkNotFound("not found");
       }
     }),
   );
