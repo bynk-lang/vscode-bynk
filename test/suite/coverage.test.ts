@@ -9,7 +9,8 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { useFakeBynk, waitFor } from "./fakeBynk";
+import { useFakeBynk } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 describe("Bynk test coverage (#2104)", () => {
   let fake: Awaited<ReturnType<typeof useFakeBynk>>;
@@ -28,6 +29,7 @@ describe("Bynk test coverage (#2104)", () => {
     await vscode.commands.executeCommand("testing.coverageAll");
     await waitFor(
       () => fake.read().some((e) => e.argv?.[0] === "test" && e.argv.includes("--coverage")),
+      truthy,
       "a coverage run",
     );
     const run = fake.read().find((e) => e.argv?.[0] === "test" && e.argv.includes("--coverage"))!;
@@ -104,7 +106,7 @@ describe("Bynk single-case coverage (#2269)", () => {
     const editor = await vscode.window.showTextDocument(textFile);
     editor.selection = new vscode.Selection(0, 0, 0, 0);
     await vscode.commands.executeCommand("testing.coverageAtCursor");
-    await waitFor(() => coverageRuns(from).length >= 1, "the case's coverage run");
+    await waitFor(() => coverageRuns(from).length >= 1, truthy, "the case's coverage run");
     const args = coverageRuns(from)[0];
     assert.strictEqual(args[args.indexOf("--case") + 1], "cover one", `the case under the cursor: ${args}`);
   });
@@ -115,7 +117,7 @@ describe("Bynk single-case coverage (#2269)", () => {
     const from = fake.read().length;
     await vscode.window.showTextDocument(textFile);
     await vscode.commands.executeCommand("testing.coverageCurrentFile");
-    await waitFor(() => coverageRuns(from).length >= 1, "the file's coverage run");
+    await waitFor(() => coverageRuns(from).length >= 1, truthy, "the file's coverage run");
     const args = coverageRuns(from)[0];
     assert.ok(!args.includes("--case") && !args.includes("--suite"), `the whole project: ${args}`);
   });

@@ -12,7 +12,8 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { useFakeBynk, waitFor, type FakeLogEntry } from "./fakeBynk";
+import { useFakeBynk, type FakeLogEntry } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 interface Entry {
   label: string;
@@ -124,7 +125,7 @@ describe("Dependencies in the editor (#2472)", () => {
     await vscode.commands.executeCommand(found.command.command, ...(found.command.arguments ?? []));
     assert.ok(fs.readFileSync(manifest, "utf8").includes('version = "^0.4.0"'));
     assert.ok(fs.readFileSync(manifest, "utf8").includes('version = "^1.0.0"'), "the other entry is untouched");
-    await waitFor(() => argvs("fetch").length > before, "the fetch");
+    await waitFor(() => argvs("fetch").length > before, truthy, "the fetch");
     assert.deepStrictEqual(argvs("fetch").at(-1), ["fetch", "--format", "json"]);
   });
 

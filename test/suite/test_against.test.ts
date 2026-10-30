@@ -15,7 +15,8 @@ import * as vscode from "vscode";
 
 import { applyDocument, type RunSink } from "../../src/testing";
 import { caseKey, planRun, systemOnly, type PlanCase, type TestRun } from "../../src/testPlan";
-import { FAKE_BYNK, useFakeBynk, waitFor, type FakeLogEntry } from "./fakeBynk";
+import { FAKE_BYNK, useFakeBynk, type FakeLogEntry } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 const FIXTURES = path.resolve(__dirname, "../../../test/fixtures");
 
@@ -119,7 +120,7 @@ describe("Run system tests against a target", () => {
     const from = fake.read().length;
     choose("staging eu");
     await vscode.commands.executeCommand("bynk.runTestsAgainst");
-    await waitFor(() => runs(from).length > 0, "a run against a target");
+    await waitFor(() => runs(from).length > 0, truthy, "a run against a target");
 
     assert.deepStrictEqual(offered.slice(0, 3), ["dev", "preview", "staging eu"]);
     assert.ok(offered.includes("Enter a target name…"), `a manual entry is offered: ${offered}`);
@@ -135,11 +136,11 @@ describe("Run system tests against a target", () => {
     const from = fake.read().length;
     choose("preview");
     await vscode.commands.executeCommand("bynk.runTestsAgainst");
-    await waitFor(() => runs(from).length > 0, "a run against preview");
+    await waitFor(() => runs(from).length > 0, truthy, "a run against preview");
     choose("preview");
     const again = fake.read().length;
     await vscode.commands.executeCommand("bynk.runTestsAgainst");
-    await waitFor(() => runs(again).length > 0, "a second run against preview");
+    await waitFor(() => runs(again).length > 0, truthy, "a second run against preview");
     assert.strictEqual(offered[0], "preview", `the last choice leads: ${offered}`);
   });
 
@@ -148,7 +149,7 @@ describe("Run system tests against a target", () => {
     const from = fake.read().length;
     choose("dev");
     await vscode.commands.executeCommand("bynk.runTestsAgainst");
-    await waitFor(() => runs(from).length > 0, "a run against dev");
+    await waitFor(() => runs(from).length > 0, truthy, "a run against dev");
     assert.strictEqual(offered.filter((l) => l === "dev").length, 1);
     assert.ok(!offered.some((l) => /:\/\//.test(l)));
   });
@@ -160,7 +161,7 @@ describe("Run system tests against a target", () => {
       const from = fake.read().length;
       choose("preview");
       await vscode.commands.executeCommand("bynk.runTestsAgainst");
-      await waitFor(() => runs(from).length > 0, "a refused run");
+      await waitFor(() => runs(from).length > 0, truthy, "a refused run");
       assert.strictEqual(runs(from).length, 1);
     } finally {
       delete process.env.BYNK_FAKE_AGAINST;
@@ -179,7 +180,7 @@ describe("Run system tests against a target", () => {
       const from = fake.read().length;
       choose("preview");
       await vscode.commands.executeCommand("bynk.runTestsAgainst");
-      await waitFor(() => runs(from).length >= 2, "the refused run and its retry", 30_000);
+      await waitFor(() => runs(from).length >= 2, truthy, "the refused run and its retry", 30_000);
 
       const [first, retry] = runs(from);
       assert.ok(!first.includes("--skip-unsupported"), "the first run does not skip");

@@ -19,6 +19,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 
 import type { SequenceModel, SequencePayload } from "../../src/webview/types";
+import { truthy, waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 
@@ -169,19 +170,12 @@ describe("sequence-diagram webview participant wiring (#852)", () => {
         if (msg?.type === "wiring") reports.push(msg);
         if (msg?.type === "ready") ready = true;
       });
-      const until = async (ok: () => boolean, what: string) => {
-        const deadline = Date.now() + 30_000;
-        while (!ok()) {
-          if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-          await new Promise((r) => setTimeout(r, 100));
-        }
-      };
 
       const scriptUri = panel.webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, "out", "webview.js"),
       );
       panel.webview.html = debugHtml(panel.webview, scriptUri, { model: MODEL, uri: "file:///x.bynk" });
-      await until(() => reports.length >= 1 && ready, "the first render");
+      await waitFor(() => reports.length >= 1 && ready, truthy, "the first render", 30_000);
 
       const updated: SequenceModel = {
         participants: [
@@ -196,7 +190,7 @@ describe("sequence-diagram webview participant wiring (#852)", () => {
         payload: { model: updated, uri: "file:///x.bynk" },
         view: { target: { uri: "file:///x.bynk" }, followsCursor: true },
       });
-      await until(() => reports.length >= 2, "the re-render");
+      await waitFor(() => reports.length >= 2, truthy, "the re-render", 30_000);
 
       assert.deepStrictEqual(
         reports[1].participants.map((p) => p.label),

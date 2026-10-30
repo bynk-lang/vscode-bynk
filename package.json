@@ -1315,6 +1315,7 @@
       "properties": {
         "bynk.executablePath": {
           "type": "string",
+          "scope": "machine",
           "default": "",
           "description": "Absolute path to a bynkc-lsp executable to use. When empty, the extension resolves the server automatically: `bynkc-lsp` on PATH, then a previously-downloaded copy, then it downloads the matching release."
         },
@@ -1365,6 +1366,7 @@
         },
         "bynk.bynkPath": {
           "type": "string",
+          "scope": "machine",
           "default": "",
           "description": "Path to the `bynk` driver used by the `bynkc: check` build task, the Test Explorer, and the debug session (`bynk check`/`bynk test`/`bynk dev`). When empty, `bynk` is taken from PATH, then from the toolchain the extension downloaded (see `bynk.toolchain.autoInstall`)."
         },
@@ -1400,6 +1402,7 @@
         },
         "bynk.dev.args": {
           "type": "array",
+          "scope": "machine",
           "items": {
             "type": "string"
           },

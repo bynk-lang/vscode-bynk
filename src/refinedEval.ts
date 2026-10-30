@@ -2,15 +2,20 @@
 // panel (`refinedExplorer.ts`). Pure of `vscode`, so it unit-tests directly.
 //
 // Each clause's `check` is the condition the emitter lowers for `.of`, printed
-// by the server as a JavaScript expression over `value`. Running it here is
-// DECISION A of #2470: no project code is evaluated — the text comes from a
-// closed set of eight predicate forms the compiler generates, the one
-// user-written part (a `Matches` pattern) sits inside a string literal, and the
-// candidate is bound as `value`, never spliced into source. It runs in a fresh
-// `node:vm` context with string `eval` disabled and a time limit, so a slow
-// pattern cannot hang the extension host. (`vm` is not a security boundary; the
-// guarantee is that nothing but compiler-generated predicates reaches it.)
+// by the server as a JavaScript expression over `value`. The server sends no
+// structured form of it yet, so the text is run — a MITIGATION (#35), not a
+// boundary: `node:vm` is not a sandbox, and safety still rests on the server
+// emitting only the closed set of predicate forms (the one user-written part,
+// a `Matches` pattern, sits inside a string literal). The real fix is the
+// server sending predicates structurally, to be interpreted here without JS.
+//
+// Until then nothing from the host realm is reachable from the predicate: the
+// context's global is a null-prototype object, `value` is built inside the
+// context from a quoted literal (never a host object), `Error` is frozen so
+// `prepareStackTrace` cannot be hooked, string `eval` is off, and a time limit
+// stops a slow pattern hanging the extension host.
 
+import { types } from "node:util";
 import * as vm from "node:vm";
 
 import type { CandidateVerdict, RefinedClause, RefinedModel } from "./webview/refinedTypes";
@@ -50,6 +55,33 @@ export function parseCandidate(
   }
 }
 
+/** Locks `Error` (so `prepareStackTrace` cannot be hooked) and its binding. */
+const PRELUDE =
+  '"use strict"; Object.freeze(Error);' +
+  ' Object.defineProperty(globalThis, "Error", { value: Error, writable: false, configurable: false });';
+
+/** Whether `err` is vm's own time-out error. A thrown value from the context
+ *  may be a `Proxy` or carry getters, so this reads it without running any of
+ *  its code: `isNativeError` is false for a `Proxy`, and a property descriptor
+ *  is read without calling a getter. */
+function isTimeout(err: unknown): boolean {
+  if (!types.isNativeError(err)) return false;
+  return Object.getOwnPropertyDescriptor(err, "code")?.value === "ERR_SCRIPT_EXECUTION_TIMEOUT";
+}
+
+/** `value` as source text for the context to evaluate, so the candidate is
+ *  created inside it rather than passed in from the host. */
+function valueLiteral(value: bigint | number | string): string {
+  switch (typeof value) {
+    case "bigint":
+      return `${value}n`;
+    case "number":
+      return Object.is(value, -0) ? "-0" : String(value);
+    default:
+      return JSON.stringify(value);
+  }
+}
+
 /** Evaluate every clause against `value`; all failures are reported. */
 export function evaluateClauses(
   clauses: readonly RefinedClause[],
@@ -57,20 +89,35 @@ export function evaluateClauses(
   timeoutMs: number = CLAUSE_TIMEOUT_MS,
 ): CandidateVerdict {
   const failures: Array<{ source: string; message: string }> = [];
+  const literal = valueLiteral(value);
   for (const clause of clauses) {
-    const context = vm.createContext(
-      { value },
-      { codeGeneration: { strings: false, wasm: false } },
-    );
-    let holds: unknown;
+    // A null-prototype global: a host `Object` is no way to a host `Function`.
+    // `afterEvaluate` runs queued microtasks inside the time limit, so a
+    // `Promise.then` loop cannot outlive it.
+    const context = vm.createContext(Object.create(null), {
+      codeGeneration: { strings: false, wasm: false },
+      microtaskMode: "afterEvaluate",
+    });
+    let outcome: unknown;
     try {
-      holds = vm.runInContext(clause.check, context, { timeout: timeoutMs });
+      vm.runInContext(PRELUDE + `var value = ${literal};`, context, { timeout: timeoutMs });
+      // The predicate's outcome is reduced to a primitive inside the context,
+      // under the time limit: a thrown value is never handed to the host, which
+      // would run its getters or `toString` unbounded.
+      outcome = vm.runInContext(
+        `(function () { try { return (${clause.check}) === true; }` +
+          ` catch (e) { try { return "threw " + String(e && e.name).slice(0, 64); } catch (_) { return "threw"; } } })()`,
+        context,
+        { timeout: timeoutMs },
+      );
     } catch (err) {
-      if ((err as { code?: string }).code === "ERR_SCRIPT_EXECUTION_TIMEOUT") {
-        return { kind: "timeout" };
-      }
-      throw err;
+      if (isTimeout(err)) return { kind: "timeout" };
+      // A compile error, or a predicate that threw past its wrapper: nothing
+      // about the thrown value is read.
+      throw new Error("the predicate could not be run");
     }
+    if (typeof outcome === "string") throw new Error(`the predicate ${outcome}`);
+    const holds = outcome;
     if (holds !== true) failures.push({ source: clause.source, message: clause.message });
   }
   return failures.length === 0 ? { kind: "valid" } : { kind: "invalid", failures };

@@ -13,6 +13,8 @@ import type * as vscode from "vscode";
 import {
   cachedToolPath,
   cachedToolchain,
+  DownloadCancelled,
+  downloadServer,
   downloadToolchain,
   targetTriple,
   toolAssetName,
@@ -99,5 +101,18 @@ describe("managed toolchain cache", function () {
     const ctx = fakeContext(dir);
     serve({}, {});
     await assert.rejects(downloadToolchain(ctx, output), /no entry for/);
+  });
+
+  it("does not fetch when the download is already cancelled", async () => {
+    const ctx = fakeContext(dir);
+    let fetched = 0;
+    globalThis.fetch = (async () => {
+      fetched++;
+      return new Response("");
+    }) as typeof fetch;
+    const cancel = new AbortController();
+    cancel.abort();
+    await assert.rejects(downloadServer(ctx, output, cancel.signal), DownloadCancelled);
+    assert.strictEqual(fetched, 0);
   });
 });

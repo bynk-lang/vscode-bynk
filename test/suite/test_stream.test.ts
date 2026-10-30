@@ -15,7 +15,8 @@ import * as vscode from "vscode";
 import { applyDocument, runBynkcTestStream, type RunSink } from "../../src/testing";
 import { driverSupport } from "../../src/testStream";
 import { caseKey, planRun, type JsonSuite, type TestRun } from "../../src/testPlan";
-import { FAKE_BYNK, useFakeBynk, waitFor, type FakeLogEntry } from "./fakeBynk";
+import { FAKE_BYNK, useFakeBynk, type FakeLogEntry } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 const FIXTURES = path.resolve(__dirname, "../../../test/fixtures");
 
@@ -151,7 +152,7 @@ describe("Streaming test results", () => {
     await vscode.commands.executeCommand("testing.refreshTests");
     const from = fake.read().length;
     await vscode.commands.executeCommand("testing.runAll");
-    await waitFor(() => tests(from).some((a) => !a.includes("--no-run")), "the run");
+    await waitFor(() => tests(from).some((a) => !a.includes("--no-run")), truthy, "the run");
     const run = tests(from).find((a) => !a.includes("--no-run")) as string[];
     assert.strictEqual(run[run.indexOf("--format") + 1], "ndjson");
   });
