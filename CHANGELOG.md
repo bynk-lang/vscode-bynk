@@ -21,6 +21,15 @@ version).
 
 ### Fixed
 
+- A debug session no longer freezes once the debugged CLI has written about
+  64 KB: its output is read for the life of the session, and goes to the
+  **Bynk Debug** output channel.
+- The dev server, debug sessions and test runs stop through one helper: a
+  process group on Linux and macOS, `taskkill /T /F` on Windows (untested on a
+  real Windows machine), and no console window per debug session. Cancelling a
+  test run ends the whole tree, and its cancellation listener is disposed.
+- A missing `bynk` for the `bynkc: check` task is found by resolving the
+  executable when the task starts (exit code 127 stays as a POSIX fallback).
 - The packaged VSIX no longer ships the compiled test build (`out/src/**`) when
   tests were built before packaging, and CI now fails if it would.
 
