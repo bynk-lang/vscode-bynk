@@ -20,6 +20,7 @@ import type { ChildProcess } from "node:child_process";
 import * as vscode from "vscode";
 
 import { noteDriverOutput } from "./approveRequirements";
+import { MISSING_CWD } from "./procCore";
 import { findProjectRoot, projectContexts, runBynk, spawnBynk, stopTree } from "./cli";
 import { diagnosticPath, LineSplitter, parseShortDiagnostic, toTerminalText } from "./cliCore";
 import {
@@ -402,7 +403,8 @@ class DevSession implements vscode.Pseudoterminal {
     child.once("error", (e: NodeJS.ErrnoException) => {
       this.spawnFailed = true;
       this.writeLine(`Bynk: could not run \`${bynkPath()}\`: ${e.message}`);
-      void reportBynkNotFound(e.code ?? e.message);
+      if (e.code === MISSING_CWD) void vscode.window.showErrorMessage(`Bynk: ${e.message}`);
+      else void reportBynkNotFound(e.code ?? e.message);
       this.finish(null);
     });
     child.once("close", (code) => {

@@ -7,7 +7,7 @@
 
 import * as vscode from "vscode";
 
-import { inWorkspace, resolveRoot, type RootOptions } from "./projectRootsCore";
+import { inWorkspace, resolveRoot, RootCache, type RootOptions } from "./projectRootsCore";
 
 // No `node:` import: the web build bundles this module, where there is no home.
 function homeDir(): string | undefined {
@@ -20,7 +20,7 @@ const options = (): RootOptions => ({
   caseInsensitive: typeof process !== "undefined" && process.platform === "win32",
 });
 
-const cache = new Map<string, Promise<vscode.Uri | undefined>>();
+const cache = new RootCache<vscode.Uri>();
 
 async function exists(uri: vscode.Uri): Promise<boolean> {
   try {
@@ -38,14 +38,15 @@ export function projectRootFor(file: vscode.Uri): Promise<vscode.Uri | undefined
     .filter((f) => f.uri.scheme === file.scheme && f.uri.authority === file.authority)
     .map((f) => f.uri.path);
   const key = `${file.with({ path: "", query: "", fragment: "" }).toString()}|${folders.join(",")}|${file.path}`;
-  let hit = cache.get(key);
-  if (!hit) {
-    hit = resolveRoot(file.path, folders, (dir) =>
-      exists(vscode.Uri.joinPath(file.with({ path: dir }), "bynk.toml")),
-    options()).then((dir) => (dir === undefined ? undefined : file.with({ path: dir, query: "", fragment: "" })));
-    cache.set(key, hit);
-  }
-  return hit;
+  const manifest = (dir: vscode.Uri) => exists(vscode.Uri.joinPath(dir, "bynk.toml"));
+  return cache.get(
+    key,
+    () =>
+      resolveRoot(file.path, folders, (dir) => manifest(file.with({ path: dir })), options()).then((dir) =>
+        dir === undefined ? undefined : file.with({ path: dir, query: "", fragment: "" }),
+      ),
+    manifest,
+  );
 }
 
 /** Whether `file` lies in a workspace folder. */

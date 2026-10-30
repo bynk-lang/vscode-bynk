@@ -4,7 +4,7 @@
 
 import * as assert from "assert";
 
-import { findExecutable, killPlan, spawnPlatformOptions } from "../../src/procCore";
+import { classifySpawnError, findExecutable, killPlan, MISSING_CWD, missingCwdMessage, spawnPlatformOptions } from "../../src/procCore";
 
 describe("process helper decisions", () => {
   it("detaches into a process group on POSIX only", () => {
@@ -34,6 +34,25 @@ describe("process helper decisions", () => {
   it("finds taskkill under SystemRoot", () => {
     const plan = killPlan("win32", 1, "SIGTERM", { SystemRoot: "D:\\WIN" });
     assert.strictEqual(plan.kind === "taskkill" && plan.command, "D:\\WIN\\System32\\taskkill.exe");
+  });
+
+  describe("classifySpawnError (#61)", () => {
+    const enoent = { code: "ENOENT" };
+    it("blames a missing cwd, not bynk, when the directory is gone", () => {
+      assert.strictEqual(classifySpawnError(enoent, "/gone", () => false), "missing-cwd");
+    });
+    it("calls ENOENT in an existing cwd a missing command", () => {
+      assert.strictEqual(classifySpawnError(enoent, "/here", () => true), "missing-command");
+      assert.strictEqual(classifySpawnError(enoent, undefined, () => false), "missing-command");
+    });
+    it("leaves other errors alone", () => {
+      assert.strictEqual(classifySpawnError({ code: "EACCES" }, "/gone", () => false), "other");
+      assert.strictEqual(classifySpawnError(null, "/gone", () => false), "other");
+    });
+    it("names the directory", () => {
+      assert.match(missingCwdMessage("/gone"), /\/gone/);
+      assert.notStrictEqual(MISSING_CWD, "ENOENT");
+    });
   });
 
   describe("findExecutable", () => {

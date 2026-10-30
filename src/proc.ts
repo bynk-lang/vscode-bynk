@@ -3,9 +3,10 @@
 // killing a whole process tree and draining the child's output are decided once.
 // The platform decisions are in `procCore.ts`.
 
+import * as fs from "node:fs";
 import { spawn, ChildProcess, SpawnOptions } from "node:child_process";
 
-import { killPlan, spawnPlatformOptions } from "./procCore";
+import { classifySpawnError, killPlan, MISSING_CWD, missingCwdMessage, spawnPlatformOptions } from "./procCore";
 
 /** Where a child's output goes when nobody reads it otherwise. */
 export interface OutputSink {
@@ -26,7 +27,8 @@ export interface SpawnTreeOptions {
  *  and stderr piped and *drained for the child's whole life*: a pipe nobody
  *  reads fills (about 64 KB) and blocks the child on its next write. Callers may
  *  add their own `data` listeners; this one only makes sure data keeps flowing.
- *  A start failure arrives as the child's `error`. */
+ *  A start failure arrives as the child's `error`;
+ *  one caused by a deleted `cwd` has code `BYNK_MISSING_CWD`, not `ENOENT`. */
 export function spawnTree(
   command: string,
   args: string[],
@@ -40,6 +42,13 @@ export function spawnTree(
     ...spawnPlatformOptions(platform),
   };
   const child = spawn(command, args, options);
+  // Registered first, so every later `error` listener sees the corrected error:
+  // `ENOENT` for a deleted cwd is not "command not found" (#61).
+  child.once("error", (err) => {
+    if (classifySpawnError(err, opts.cwd, fs.existsSync) === "missing-cwd") {
+      Object.assign(err, { code: MISSING_CWD, message: missingCwdMessage(opts.cwd!) });
+    }
+  });
   for (const stream of [child.stdout, child.stderr]) {
     stream?.on("data", (chunk: Buffer | string) => opts.output?.append(String(chunk)));
   }

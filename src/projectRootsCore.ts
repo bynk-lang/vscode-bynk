@@ -76,3 +76,33 @@ export function resolveRoot(
   const start = parentOf(file);
   return folder === undefined ? findRoot(start, "/", hasManifest, opts) : findRoot(start, folder, hasManifest, { caseInsensitive: opts.caseInsensitive });
 }
+
+/** A promise-per-key cache of resolved roots that never hands back one whose
+ *  `bynk.toml` has since gone (#61): a hit costs one `stillHasManifest` check,
+ *  and a stale entry is dropped and resolved again. A directory deleted outside
+ *  VS Code raises no event the watchers would see, so the cache can't rely on
+ *  them alone. */
+export class RootCache<T> {
+  private readonly entries = new Map<string, Promise<T | undefined>>();
+
+  async get(
+    key: string,
+    resolve: () => Promise<T | undefined>,
+    stillHasManifest: (root: T) => Promise<boolean>,
+  ): Promise<T | undefined> {
+    const hit = this.entries.get(key);
+    if (hit) {
+      const root = await hit;
+      if (root === undefined || (await stillHasManifest(root))) return root;
+      // Only drop the entry we checked: a concurrent caller may have replaced it.
+      if (this.entries.get(key) === hit) this.entries.delete(key);
+    }
+    const fresh = this.entries.get(key) ?? resolve();
+    this.entries.set(key, fresh);
+    return fresh;
+  }
+
+  clear(): void {
+    this.entries.clear();
+  }
+}

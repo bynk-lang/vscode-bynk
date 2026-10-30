@@ -13,6 +13,7 @@ import * as vscode from "vscode";
 
 import { contextNames } from "./devEvents";
 import { killTree, OutputSink, spawnTree } from "./proc";
+import { MISSING_CWD } from "./procCore";
 import { activeProjectRoot } from "./projectRoots";
 import { bynkPath, compilerOverride } from "./tasks";
 
@@ -95,7 +96,7 @@ export function runBynk(
     const sub = token?.onCancellationRequested(() => stopTree(child));
     child.once("error", (e) => {
       sub?.dispose();
-      reject(new BynkNotFoundError(command, e));
+      reject((e as { code?: unknown }).code === MISSING_CWD ? e : new BynkNotFoundError(command, e));
     });
     child.once("close", (code) => {
       sub?.dispose();
