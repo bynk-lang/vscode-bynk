@@ -12,7 +12,7 @@ import * as vscode from "vscode";
 
 import type { CheckOutcome } from "./chatCore";
 import { BynkNotFoundError, runBynk } from "./cli";
-import { isInside } from "./pathInside";
+import { dirtyBuffers } from "./dirtyBuffers";
 import { compileVerdict } from "./richDiagnostics";
 
 /** Compile the project at `root` with `buffers` (absolute path -> text) over disk. */
@@ -39,17 +39,6 @@ async function compileWith(
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
-}
-
-/** The unsaved `.bynk` buffers under `root`, except `skip`: absolute path -> text. */
-function dirtyBuffers(root: string, skip: string): Record<string, string> {
-  const buffers: Record<string, string> = {};
-  for (const doc of vscode.workspace.textDocuments) {
-    if (doc.languageId !== "bynk" || !doc.isDirty || doc.uri.scheme !== "file") continue;
-    if (doc.uri.fsPath === skip || !isInside(root, doc.uri.fsPath)) continue;
-    buffers[doc.uri.fsPath] = doc.getText();
-  }
-  return buffers;
 }
 
 /** Check the active file's project with `text` as that file's contents. */

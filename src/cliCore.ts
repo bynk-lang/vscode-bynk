@@ -76,14 +76,6 @@ export function toTerminalText(text: string): string {
   return text.replace(/\r?\n/g, "\r\n");
 }
 
-/** Escape text for an HTML text node or a double-quoted attribute, for the
- *  host-rendered views (deploy plan, doctor) that build their markup from CLI
- *  output. */
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+// The definition is in its own import-free module so the webview bundles can share it
+// (this file pulls in `node:path`); re-exported for the host-side importers.
+export { escapeHtml } from "./escapeHtml";
