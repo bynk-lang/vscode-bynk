@@ -221,6 +221,7 @@ async function startServerNow(
   // don't stop the client, download, or prompt for work that is replaced.
   if (superseded()) return;
   await stopClient();
+  if (superseded()) return;
 
   const resolved = await ensureServer(context, opts, signal);
   if (superseded()) return;

@@ -310,6 +310,7 @@ async function downloadTools(
       const abort = new AbortController();
       const sub = token?.onCancellationRequested(() => abort.abort());
       const onCancel = () => abort.abort();
+      if (cancel?.aborted) abort.abort();
       cancel?.addEventListener("abort", onCancel);
       const signal = abort.signal;
       try {
