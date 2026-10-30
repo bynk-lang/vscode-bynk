@@ -4,6 +4,8 @@
 // helper; this goes through the command and the debug configuration provider.
 
 import * as assert from "assert";
+import * as fs from "fs";
+import * as path from "path";
 
 import * as vscode from "vscode";
 
@@ -24,6 +26,11 @@ describe("Bynk debug command (#44)", () => {
     if (process.platform === "win32") this.skip();
     this.timeout(90_000);
     process.env.BYNK_FAKE_CHATTY = "1";
+    // The provider roots the run at the active `.bynk` file's project (#55). An
+    // earlier test leaves one open from a directory it has since deleted, so start
+    // from no editor: the run then falls back to the fixture project.
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await waitFor(() => vscode.window.activeTextEditor, (e) => e === undefined, "the editors to close", 10_000);
     // The provider hands VS Code a `node` attach to the fake's inspector port,
     // where nothing listens; catch it so no attach is attempted.
     const attached: vscode.DebugConfiguration[] = [];
@@ -39,6 +46,11 @@ describe("Bynk debug command (#44)", () => {
         20_000,
       );
       assert.deepStrictEqual(launch.argv!.slice(0, 3), ["test", ".", "--inspect"]);
+      assert.strictEqual(
+        launch.cwd && fs.realpathSync(launch.cwd),
+        fs.realpathSync(path.resolve(__dirname, "../../../test/fixtures/workspace")),
+        "rooted at the fixture project",
+      );
       // The port parsed from the ready line, while output is still being written.
       await waitFor(() => attached.find((c) => c.port === 9229), present, "the attach to the parsed port", 20_000);
       await waitFor(
