@@ -30,8 +30,12 @@ import {
 } from "./fileDecorationsCore";
 import { parseUnitHeader } from "./projectModel";
 import { clearProjectRoots, projectRootFor } from "./projectRoots";
+import { mapLimit } from "./refreshScope";
 
 const SECTION = "bynk.fileDecorations";
+
+/** Files read at once by a scan: bounded, so a large workspace does not open them all together. */
+const SCAN_CONCURRENCY = 32;
 
 const decoder = new TextDecoder();
 
@@ -48,9 +52,11 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   /** Files read on demand because the Explorer asked about them before any scan
    *  or watcher event had reported them; cleared by a full scan. */
   private readonly probed = new Set<string>();
-  /** Files a watcher event updated while a full scan was running, whose newer
-   *  state the scan's older snapshot must not overwrite. */
-  private readonly touched = new Set<string>();
+  /** One set per scan running: the files a watcher event updated meanwhile,
+   *  whose newer state the scan's older snapshot must not overwrite. */
+  private readonly scanning = new Set<Set<string>>();
+  /** Bumped by every scan of a project directory, per directory. */
+  private readonly dirGens = new Map<string, number>();
   /** The `.bynk` files the server currently reports a contract break in. The
    *  server republishes diagnostics on every edit, so a refresh is requested only
    *  when a file enters or leaves this set. */
@@ -168,27 +174,79 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
     if (refresh && changed.length > 0) this.changed.fire(changed);
   }
 
+  /** Read `uris`, a bounded number at a time, into `next`. */
+  private async readAll(uris: readonly vscode.Uri[], next: Map<string, ScannedFile>): Promise<void> {
+    await mapLimit(uris, SCAN_CONCURRENCY, async (uri) => {
+      const entry = await this.read(uri);
+      if (entry) next.set(uri.toString(), entry);
+    });
+  }
+
+  /** Rescan every `.bynk` file in the workspace. */
   private async scan(): Promise<void> {
     const gen = ++this.scanGen;
-    this.touched.clear();
-    const found = await vscode.workspace.findFiles("**/*.bynk", "**/node_modules/**");
-    const next = new Map<string, ScannedFile>();
-    await Promise.all(
-      found.map(async (uri) => {
-        const entry = await this.read(uri);
-        if (entry) next.set(uri.toString(), entry);
-      }),
-    );
-    if (gen !== this.scanGen) return;
-    this.probed.clear();
-    const newer = [...this.touched].map((k) => [k, this.files.get(k)] as const);
-    this.files.clear();
-    for (const [k, v] of next) this.files.set(k, v);
-    for (const [k, v] of newer) {
-      if (v) this.files.set(k, v);
-      else this.files.delete(k);
+    const touched = new Set<string>();
+    this.scanning.add(touched);
+    try {
+      const found = await vscode.workspace.findFiles("**/*.bynk", "**/node_modules/**");
+      const next = new Map<string, ScannedFile>();
+      await this.readAll(found, next);
+      if (gen !== this.scanGen) return;
+      this.probed.clear();
+      const newer = [...touched].map((k) => [k, this.files.get(k)] as const);
+      this.files.clear();
+      for (const [k, v] of next) this.files.set(k, v);
+      for (const [k, v] of newer) {
+        if (v) this.files.set(k, v);
+        else this.files.delete(k);
+      }
+      this.changed.fire(undefined);
+    } finally {
+      this.scanning.delete(touched);
     }
-    this.changed.fire(undefined);
+  }
+
+  /** Rescan the `.bynk` files under `dir`: a manifest there was created, changed
+   *  or deleted, which can only move the project of files below it. Files
+   *  elsewhere (and the ones probed outside any project) are left alone. */
+  private async scanUnder(dir: vscode.Uri): Promise<void> {
+    const dirKey = dir.toString();
+    const gen = this.scanGen;
+    const dirGen = (this.dirGens.get(dirKey) ?? 0) + 1;
+    this.dirGens.set(dirKey, dirGen);
+    const touched = new Set<string>();
+    this.scanning.add(touched);
+    try {
+      const found = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(dir, "**/*.bynk"),
+        "**/node_modules/**",
+      );
+      const next = new Map<string, ScannedFile>();
+      await this.readAll(found, next);
+      // A newer scan of this directory, or a full one, supersedes this.
+      if (gen !== this.scanGen || dirGen !== this.dirGens.get(dirKey)) return;
+      const prefix = dirKey.endsWith("/") ? dirKey : `${dirKey}/`;
+      const affected: vscode.Uri[] = [];
+      for (const k of [...this.files.keys()]) {
+        // A file a watcher event updated while the scan ran keeps that state.
+        if (k.startsWith(prefix) && !touched.has(k)) {
+          this.files.delete(k);
+          affected.push(vscode.Uri.parse(k));
+        }
+      }
+      for (const k of this.probed) if (k.startsWith(prefix)) this.probed.delete(k);
+      for (const [k, v] of next) {
+        if (!touched.has(k)) this.files.set(k, v);
+        affected.push(vscode.Uri.parse(k));
+      }
+      this.changed.fire(affected);
+    } finally {
+      this.scanning.delete(touched);
+    }
+  }
+
+  private touch(key: string): void {
+    for (const t of this.scanning) t.add(key);
   }
 
   private async read(uri: vscode.Uri): Promise<ScannedFile | undefined> {
@@ -204,11 +262,11 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   private async fileChanged(uri: vscode.Uri): Promise<void> {
     if (uri.path.endsWith("/bynk.toml")) {
       clearProjectRoots();
-      return this.scan();
+      return this.scanUnder(vscode.Uri.joinPath(uri, ".."));
     }
     const before = this.files.get(uri.toString());
     const after = await this.read(uri);
-    this.touched.add(uri.toString());
+    this.touch(uri.toString());
     if (after) this.files.set(uri.toString(), after);
     else this.files.delete(uri.toString());
     this.refreshAround(uri, before, after);
@@ -217,10 +275,10 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   private async fileDeleted(uri: vscode.Uri): Promise<void> {
     if (uri.path.endsWith("/bynk.toml")) {
       clearProjectRoots();
-      return this.scan();
+      return this.scanUnder(vscode.Uri.joinPath(uri, ".."));
     }
     const before = this.files.get(uri.toString());
-    this.touched.add(uri.toString());
+    this.touch(uri.toString());
     this.files.delete(uri.toString());
     this.refreshAround(uri, before, undefined);
   }

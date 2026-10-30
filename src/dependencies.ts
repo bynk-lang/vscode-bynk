@@ -12,6 +12,9 @@
 // up at most once per session, and tolerate being offline (a failed lookup
 // shows nothing and is not retried). DECISION C: publish is plan-first.
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+
 import * as vscode from "vscode";
 
 import { BynkNotFoundError, type BynkResult, findProjectRoot, runBynk } from "./cli";
@@ -40,6 +43,7 @@ import {
 } from "./dependenciesCore";
 import { reportBynkNotFound } from "./doctor";
 import { isManifestPath } from "./manifestSchema";
+import { depsKey, statStamp } from "./refreshScope";
 
 let output: vscode.OutputChannel | undefined;
 
@@ -51,11 +55,30 @@ function channel(): vscode.OutputChannel {
 /** `bynk deps` for the project at `root`: `undefined` when the driver is
  *  missing or does not know the command (an older toolchain). Never throws. */
 export async function loadDependencies(root: string): Promise<DepRow[] | undefined> {
+  const key = depsKey(await stamp(path.join(root, "bynk.toml")), await stamp(path.join(root, "bynk.lock")));
+  const hit = depsCache.get(root);
+  if (hit?.key === key) return hit.rows;
   try {
     const r = await runBynk(depsArgs(), root);
-    return r.code === 0 ? parseDeps(r.stdout) : undefined;
+    const rows = r.code === 0 ? parseDeps(r.stdout) : undefined;
+    // A driver that ran but doesn't know the command is remembered too; a
+    // missing driver (thrown) is retried next time.
+    depsCache.set(root, { key, rows });
+    return rows;
   } catch {
     return undefined;
+  }
+}
+
+/** `bynk deps` answers by manifest directory, valid while neither the manifest
+ *  nor the lock has changed (a save elsewhere in the project leaves it alone). */
+const depsCache = new Map<string, { key: string; rows: DepRow[] | undefined }>();
+
+async function stamp(file: string): Promise<string> {
+  try {
+    return statStamp(await fs.promises.stat(file));
+  } catch {
+    return statStamp(undefined);
   }
 }
 
