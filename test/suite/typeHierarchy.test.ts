@@ -39,6 +39,7 @@ describe("Bynk type hierarchy", () => {
         ),
       present,
       "type hierarchy prepare on `Qty`",
+      40_000,
     );
     assert.strictEqual(items[0].name, "Qty");
 
@@ -81,6 +82,7 @@ describe("Bynk type hierarchy", () => {
         ),
       present,
       "type hierarchy prepare on `Int`",
+      40_000,
     );
     assert.strictEqual(items[0].name, "Int");
     const subs = await vscode.commands.executeCommand<

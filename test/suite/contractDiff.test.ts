@@ -97,6 +97,7 @@ describe("contract diff view (#2467)", () => {
       },
       (s) => s?.open === true && s.hasPayload,
       "the contract diff to open with a payload",
+      60_000,
     );
     assert.ok(snap.hasPayload);
   });

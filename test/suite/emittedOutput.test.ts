@@ -63,7 +63,7 @@ describe("Bynk compiled output (#2471)", () => {
       if (!uri) await new Promise((r) => setTimeout(r, 500));
     }
     assert.ok(uri, "the command opened a compiled-output document");
-    const out = await waitFor(emittedDoc, present, "the bynk-emitted document");
+    const out = await waitFor(emittedDoc, present, "the bynk-emitted document", 40_000);
     assert.ok(out.uri.path.endsWith(".ts"), `a TypeScript module: ${out.uri.path}`);
     assert.ok(out.getText().includes("hello"), "it holds the generated handler");
 
@@ -76,6 +76,7 @@ describe("Bynk compiled output (#2471)", () => {
       () => emittedDoc()?.getText().includes("goodbye"),
       truthy,
       "the view to follow the unsaved edit",
+      40_000,
     );
     assert.ok(!fs.readFileSync(probe, "utf8").includes("goodbye"), "disk is unchanged");
   });

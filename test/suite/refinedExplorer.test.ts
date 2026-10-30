@@ -48,8 +48,9 @@ describe("Bynk refined-type explorer (#2470)", () => {
     const at = doc.positionAt(source.indexOf("Quantity)") + 1);
     const hovers = await waitFor(
       () => vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", doc.uri, at),
-      (list) => list.some((h) => h.contents.some((c) => typeof c !== "string" && "value" in c && c.value.includes("Try values"))),
+      (list) => !!list?.some((h) => h.contents.some((c) => typeof c !== "string" && "value" in c && c.value.includes("Try values"))),
       "the refined type's hover",
+      40_000,
     );
     const md = hovers
       .flatMap((h) => h.contents)

@@ -79,6 +79,7 @@ describe("Bynk extension", () => {
         ),
       present,
       "definition of `shout`",
+      40_000,
     );
     assert.ok(defs.length > 0, "at least one definition location");
   });
@@ -95,6 +96,7 @@ describe("Bynk extension", () => {
         ),
       present,
       "references of `shout`",
+      40_000,
     );
     assert.ok(refs.length >= 1, "`shout` has at least one reference");
   });
@@ -116,6 +118,7 @@ describe("Bynk extension", () => {
         ),
       present,
       "code lenses",
+      40_000,
     );
     const refLens = lenses.find(
       (l) => l.command?.command === "editor.action.showReferences",

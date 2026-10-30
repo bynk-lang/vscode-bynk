@@ -103,6 +103,7 @@ describe("Bynk project sidebar (#2097)", () => {
       () => snapshot(5, true),
       (t) => (find(t, project, "Contexts", "storefront", "Consumes")?.children?.length ?? 0) > 0,
       "the storefront unit's consumes edge",
+      45_000,
     );
     const p = find(tree, project);
     assert.deepStrictEqual(
@@ -151,6 +152,7 @@ describe("Bynk project sidebar (#2097)", () => {
       () => vscode.commands.executeCommand<{ open: boolean; target?: { uri: string } }>("bynk._liveViewState", "bynkWireContract"),
       (s) => s?.open === true,
       "the wire-contract view",
+      45_000,
     );
     assert.strictEqual(state.target?.uri, uri);
   });
@@ -168,11 +170,12 @@ describe("Bynk project sidebar (#2097)", () => {
     const editor = await vscode.window.showTextDocument(doc);
     await editor.edit((e) => e.insert(new vscode.Position(doc.lineCount, 0), "\nfn dollars(n: Int) -> Int {\n  n\n}\n"));
     await doc.save();
-    await waitFor(treeState, (s) => s.reloads > before.reloads, "a reload after the save");
+    await waitFor(treeState, (s) => s.reloads > before.reloads, "a reload after the save", 45_000);
     await waitFor(
       () => snapshot(4),
       (t) => find(t, project, "Commons", "money", "dollars") !== undefined,
       "the new declaration",
+      45_000,
     );
   });
 

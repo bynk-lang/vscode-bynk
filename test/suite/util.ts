@@ -1,5 +1,5 @@
 const POLL_MS = 250;
-const TIMEOUT_MS = 60_000;
+const TIMEOUT_MS = 25_000;
 
 /** The value rendered for a timeout message, tolerant of cycles and size. */
 function show(v: unknown): string {
@@ -18,9 +18,9 @@ export const truthy = (v: unknown): boolean => !!v;
 export const present = <T>(v: T | undefined): v is T => v !== undefined && !(Array.isArray(v) && v.length === 0);
 
 /** Poll `fn` until `ok` accepts its value, or fail after `timeoutMs` naming
- *  `what` and the last value seen. The defaults suit the slowest waits (server
- *  analysis, the fake driver's processes), so a test only passes a timeout to
- *  go longer. */
+ *  `what` and the last value seen. The default sits under Mocha's usual 30 s
+ *  test timeout so this error fires first; a test that waits longer (or
+ *  deliberately shorter) passes its own, within its `this.timeout`. */
 export async function waitFor<T, U extends T>(
   fn: () => Thenable<T> | T,
   ok: (v: T) => v is U,

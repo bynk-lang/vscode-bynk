@@ -127,6 +127,7 @@ describe("agent state view (#2196)", () => {
           .filter((l) => l.command?.command === "bynk.showAgentState"),
       (l) => l.length >= 2,
       "the Show State lenses",
+      30_000,
     );
     assert.deepStrictEqual(
       lenses.map((l) => l.range.start.line).sort((a, b) => a - b),
@@ -146,7 +147,7 @@ describe("agent state view (#2196)", () => {
     const before = await state();
     const inCancel = new vscode.Position(lineOf("status := Cancelled"), 8);
     editor.selection = new vscode.Selection(inCancel, inCancel);
-    const after = await waitFor(() => state(), (s) => s.focus === "cancel", "the highlight to move");
+    const after = await waitFor(() => state(), (s) => s.focus === "cancel", "the highlight to move", 30_000);
     assert.strictEqual(after.handler, before.handler, "still the same agent");
     assert.strictEqual(after.updates, before.updates, "no new model was rendered");
   });
@@ -156,7 +157,7 @@ describe("agent state view (#2196)", () => {
     const before = await state();
     const inBump = new vscode.Position(lineOf("total := total + 1"), 6);
     editor.selection = new vscode.Selection(inBump, inBump);
-    const after = await waitFor(() => state(), (s) => s.handler !== before.handler, "a retarget to Counter");
+    const after = await waitFor(() => state(), (s) => s.handler !== before.handler, "a retarget to Counter", 30_000);
     assert.ok(after.handler?.includes("#Counter@"), `keyed on Counter: ${after.handler}`);
     assert.ok(after.hasPayload, "an agent with no state field still has a (machine-free) model");
     assert.strictEqual(after.focus, "bump");

@@ -54,6 +54,7 @@ describe("Bynk explain (#2098)", () => {
         ),
       (list) => !!list?.some((a) => a.title === `Explain \`${CODE}\``),
       "the Explain quick fix",
+      40_000,
     );
     const action = actions.find((a) => a.title === `Explain \`${CODE}\``)!;
     assert.strictEqual(action.kind?.value, "quickfix");
