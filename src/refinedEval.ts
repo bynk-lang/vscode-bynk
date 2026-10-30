@@ -51,13 +51,15 @@ export function parseCandidate(
 }
 
 type Value = bigint | number | string;
+const NEEDS_NEWER = `needs bynk ${PREDICATE_MIN_VERSION} or newer`;
+
 type ClauseOutcome = "holds" | "fails" | "timeout" | { unchecked: string };
 
-/** A JSON bound as a `bigint`. `Int` bounds beyond 2^53 reach here already
- *  rounded to a double (JSON.parse, in the language client), so a bound that
- *  large can be off by the rounding; the ±2^63 ends are powers of two, exact. */
+/** A JSON bound as a `bigint`, only when it is exact. `Int` bounds beyond 2^53
+ *  reach here already rounded to a double (JSON.parse, in the language client),
+ *  so a larger one is not trusted: a different bound could have rounded to it. */
 function intBound(n: unknown): bigint | undefined {
-  return typeof n === "number" && Number.isInteger(n) ? BigInt(n) : undefined;
+  return typeof n === "number" && Number.isSafeInteger(n) ? BigInt(n) : undefined;
 }
 
 function lengthOf(n: unknown): number | undefined {
@@ -96,7 +98,7 @@ function matchesPattern(pattern: string, value: string, timeoutMs: number): "hol
 function evaluateClause(clause: RefinedClause, value: Value, timeoutMs: number): ClauseOutcome {
   const p = clause.predicate;
   if (p === undefined || p === null || typeof p !== "object") {
-    return { unchecked: `needs bynk ${PREDICATE_MIN_VERSION} or newer` };
+    return { unchecked: NEEDS_NEWER };
   }
   const notApplicable = { unchecked: "the condition does not apply to this type" };
   switch (p.kind) {
@@ -110,7 +112,7 @@ function evaluateClause(clause: RefinedClause, value: Value, timeoutMs: number):
       if (typeof value === "bigint") {
         const min = intBound(p.min);
         const max = intBound(p.max);
-        if (min === undefined || max === undefined) return { unchecked: "the bounds are not whole numbers" };
+        if (min === undefined || max === undefined) return { unchecked: "a bound is too large to check exactly" };
         return value >= min && value <= max ? "holds" : "fails";
       }
       if (typeof value === "number") {
@@ -152,7 +154,12 @@ export function evaluateClauses(
     const outcome = evaluateClause(clause, value, timeoutMs);
     if (outcome === "timeout") return { kind: "timeout" };
     if (outcome === "fails") failures.push({ source: clause.source, message: clause.message });
-    else if (outcome !== "holds") unchecked.push({ source: clause.source, reason: outcome.unchecked });
+    else if (outcome !== "holds") {
+      // An older server leaves every clause without a predicate: say so once.
+      const prior = outcome.unchecked === NEEDS_NEWER ? unchecked.find((u) => u.reason === NEEDS_NEWER) : undefined;
+      if (prior) prior.source += `, ${clause.source}`;
+      else unchecked.push({ source: clause.source, reason: outcome.unchecked });
+    }
   }
   if (unchecked.length > 0) return { kind: "unchecked", failures, unchecked };
   return failures.length === 0 ? { kind: "valid" } : { kind: "invalid", failures };

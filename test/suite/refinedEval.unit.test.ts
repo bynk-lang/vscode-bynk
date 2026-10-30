@@ -54,21 +54,22 @@ describe("refinedEval (unit)", () => {
     for (const bad of ["0", "101", "-3"]) assert.deepStrictEqual(failed(m, bad), ["InRange(1, 100)"]);
   });
 
-  it("InRange over Int at the ±2^63 edges", () => {
-    // -2^63 and 2^63 are exact doubles; the max Int, 2^63 - 1, is not, and
-    // arrives as 2^63.
+  it("InRange over Int compares as a bigint within ±2^53", () => {
+    const m = model("Int", [clause("InRange(0, 2^53-1)", { kind: "range", min: 0, max: Number.MAX_SAFE_INTEGER })]);
+    assert.strictEqual(checkCandidate(m, "9007199254740991").kind, "valid");
+    assert.strictEqual(checkCandidate(m, "9007199254740992").kind, "invalid");
+  });
+
+  it("an Int bound beyond 2^53 is already rounded, so it is not trusted", () => {
+    // JSON.parse("-9223372036854775807") is -2^63: accepting -2^63 would be wrong.
+    const min = JSON.parse("-9223372036854775807") as number;
+    const lower = model("Int", [clause("InRange(-(2^63-1), 0)", { kind: "range", min, max: 0 })]);
+    assert.strictEqual(checkCandidate(lower, "-9223372036854775808").kind, "unchecked");
+    const max = JSON.parse("9007199254740993") as number;
+    const upper = model("Int", [clause("InRange(0, 2^53+1)", { kind: "range", min: 0, max })]);
+    assert.strictEqual(checkCandidate(upper, "9007199254740993").kind, "unchecked");
     const full = model("Int", [clause("InRange(min, max)", { kind: "range", min: -(2 ** 63), max: 2 ** 63 })]);
-    assert.strictEqual(checkCandidate(full, "-9223372036854775808").kind, "valid");
-    assert.strictEqual(checkCandidate(full, "9223372036854775807").kind, "valid");
-    assert.strictEqual(checkCandidate(full, "-9223372036854775809").kind, "unreadable");
-    const upper = model("Int", [clause("InRange(0, 2^62)", { kind: "range", min: 0, max: 2 ** 62 })]);
-    assert.strictEqual(checkCandidate(upper, "4611686018427387904").kind, "valid");
-    // One past 2^62 is distinguishable only as a bigint; a double compare would round it in.
-    assert.strictEqual(checkCandidate(upper, "4611686018427387905").kind, "invalid");
-    const lower = model("Int", [clause("InRange(-2^63, -2^62)", { kind: "range", min: -(2 ** 63), max: -(2 ** 62) })]);
-    assert.strictEqual(checkCandidate(lower, "-9223372036854775808").kind, "valid");
-    assert.strictEqual(checkCandidate(lower, "-4611686018427387905").kind, "valid");
-    assert.strictEqual(checkCandidate(lower, "-4611686018427387903").kind, "invalid");
+    assert.strictEqual(checkCandidate(full, "0").kind, "unchecked");
   });
 
   it("an Int range with a fractional bound cannot be checked", () => {
@@ -145,6 +146,9 @@ describe("refinedEval (unit)", () => {
     // Other clauses are still checked, and a failure is still reported.
     const mixed = checkCandidate(model("Int", [old, POSITIVE]), "-5");
     assert.ok(mixed.kind === "unchecked" && mixed.failures.length === 1 && mixed.unchecked.length === 1);
+    // The message appears once, naming every clause it covers.
+    const two = checkCandidate(model("Int", [old, { ...old, source: "NonNegative" }]), "5");
+    assert.ok(two.kind === "unchecked" && two.unchecked.length === 1 && two.unchecked[0].source === "Positive, NonNegative");
   });
 
   it("an unknown predicate kind is not checked", () => {

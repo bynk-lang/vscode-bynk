@@ -45,7 +45,10 @@ describe("refinedEval sandbox (unit)", () => {
 
   it("a pattern that is JavaScript source is only a pattern", () => {
     const sneaky = ['"); globalThis.pwned = 1; ("', "a\\", ".*)$|(?:", "${CODE}"];
-    for (const pattern of sneaky) evaluateClauses([clause({ kind: "matches", pattern })], 'a"; x');
+    for (const pattern of sneaky) {
+      const v = evaluateClauses([clause({ kind: "matches", pattern })], 'a"; x');
+      assert.ok(v.kind !== "timeout", pattern);
+    }
     assert.strictEqual((globalThis as { pwned?: number }).pwned, undefined);
   });
 
@@ -58,11 +61,14 @@ describe("refinedEval sandbox (unit)", () => {
     assert.strictEqual((globalThis as { pwned?: number }).pwned, undefined);
   });
 
-  it("the pattern is not given a way to the host realm", () => {
-    // `[^]` matches the stringified value; if `process` or `require` were in scope a
-    // pattern still cannot call them, and a lookalike value stays a string.
-    const v = evaluateClauses([clause({ kind: "matches", pattern: ".*" })], "typeof process");
-    assert.strictEqual(v.kind, "valid");
+  it("the pattern test sees no host globals", () => {
+    // If the context leaked the host's `process`, this lookahead-free probe
+    // could not tell; instead, check the fixed script's scope directly: a
+    // pattern cannot name a variable, and the value is the only string in play.
+    const secret = "pid";
+    const v = evaluateClauses([clause({ kind: "matches", pattern: "(?:process|require|globalThis|pattern|value)" })], secret);
+    assert.strictEqual(v.kind, "invalid");
+    assert.strictEqual(evaluateClauses([clause({ kind: "matches", pattern: "pid" })], secret).kind, "valid");
   });
 
   it("an unterminated-regex-cost pattern times out, then the next check runs", () => {

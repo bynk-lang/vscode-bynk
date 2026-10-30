@@ -46,7 +46,7 @@ function renderVerdict(into: HTMLElement, verdict: CandidateVerdict): void {
       return;
     case "invalid":
     case "unchecked": {
-      into.classList.add("rx-bad");
+      into.classList.add(verdict.failures.length > 0 ? "rx-bad" : "rx-warn");
       into.append(el("strong", undefined, verdict.failures.length > 0 ? "✗ invalid" : "? could not be checked"));
       const list = el("ul");
       for (const f of verdict.failures) {

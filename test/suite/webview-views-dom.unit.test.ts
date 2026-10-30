@@ -490,7 +490,7 @@ describe("refined type explorer (jsdom)", () => {
       text: "plain",
       verdict: { kind: "unchecked", failures: [], unchecked: [{ source: `U${HOSTILE}`, reason: `needs ${HOSTILE}` }] },
     });
-    assert.ok(verdict.classList.contains("rx-bad"));
+    assert.ok(verdict.classList.contains("rx-warn") && !verdict.classList.contains("rx-bad"));
     assert.ok(String(verdict.textContent).includes("could not be checked"));
     noMarkup(dom.root);
     dom.post({ type: "verdict", text: "plain", verdict: { kind: "timeout" } });
