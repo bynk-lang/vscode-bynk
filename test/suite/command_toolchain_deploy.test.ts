@@ -5,7 +5,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 
-import { useFakeBynk } from "./fakeBynk";
+import { FAKE_BYNK, useFakeBynk } from "./fakeBynk";
 import { truthy, waitFor } from "./util";
 
 const win = vscode.window as unknown as Record<string, unknown>;
@@ -69,24 +69,22 @@ describe("Bynk toolchain, deploy and tail commands (#44)", () => {
     assert.strictEqual(runs("deploy").length, 0, "nothing was run");
   });
 
-  it("bynk.tailLogs probes the driver, then tails the environment's Worker in a terminal", async function () {
+  it("bynk.tailLogs probes the driver, then opens a terminal that tails the environment's Worker", async function () {
     if (process.platform === "win32") this.skip();
     this.timeout(60_000);
     await vscode.commands.executeCommand("bynk.tailLogs", { environment: "staging", context: "billing" });
-    await waitFor(
-      () => vscode.window.terminals.some((t) => t.name === "Bynk Tail (staging)"),
-      truthy,
+    // The terminal's process is started by the window, not the extension host, so
+    // it does not inherit the stand-in's log: read what it was asked to run instead.
+    const terminal = await waitFor(
+      () => vscode.window.terminals.find((t) => t.name === "Bynk Tail (staging)"),
+      (t) => t !== undefined,
       "the tail terminal",
       20_000,
     );
-    const tails = await waitFor(
-      () => runs("tail").map((e) => e.argv!),
-      (l) => l.length >= 2,
-      "the probe and the tail",
-      30_000,
-    );
-    assert.deepStrictEqual(tails[0], ["tail", "--help"]);
-    assert.deepStrictEqual(tails[1], ["tail", "--env", "staging", "--context", "billing"]);
+    const options = terminal!.creationOptions as vscode.TerminalOptions;
+    assert.strictEqual(options.shellPath, FAKE_BYNK);
+    assert.deepStrictEqual(options.shellArgs, ["tail", "--env", "staging", "--context", "billing"]);
+    assert.deepStrictEqual(runs("tail").map((e) => e.argv), [["tail", "--help"]], "the probe ran first");
     vscode.window.terminals.filter((t) => t.name === "Bynk Tail (staging)").forEach((t) => t.dispose());
   });
 });
