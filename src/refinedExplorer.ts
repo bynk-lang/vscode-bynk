@@ -38,10 +38,6 @@ const REFINED_CSS = `
   .rx-verdict ul { margin: 4px 0 0; }
 `;
 
-let panel: vscode.WebviewPanel | undefined;
-/** The model the open panel shows, for answering its checks. */
-let current: RefinedModel | undefined;
-
 /** The client capability that tells the server this client runs
  *  `bynk.exploreRefinedType`, so a refined type's hover may link to it. */
 export function refinedExplorerClientFeature(): StaticFeature {
@@ -72,9 +68,11 @@ export function registerRefinedExplorer(
   context: vscode.ExtensionContext,
   getClient: () => LanguageClient | undefined,
 ): void {
+  const view = new RefinedExplorerView(context);
   context.subscriptions.push(
+    view,
     vscode.commands.registerCommand(EXPLORE_COMMAND, (uriArg?: unknown, positionArg?: unknown) =>
-      explore(context, getClient, uriArg, positionArg),
+      explore(view, getClient, uriArg, positionArg),
     ),
   );
 }
@@ -82,7 +80,7 @@ export function registerRefinedExplorer(
 /** Run the command. Resolves to the model shown, or `undefined` when nothing
  *  was shown; the return value is for tests. */
 async function explore(
-  context: vscode.ExtensionContext,
+  view: RefinedExplorerView,
   getClient: () => LanguageClient | undefined,
   uriArg: unknown,
   positionArg: unknown,
@@ -111,46 +109,61 @@ async function explore(
     void vscode.window.showInformationMessage("Bynk: that is not a refined type with a predicate to explore.");
     return undefined;
   }
-  showPanel(context, { model });
+  view.show({ model });
   return model;
 }
 
-function showPanel(context: vscode.ExtensionContext, payload: RefinedPayload): void {
-  current = payload.model;
-  if (!panel) {
-    panel = vscode.window.createWebviewPanel(
-      "bynkRefinedType",
-      "Bynk: Refined Type",
-      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
-      {
-        enableScripts: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "out")],
-      },
-    );
-    panel.onDidDispose(() => {
-      panel = undefined;
-      current = undefined;
-    });
-    panel.webview.onDidReceiveMessage((message: CheckMessage) => {
-      if (message?.type !== "check" || typeof message.text !== "string" || !current) return;
-      void panel?.webview.postMessage({
-        type: "verdict",
-        text: message.text,
-        verdict: checkCandidate(current, message.text),
-      });
-    });
+/** The refined-type explorer webview, reused across models. */
+class RefinedExplorerView implements vscode.Disposable {
+  private panel: vscode.WebviewPanel | undefined;
+  /** The model the open panel shows, for answering its checks. */
+  private current: RefinedModel | undefined;
+
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  dispose(): void {
+    this.panel?.dispose();
   }
-  panel.title = `Bynk: Refined Type — ${payload.model.name}`;
-  panel.webview.html = renderWebviewHtml({
-    webview: panel.webview,
-    scriptUri: panel.webview.asWebviewUri(
-      vscode.Uri.joinPath(context.extensionUri, "out", "refinedExplorer.js"),
-    ),
-    nonce: getNonce(),
-    title: "Bynk: Refined Type",
-    globalName: "__BYNK_REFINED__",
-    payload,
-    bodyCss: REFINED_CSS,
-  });
-  panel.reveal(vscode.ViewColumn.Beside, false);
+
+  show(payload: RefinedPayload): void {
+    const { context } = this;
+    this.current = payload.model;
+    if (!this.panel) {
+      const panel = (this.panel = vscode.window.createWebviewPanel(
+        "bynkRefinedType",
+        "Bynk: Refined Type",
+        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
+        {
+          enableScripts: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "out")],
+        },
+      ));
+      panel.onDidDispose(() => {
+        this.panel = undefined;
+        this.current = undefined;
+      });
+      panel.webview.onDidReceiveMessage((message: CheckMessage) => {
+        if (message?.type !== "check" || typeof message.text !== "string" || !this.current) return;
+        void panel.webview.postMessage({
+          type: "verdict",
+          text: message.text,
+          verdict: checkCandidate(this.current, message.text),
+        });
+      });
+    }
+    const panel = this.panel;
+    panel.title = `Bynk: Refined Type — ${payload.model.name}`;
+    panel.webview.html = renderWebviewHtml({
+      webview: panel.webview,
+      scriptUri: panel.webview.asWebviewUri(
+        vscode.Uri.joinPath(context.extensionUri, "out", "refinedExplorer.js"),
+      ),
+      nonce: getNonce(),
+      title: "Bynk: Refined Type",
+      globalName: "__BYNK_REFINED__",
+      payload,
+      bodyCss: REFINED_CSS,
+    });
+    panel.reveal(vscode.ViewColumn.Beside, false);
+  }
 }

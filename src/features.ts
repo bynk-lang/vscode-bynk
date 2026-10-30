@@ -19,6 +19,7 @@
 import type * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
+import type { ApprovalState } from "./approveRequirements";
 import { registerCapabilityPath } from "./capabilityPath";
 import { registerChatParticipant } from "./chatParticipant";
 import { registerDebug } from "./debug";
@@ -51,6 +52,8 @@ export interface FeatureEnv {
   /** What the `bynk` driver is known to understand, shared by the Test Explorer and
    *  the debugger. */
   driverSupport: DriverSupport;
+  /** The npm-requirement approvals, which `bynk dev`/`deploy` output is reported to. */
+  approvals: ApprovalState;
 }
 
 /** Keep this sorted by feature name. */
@@ -64,9 +67,9 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   // #2472: Add Dependency…, Fetch Dependencies, upgrade lenses, Publish….
   ({ context }) => registerDependencies(context),
   // #2101: plan-first deploy.
-  ({ context }) => registerDeploy(context),
+  ({ context, approvals }) => registerDeploy(context, approvals),
   // #2094: run and manage `bynk dev`.
-  ({ context }) => registerDevServer(context),
+  ({ context, approvals }) => registerDevServer(context, approvals),
   // #2095: "Bynk: Doctor", offered by failures elsewhere, never run on activation.
   ({ context }) => registerDoctor(context),
   // #2471: "Show Compiled Output", highlighted both ways through the source map.
