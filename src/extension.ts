@@ -17,6 +17,7 @@ import {
 import {
   compareVersions,
   downloadServer,
+  DownloadCancelled,
   expectedServerVersion,
   isBelowMinVersion,
   parseVersion,
@@ -44,10 +45,13 @@ import { registerContractDiff } from "./contractDiff";
 import { registerWireContract } from "./wireContract";
 import { registerFeatures } from "./features";
 import { ViewRefresh } from "./viewRefresh";
+import { StartQueue } from "./startQueue";
 import { registerProjectTree } from "./projectTree";
 import type { LivePanel } from "./livePanel";
 
 let client: LanguageClient | undefined;
+/** #31: every start and restart goes through this, one at a time. */
+const startQueue = new StartQueue();
 let output: vscode.LogOutputChannel;
 let projectNameItem: vscode.StatusBarItem | undefined;
 let serverItem: vscode.StatusBarItem | undefined;
@@ -149,6 +153,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => updateProjectItem()),
+    // `bynk.bynkPath` applies live (toolchain.ts); the server path does too.
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("bynk.executablePath")) {
+        void startServer(context, { interactive: false });
+      }
+    }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       updateProjectItem();
       void refreshProjectContext();
@@ -165,7 +175,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(tomlWatcher);
   void refreshProjectContext();
 
-  await startServer(context, { interactive: false });
+  // Not awaited: a download, or a prompt waiting on the user, must not hold
+  // activation (#31). The status item and `viewRefresh.whenClient` carry the
+  // outcome.
+  void startServer(context, { interactive: false });
 }
 
 /** Set the `bynk.hasProject` context key from whether the workspace holds any
@@ -184,14 +197,34 @@ async function refreshProjectContext(): Promise<void> {
 }
 
 /** Provision a server, (re)start the client, and reflect the result in the UI.
- *  Safe to call repeatedly (restart command). */
-async function startServer(
+ *  Safe to call repeatedly (restart command): calls are queued, and one a later
+ *  call has superseded stops short of creating a client. */
+function startServer(
   context: vscode.ExtensionContext,
   opts: { interactive: boolean; forceDownload?: boolean },
 ): Promise<void> {
-  await stopClient();
+  return startQueue
+    .run((superseded, signal) => startServerNow(context, opts, superseded, signal))
+    .catch((e) => {
+      output.appendLine(`[server] start failed: ${String(e)}`);
+      setServerItem("error", "Bynk LSP: failed");
+    });
+}
 
-  const resolved = await ensureServer(context, opts);
+async function startServerNow(
+  context: vscode.ExtensionContext,
+  opts: { interactive: boolean; forceDownload?: boolean },
+  superseded: () => boolean,
+  signal: AbortSignal,
+): Promise<void> {
+  // Queued behind a start, then overtaken (or the extension is shutting down):
+  // don't stop the client, download, or prompt for work that is replaced.
+  if (superseded()) return;
+  await stopClient();
+  if (superseded()) return;
+
+  const resolved = await ensureServer(context, opts, signal);
+  if (superseded()) return;
   if (!resolved) {
     setServerItem("error", "Bynk LSP: not running");
     return;
@@ -263,16 +296,17 @@ async function startServer(
     },
   };
 
-  client = new LanguageClient("bynk", "Bynk LSP", serverOptions, clientOptions);
+  const started = new LanguageClient("bynk", "Bynk LSP", serverOptions, clientOptions);
   // #2098: tells the server this client runs `bynk.explainDiagnostic`, so it
   // offers the "Explain …" quick fix.
-  client.registerFeature(explainClientFeature());
+  started.registerFeature(explainClientFeature());
   // #2469: likewise for the "Show capability path" action.
-  client.registerFeature(capabilityPathClientFeature());
-  client.registerFeature(refinedExplorerClientFeature());
+  started.registerFeature(capabilityPathClientFeature());
+  started.registerFeature(refinedExplorerClientFeature());
   try {
-    await client.start();
+    await started.start();
   } catch (e) {
+    await started.dispose().catch(() => undefined);
     output.appendLine(`[server] failed to start: ${String(e)}`);
     void vscode.window
       .showErrorMessage(
@@ -288,8 +322,12 @@ async function startServer(
     return;
   }
 
+  // Published only once running, so `whenClient()` never hands out a client
+  // that then fails to start. A later start stops it first.
+  client = started;
+  if (superseded()) return;
   viewRefresh?.clientStarted();
-  checkVersionMatch(context, resolved);
+  void checkVersionMatch(context, resolved);
   setServerItem("ok", `Bynk LSP (${resolved.source})`);
   updateProjectItem();
 }
@@ -300,6 +338,7 @@ async function startServer(
 async function ensureServer(
   context: vscode.ExtensionContext,
   opts: { interactive: boolean; forceDownload?: boolean },
+  signal: AbortSignal,
 ): Promise<ResolvedServer | undefined> {
   if (!opts.forceDownload) {
     const existing = resolveExistingServer(context);
@@ -313,7 +352,7 @@ async function ensureServer(
   if (configured && !opts.forceDownload) {
     // An explicit setting that doesn't resolve: don't paper over it with a
     // download — tell the user their setting is wrong.
-    await reportNoServer(
+    reportNoServer(
       `Bynk: \`bynk.executablePath\` is set to "${configured}", but no such executable was found.`,
       context,
     );
@@ -321,7 +360,7 @@ async function ensureServer(
   }
 
   if (!targetTriple()) {
-    await reportNoServer(
+    reportNoServer(
       `Bynk: no prebuilt language server for ${process.platform}/${process.arch}. ` +
         "Build it with `cargo build --release -p bynk-lsp` and set `bynk.executablePath`.",
       context,
@@ -330,11 +369,13 @@ async function ensureServer(
   }
 
   try {
-    const path = await downloadServer(context, output);
+    const path = await downloadServer(context, output, signal);
     return { path, source: "downloaded" };
   } catch (e) {
+    // Cancelled by the user, or overtaken by a later start: not a failure.
+    if (e instanceof DownloadCancelled || signal.aborted) return undefined;
     output.appendLine(`[server] download failed: ${String(e)}`);
-    await reportNoServer(
+    reportNoServer(
       `Bynk: couldn't download the language server (${serverVersion(context)}). ` +
         "It may not be released yet, or the network is unavailable.",
       context,
@@ -343,26 +384,28 @@ async function ensureServer(
   }
 }
 
-async function reportNoServer(
+/** Offer recovery without waiting on it: the start that found no server is
+ *  inside the start queue, so awaiting the toast would hold up every later
+ *  start (and activation) until it is dismissed. "Download Server" queues a
+ *  fresh start of its own. */
+function reportNoServer(
   message: string,
   context: vscode.ExtensionContext,
-): Promise<void> {
-  const pick = await vscode.window.showErrorMessage(
-    message,
-    "Download Server",
-    "Open Settings",
-    "Show Output",
-  );
-  if (pick === "Download Server") {
-    await startServer(context, { interactive: true, forceDownload: true });
-  } else if (pick === "Open Settings") {
-    await vscode.commands.executeCommand(
-      "workbench.action.openSettings",
-      "bynk.executablePath",
-    );
-  } else if (pick === "Show Output") {
-    output.show();
-  }
+): void {
+  void vscode.window
+    .showErrorMessage(message, "Download Server", "Open Settings", "Show Output")
+    .then((pick) => {
+      if (pick === "Download Server") {
+        void startServer(context, { interactive: true, forceDownload: true });
+      } else if (pick === "Open Settings") {
+        void vscode.commands.executeCommand(
+          "workbench.action.openSettings",
+          "bynk.executablePath",
+        );
+      } else if (pick === "Show Output") {
+        output.show();
+      }
+    });
 }
 
 /** Warn if the running server's version disagrees with the one this extension
@@ -374,11 +417,11 @@ async function reportNoServer(
  *  mis-diagnose syntax the checker already accepts. A newer or
  *  otherwise-differing server just gets a note in the output channel: the
  *  download remedy would only fetch an older one. */
-function checkVersionMatch(
+async function checkVersionMatch(
   context: vscode.ExtensionContext,
   resolved: ResolvedServer,
-): void {
-  const reported = readServerVersion(resolved.path); // "bynkc-lsp 0.23.0"
+): Promise<void> {
+  const reported = await readServerVersion(resolved.path); // "bynkc-lsp 0.23.0"
   const expected = expectedServerVersion(
     resolved.source,
     serverVersion(context),
@@ -486,6 +529,8 @@ async function stopClient(): Promise<void> {
 }
 
 export async function deactivate(): Promise<void> {
+  startQueue.cancelPending();
+  await startQueue.idle();
   await stopClient();
 }
 
@@ -508,7 +553,12 @@ function setServerItem(state: "ok" | "error", text: string): void {
   updateProjectItem();
 }
 
+let projectItemSeq = 0;
+
 function updateProjectItem(): void {
+  // Bumped on every call, hiding included, so a read still in flight can't
+  // show the item over an editor that has since stopped being Bynk.
+  const seq = ++projectItemSeq;
   const show =
     vscode.window.activeTextEditor?.document.languageId === "bynk";
   if (!projectNameItem || !serverItem) return;
@@ -518,6 +568,8 @@ function updateProjectItem(): void {
     return;
   }
   void readProjectName().then((name) => {
+    // A newer editor switch started its own read; don't show this stale name.
+    if (seq !== projectItemSeq) return;
     projectNameItem!.text = `$(symbol-package) ${name ?? "no project"}`;
     projectNameItem!.tooltip = name
       ? "Open bynk.toml"

@@ -37,6 +37,14 @@ version).
 
 ### Fixed
 
+- Starting and restarting the language server is serialized, so overlapping
+  restarts or a download no longer leave two servers running, and a successful
+  "Download Server" no longer shows "not running" (#31).
+- Activation no longer waits on the "no server" prompt or a server download;
+  the download can be cancelled and times out on a stalled connection (#31).
+- A language client that fails to start is no longer left assigned (#31).
+- The server's `--version` check no longer blocks the extension host, and the
+  status bar no longer shows a stale project name when editors switch quickly.
 - A debug session no longer freezes once the debugged CLI has written about
   64 KB: its output is read for the life of the session, and goes to the
   **Bynk Debug** output channel.
@@ -51,6 +59,9 @@ version).
 
 ### Changed
 
+- Changing `bynk.executablePath` restarts the server.
+- `bynk.executablePath`, `bynk.bynkPath` and `bynk.dev.args` are
+  machine-scoped, so a workspace's settings cannot redirect them.
 - The pure unit tests run in plain Node (`npm run test:unit`), with a coverage
   floor (`npm run test:unit:coverage`) and in CI right after the type check. The
   webview renderers now have jsdom tests, including that markup in a name or
