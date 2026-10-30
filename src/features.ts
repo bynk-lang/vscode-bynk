@@ -5,10 +5,12 @@
 // `activate` that every concurrent feature also edits (and conflicts on).
 //
 // Features that hand something back to `activate` (the Test Explorer's API, the
-// approvals, the live model views, which others use) stay registered there.
+// live model views, which others use) stay registered there. The approvals are
+// registered there too, just before this table runs, and passed in through
+// `FeatureEnv` to the features that report to them.
 //
-// Registration order: the table runs right after the refresh hub is built and
-// before the Test Explorer, the approvals and the live views, so a feature here
+// Registration order: the table runs right after the refresh hub and the
+// approvals are built and before the Test Explorer and the live views, so a feature here
 // registers earlier than it used to relative to those and later relative to the
 // toolchain and task registrations, which moved in from the top. None of these
 // reads another's registration at activation: they register commands and

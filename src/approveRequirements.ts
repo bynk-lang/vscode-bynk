@@ -129,9 +129,9 @@ class ApproveRequirements implements ApprovalState, vscode.Disposable {
    *  Problems, badge, and (when `notify`) one notification per pending set.
    *  Returns the annotated listing. */
   private async publish(cwd: string, raw: ApprovalListing, notify: boolean): Promise<ApprovalListing> {
-    const memory = this.memento?.get<ApprovedMemory>(`${MEMORY_KEY}:${cwd}`) ?? {};
+    const memory = this.memento.get<ApprovedMemory>(`${MEMORY_KEY}:${cwd}`) ?? {};
     const annotated = annotateChanges(raw, memory);
-    await this.memento?.update(`${MEMORY_KEY}:${cwd}`, rememberApproved(raw, memory));
+    await this.memento.update(`${MEMORY_KEY}:${cwd}`, rememberApproved(raw, memory));
     this.current = { listing: annotated, cwd };
     this.pending = pendingPackages(annotated).length;
     await this.publishProblems(cwd, annotated);
@@ -150,7 +150,6 @@ class ApproveRequirements implements ApprovalState, vscode.Disposable {
 
   /** One Problems entry per pending package, on its row in `bynk.lock`. */
   private async publishProblems(cwd: string, l: ApprovalListing): Promise<void> {
-    if (!this.problems) return;
     this.problems.clear();
     const packages = pendingPackages(l);
     if (packages.length === 0) return;

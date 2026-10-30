@@ -102,14 +102,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   viewRefresh = new ViewRefresh(() => client);
   context.subscriptions.push(viewRefresh);
 
-  // The features that need only the context, the hub, the client getter or the
-  // output channel: see features.ts (add new ones there, not here).
   const driverSupport = newDriverSupport();
   // #2473: review and approve the npm packages dependencies' adapters ask for;
   // pending ones are found in `check`/`dev`/`deploy` output, and badge the
   // Project view. Built before the feature table, whose `dev` and `deploy`
   // report their output to it.
   const approvals = registerApproveRequirements(context);
+  // The features that need only the context, the hub, the client getter, the
+  // output channel, the driver support or the approvals: see features.ts (add
+  // new ones there, not here).
   registerFeatures({ context, output, viewRefresh, client: () => client, driverSupport, approvals });
 
   // v0.59: the Test Explorer — runs `bynkc test --format json`. v0.78: also discovers

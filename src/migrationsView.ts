@@ -280,12 +280,12 @@ class SweepView implements vscode.Disposable {
   private async onAction(action: string, current: PlanState): Promise<void> {
     if (action === "refresh") {
       const state = await this.store.refresh(current.root);
-      if (state?.kind === "status") {
+      if (state.kind === "status") {
         await this.showPlan(current, state.classes);
       } else {
         // Keep the plan the user was looking at, but say why it is not refreshed.
         void vscode.window.showErrorMessage(
-          `Bynk: the sweep plan could not be refreshed: ${state?.kind === "failed" ? state.detail.split("\n")[0] : "bynk is not available"}`,
+          `Bynk: the sweep plan could not be refreshed: ${state.kind === "failed" ? state.detail.split("\n")[0] : "bynk is not available"}`,
         );
       }
     } else if (action === "sweep") {
