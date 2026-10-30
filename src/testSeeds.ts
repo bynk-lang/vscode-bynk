@@ -8,6 +8,8 @@
 // it are the same: a pin keeps that list (its fingerprint), and one that no longer
 // matches is stale, shown as such and never passed to `--seed`.
 
+import { projectOf, scopeSuiteId } from "./testPlan";
+
 /** A pinned seed, with the generative cases of its suite as they were when it
  *  was taken. */
 export interface Pin {
@@ -71,4 +73,18 @@ export function seedFor(
     };
   }
   return { seed: pin.seed };
+}
+
+/** Move pins keyed before ids were project-scoped under `scope`, the project they
+ *  belonged to. Only safe when that project is the only one: with several, which one
+ *  held a pin is unknown. Returns whether any pin moved. */
+export function migrateLegacyPins(pins: Map<string, Pin>, scope: string): boolean {
+  let moved = false;
+  for (const [key, pin] of [...pins]) {
+    if (projectOf(key) !== undefined) continue;
+    pins.delete(key);
+    pins.set(scopeSuiteId(scope, key), pin);
+    moved = true;
+  }
+  return moved;
 }

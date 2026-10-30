@@ -27,6 +27,16 @@ version).
   project that changed, a `bynk.toml` save rescans only the files under it for
   file decorations (bulk reads are bounded), and Show Compiled Output rebuilds
   only the views in the edited project, one compile per project.
+- The Testing view shows one top-level item per Bynk project, with every test id
+  namespaced by its project. It discovers all the workspace's projects, so Refresh
+  with a non-Bynk editor focused no longer empties the tree, and a run goes to the
+  project its items belong to rather than the focused editor's. A project that
+  does not compile shows its error on its item. "Run against…" runs only the
+  projects that declare the target. Seed pins carry over in a single-project
+  workspace; in a larger one they can be pinned again.
+- Test discovery runs on save, on open and when the active editor changes, instead
+  of on every keystroke, and only for the project involved. Its compile errors no
+  longer go to Problems, where they duplicated the language server's.
 - Changing `bynk.executablePath` restarts the server.
 - `bynk.executablePath`, `bynk.bynkPath` and `bynk.dev.args` are
   machine-scoped, so a workspace's settings cannot redirect them.
