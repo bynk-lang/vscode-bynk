@@ -18,6 +18,7 @@ import {
   declarationNotes,
   handlerForCall,
   isDocExample,
+  itemRefs,
   isWanted,
   outcomeOf,
   planRun,
@@ -31,6 +32,7 @@ import {
   tierOf,
   unreported,
   type PlanCase,
+  type TreeNode,
 } from "../../src/testPlan";
 import {
   fingerprintOf,
@@ -808,5 +810,44 @@ describe("the Doc examples group node's id", () => {
     assert.deepStrictEqual(planRun(all, { include: [{ suiteId: SUITE }], exclude: group }, { sets: true }).steps, [
       { caseName: "ordinary" },
     ]);
+  });
+});
+
+describe("itemRefs: what a Testing view item stands for", () => {
+  const SUITE = "p|bynk-test:unit:orders";
+  const node = (id: string, label: string, parent?: TreeNode): TreeNode & { kids: TreeNode[] } => {
+    const n = { id, label, parent, kids: [] as TreeNode[], children: { forEach: (fn: (c: TreeNode) => void) => n.kids.forEach(fn) } };
+    parent && (parent as { kids?: TreeNode[] }).kids?.push(n);
+    return n;
+  };
+  const project = node("p", "p");
+  const suite = node(SUITE, "orders", project);
+  const plain = node(caseKey(SUITE, "plain"), "plain", suite);
+  const group = node(docGroupId(SUITE), "Doc examples", suite);
+  const docA = node(caseKey(SUITE, "doc a"), "doc a", group);
+  const docB = node(caseKey(SUITE, "doc b"), "doc b", group);
+
+  it("takes a project for its suites and a suite for itself", () => {
+    assert.deepStrictEqual(itemRefs(project), [{ suiteId: SUITE }]);
+    assert.deepStrictEqual(itemRefs(suite), [{ suiteId: SUITE }]);
+  });
+
+  it("takes the group for one reference per doc case, of the real suite", () => {
+    assert.deepStrictEqual(itemRefs(group), [
+      { suiteId: SUITE, name: "doc a" },
+      { suiteId: SUITE, name: "doc b" },
+    ]);
+  });
+
+  it("takes a case under the suite, or under the group at depth 4, for a case of the suite", () => {
+    assert.deepStrictEqual(itemRefs(plain), [{ suiteId: SUITE, name: "plain" }]);
+    assert.deepStrictEqual(itemRefs(docB), [{ suiteId: SUITE, name: "doc b" }]);
+    assert.ok(docA.parent?.parent?.parent === project, "the case really is at depth 4");
+  });
+
+  it("lets an excluded group take its doc cases out of an included suite", () => {
+    const all: PlanCase[] = [plain, docA, docB].map((n) => ({ suiteId: SUITE, name: n.label }));
+    const plan = planRun(all, { include: itemRefs(suite), exclude: itemRefs(group) }, { sets: true });
+    assert.deepStrictEqual(plan.steps, [{ caseName: "plain" }]);
   });
 });

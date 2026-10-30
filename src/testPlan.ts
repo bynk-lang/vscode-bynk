@@ -272,6 +272,36 @@ export function suiteIdOfGroup(groupId: string): string {
   return groupId.slice(0, groupId.length - DOC_GROUP_SUFFIX.length);
 }
 
+/** The part of a Testing view item that reference-making reads, so it can be
+ *  planned (and tested) without `vscode`. */
+export interface TreeNode {
+  id: string;
+  label: string;
+  parent?: TreeNode;
+  children: { forEach(fn: (child: TreeNode) => void): void };
+}
+
+/** The references an include/exclude item stands for: a top-level item is a project
+ *  (all its suites), its child a suite, a "Doc examples" group the doc cases of its
+ *  suite, and any deeper item a case of its suite (the suite being the case's
+ *  parent, or its grandparent when the parent is the group). */
+export function itemRefs(i: TreeNode): ItemRef[] {
+  const parent = i.parent;
+  if (!parent) {
+    const suites: ItemRef[] = [];
+    i.children.forEach((suite) => void suites.push({ suiteId: suite.id }));
+    return suites;
+  }
+  if (isDocGroupId(i.id)) {
+    const cases: ItemRef[] = [];
+    i.children.forEach((c) => void cases.push({ suiteId: parent.id, name: c.label }));
+    return cases;
+  }
+  if (!parent.parent) return [{ suiteId: i.id }];
+  const suite = isDocGroupId(parent.id) && parent.parent ? parent.parent : parent;
+  return [{ suiteId: suite.id, name: i.label }];
+}
+
 /** A requested or excluded item: a whole suite (no `name`) or one case. */
 export interface ItemRef {
   suiteId: string;

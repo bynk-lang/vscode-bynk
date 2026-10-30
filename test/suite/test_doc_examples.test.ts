@@ -110,7 +110,7 @@ describe("the Doc examples node", () => {
       ctrl,
       problems: vscode.languages.createDiagnosticCollection("bynk-doc-examples-test"),
       seeds: seedState(),
-      hub: {} as ViewRefresh,
+      hub: null as unknown as ViewRefresh,
       driverSupport: newDriverSupport(),
     };
   });

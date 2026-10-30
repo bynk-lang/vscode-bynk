@@ -12,6 +12,7 @@ import {
   isDocExample,
   docGroupId,
   isDocGroupId,
+  itemRefs,
   type ItemRef,
   type JsonCase,
   type JsonLocation,
@@ -150,27 +151,9 @@ export function planCases(ctrl: vscode.TestController): PlanCase[] {
   return cases;
 }
 
-/** A request's include/exclude lists as plain references: a top-level item is a
- *  project (all its suites), its child a suite, a "Doc examples" group the doc cases
- *  of its suite, and any deeper item a case of its suite. */
+/** A request's include/exclude lists as plain references (see `itemRefs`). */
 export function requestRef(request: vscode.TestRunRequest): RequestRef {
-  const refs = (i: vscode.TestItem): ItemRef[] => {
-    if (!i.parent) {
-      const suites: ItemRef[] = [];
-      i.children.forEach((suite) => void suites.push({ suiteId: suite.id }));
-      return suites;
-    }
-    if (isDocGroupId(i.id)) {
-      const cases: ItemRef[] = [];
-      const suiteId = i.parent.id;
-      i.children.forEach((c) => void cases.push({ suiteId, name: c.label }));
-      return cases;
-    }
-    if (!i.parent.parent) return [{ suiteId: i.id }];
-    // A case sits under its suite, or under that suite's group node.
-    const suite = isDocGroupId(i.parent.id) ? i.parent.parent : i.parent;
-    return [{ suiteId: suite.id, name: i.label }];
-  };
+  const refs = (i: vscode.TestItem): ItemRef[] => itemRefs(i);
   return { include: request.include?.flatMap(refs), exclude: request.exclude?.flatMap(refs) };
 }
 
@@ -305,6 +288,7 @@ export function upsertCase(
     // parent and recreated, under the same id, in the right one.
     const other = doc ? suiteItem : suiteItem.children.get(docGroupId(suiteItem.id));
     other?.children.delete(id);
+    if (!doc && other?.children.size === 0) suiteItem.children.delete(other.id);
     // A discovered case carries its declaration `location`, so the tree links to
     // the `.bynk` source before any run. The uri is fixed at creation; the range
     // is refreshed each pass (a passing run case carries no location, so we never
