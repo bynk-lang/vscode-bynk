@@ -132,7 +132,6 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
   private projects: Project[] = [];
-  private loading: Promise<void> | undefined;
   /** The reload loop running, if any; reloads asked for meanwhile join it. */
   private draining: Promise<void> | undefined;
   /** What the next pass of the loop covers (`undefined`: nothing asked for). */
@@ -206,9 +205,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   /** Run (or join) the reload loop over what is `wanted`. */
   private start(): Promise<void> {
     this.dirty = false;
-    this.draining ??= this.drain().finally(() => {
-      this.draining = undefined;
-    });
+    this.draining ??= this.drain();
     return this.draining;
   }
 
@@ -223,12 +220,12 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
       // rest, for the projects that reload.
       if (scope === "all") this.migrations.clear();
       else for (const root of scope) this.migrations.clear(vscode.Uri.parse(root));
-      const run = this.load(fresh, scope);
-      this.loading = run;
-      await run;
-      if (this.loading === run) this.loading = undefined;
+      await this.load(fresh, scope);
       this.emitter.fire(undefined);
     }
+    // Cleared here, in the same tick as the loop's last check, so a reload
+    // asked for right after joins nothing that has already finished.
+    this.draining = undefined;
     this.scheduleRetry();
   }
 
@@ -344,7 +341,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
 
   async getChildren(node?: Node): Promise<Node[]> {
     if (!node) {
-      if (!this.loaded) await (this.loading ?? this.reloadQuiet());
+      if (!this.loaded) await this.reload();
       if (this.projects.length === 1) {
         const p = this.projects[0];
         return [
@@ -416,14 +413,6 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   dispose(): void {
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
     this.emitter.dispose();
-  }
-
-  private async reloadQuiet(): Promise<void> {
-    const run = this.load(false, "all");
-    this.loading = run;
-    await run;
-    if (this.loading === run) this.loading = undefined;
-    this.scheduleRetry();
   }
 
   /** While a project's model is missing (the server has not committed a

@@ -5,6 +5,7 @@ import * as assert from "assert";
 
 import {
   depsKey,
+  filesAffectedBy,
   Generations,
   groupByRoot,
   inScope,
@@ -50,6 +51,24 @@ describe("refresh scope (#38)", () => {
     assert.strictEqual(k, depsKey(statStamp({ mtimeMs: 1, size: 10 }), statStamp({ mtimeMs: 2, size: 5 })));
     assert.notStrictEqual(k, depsKey(statStamp({ mtimeMs: 3, size: 10 }), statStamp({ mtimeMs: 2, size: 5 })));
     assert.notStrictEqual(k, depsKey(statStamp({ mtimeMs: 1, size: 10 }), statStamp(undefined)));
+  });
+});
+
+describe("filesAffectedBy (#38)", () => {
+  it("re-decorates the rest of the old and new project of a moved file", () => {
+    const files = new Map([
+      ["old/other.bynk", { root: "old" }],
+      ["new/moved.bynk", { root: "new" }],
+      ["new/sibling.bynk", { root: "new" }],
+      ["far/x.bynk", { root: "far" }],
+    ]);
+    // moved.bynk left "old" for "new": both projects' files refresh, "far" does not.
+    const got = filesAffectedBy(files, new Set(["new/moved.bynk"]), new Set(["old", "new"]));
+    assert.deepStrictEqual(got.sort(), ["new/moved.bynk", "new/sibling.bynk", "old/other.bynk"]);
+  });
+
+  it("includes a file that left every project", () => {
+    assert.deepStrictEqual(filesAffectedBy(new Map(), new Set(["gone.bynk"]), new Set(["old"])), ["gone.bynk"]);
   });
 });
 

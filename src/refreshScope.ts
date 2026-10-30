@@ -98,3 +98,16 @@ export function groupByRoot<T extends { root: string | undefined }>(
   }
   return out;
 }
+
+/** The files to re-decorate after `moved` files changed project: those, and
+ *  every file now in one of `roots` (the old and new projects), since a
+ *  context badge depends on the project's whole set of contexts. */
+export function filesAffectedBy(
+  files: ReadonlyMap<string, { root: string }>,
+  moved: ReadonlySet<string>,
+  roots: ReadonlySet<string>,
+): string[] {
+  const out = new Set(moved);
+  for (const [k, f] of files) if (roots.has(f.root)) out.add(k);
+  return [...out];
+}

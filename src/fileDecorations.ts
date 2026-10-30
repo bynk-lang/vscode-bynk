@@ -30,7 +30,7 @@ import {
 } from "./fileDecorationsCore";
 import { parseUnitHeader } from "./projectModel";
 import { clearProjectRoots, projectRootFor } from "./projectRoots";
-import { mapLimit } from "./refreshScope";
+import { filesAffectedBy, mapLimit } from "./refreshScope";
 
 const SECTION = "bynk.fileDecorations";
 
@@ -226,20 +226,29 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
       // A newer scan of this directory, or a full one, supersedes this.
       if (gen !== this.scanGen || dirGen !== this.dirGens.get(dirKey)) return;
       const prefix = dirKey.endsWith("/") ? dirKey : `${dirKey}/`;
-      const affected: vscode.Uri[] = [];
-      for (const k of [...this.files.keys()]) {
+      // The projects the move touches, old and new: a context badge depends on
+      // the project's whole context count, so its other files refresh too.
+      const roots = new Set<string>();
+      const moved = new Set<string>();
+      for (const [k, f] of [...this.files]) {
         // A file a watcher event updated while the scan ran keeps that state.
         if (k.startsWith(prefix) && !touched.has(k)) {
+          roots.add(f.root);
+          moved.add(k);
           this.files.delete(k);
-          affected.push(vscode.Uri.parse(k));
         }
       }
       for (const k of this.probed) if (k.startsWith(prefix)) this.probed.delete(k);
       for (const [k, v] of next) {
-        if (!touched.has(k)) this.files.set(k, v);
-        affected.push(vscode.Uri.parse(k));
+        if (touched.has(k)) continue;
+        roots.add(v.root);
+        moved.add(k);
+        this.files.set(k, v);
       }
-      this.changed.fire(affected);
+      // An in-flight full scan must not commit the roots it read before this.
+      for (const k of moved) this.touch(k);
+      const affected = filesAffectedBy(this.files, moved, roots);
+      this.changed.fire(affected.map((k) => vscode.Uri.parse(k)));
     } finally {
       this.scanning.delete(touched);
     }
