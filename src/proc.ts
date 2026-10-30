@@ -46,9 +46,10 @@ export function spawnTree(
   return child;
 }
 
-/** Stop `child` and everything it started (even after `child` itself has exited, off Windows): SIGTERM to its process group (`bynk
+/** Stop `child` and everything it started SIGTERM to its process group (`bynk
  *  dev` traps it and tears down wrangler and workerd), or `taskkill /T /F` on
- *  Windows. A no-op for a child that has already ended. */
+ *  Windows. Off Windows it also reaches a group whose leader has already exited;
+ *  on Windows it is a no-op for an ended child. */
 export function killTree(
   child: ChildProcess,
   signal: NodeJS.Signals = "SIGTERM",

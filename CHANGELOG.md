@@ -29,8 +29,16 @@ version).
   real Windows machine), and no console window per debug session. Cancelling a
   test run ends the whole tree, and its cancellation listener is disposed.
 - A missing `bynk` for the `bynkc: check` task is found by resolving the
-  executable when the task starts, not from exit code 127, which Windows shells
-  never produce.
+  executable when the task starts (exit code 127 stays as a POSIX fallback).
+- The packaged VSIX no longer ships the compiled test build (`out/src/**`) when
+  tests were built before packaging, and CI now fails if it would.
+
+### Changed
+
+- The pure unit tests run in plain Node (`npm run test:unit`), with a coverage
+  floor (`npm run test:unit:coverage`) and in CI right after the type check. The
+  webview renderers now have jsdom tests, including that markup in a name or
+  message renders as text.
 
 ## [0.436.0] - 2026-10-29
 
