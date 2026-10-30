@@ -28,7 +28,12 @@ async function exportOpenapi(): Promise<void> {
     );
     if (!save) return;
     // Only the Bynk files the prompt named, not every dirty document.
-    for (const d of dirty) await d.save();
+    for (const d of dirty) {
+      if (!(await d.save())) {
+        void vscode.window.showErrorMessage(`Could not save ${vscode.workspace.asRelativePath(d.uri)}; the export was cancelled.`);
+        return;
+      }
+    }
   }
   const target = await vscode.window.showSaveDialog({
     defaultUri: vscode.Uri.joinPath(root, "openapi.json"),

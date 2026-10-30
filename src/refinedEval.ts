@@ -54,6 +54,11 @@ export function parseCandidate(
   }
 }
 
+/** Locks `Error` (so `prepareStackTrace` cannot be hooked) and its binding. */
+const PRELUDE =
+  '"use strict"; Object.freeze(Error);' +
+  ' Object.defineProperty(globalThis, "Error", { value: Error, writable: false, configurable: false });';
+
 /** `value` as source text for the context to evaluate, so the candidate is
  *  created inside it rather than passed in from the host. */
 function valueLiteral(value: bigint | number | string): string {
@@ -77,19 +82,30 @@ export function evaluateClauses(
   const literal = valueLiteral(value);
   for (const clause of clauses) {
     // A null-prototype global: a host `Object` is no way to a host `Function`.
+    // `afterEvaluate` runs queued microtasks inside the time limit, so a
+    // `Promise.then` loop cannot outlive it.
     const context = vm.createContext(Object.create(null), {
       codeGeneration: { strings: false, wasm: false },
+      microtaskMode: "afterEvaluate",
     });
-    let holds: unknown;
+    let outcome: unknown;
     try {
-      vm.runInContext(`"use strict"; Object.freeze(Error); var value = ${literal};`, context);
-      holds = vm.runInContext(clause.check, context, { timeout: timeoutMs });
-    } catch (err) {
-      if ((err as { code?: string }).code === "ERR_SCRIPT_EXECUTION_TIMEOUT") {
-        return { kind: "timeout" };
-      }
-      throw err;
+      vm.runInContext(PRELUDE + `var value = ${literal};`, context, { timeout: timeoutMs });
+      // The predicate's outcome is reduced to a primitive inside the context,
+      // under the time limit: a thrown value is never handed to the host, which
+      // would run its getters or `toString` unbounded.
+      outcome = vm.runInContext(
+        `(function () { try { return (${clause.check}) === true; }` +
+          ` catch (e) { try { return "threw " + String(e && e.name).slice(0, 64); } catch (_) { return "threw"; } } })()`,
+        context,
+        { timeout: timeoutMs },
+      );
+    } catch {
+      // Only a time-out (or a predicate that broke out of its wrapper) gets here.
+      return { kind: "timeout" };
     }
+    if (typeof outcome === "string") throw new Error(`the predicate ${outcome}`);
+    const holds = outcome;
     if (holds !== true) failures.push({ source: clause.source, message: clause.message });
   }
   return failures.length === 0 ? { kind: "valid" } : { kind: "invalid", failures };

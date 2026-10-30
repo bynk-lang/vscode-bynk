@@ -24,12 +24,12 @@ function escapes(check: string, value: bigint | number | string = "abc"): void {
 describe("refinedEval sandbox (unit)", () => {
   it("this.constructor.constructor cannot reach the host Function", () => {
     escapes('this.constructor.constructor("return process")() !== undefined');
-    assert.throws(() => evaluateClauses([clause('this.constructor.constructor("return process")()')], "a"), /EvalError/);
+    assert.throws(() => evaluateClauses([clause('this.constructor.constructor("return process")()')], "a"), /EvalError|predicate threw/);
   });
 
   it("value.constructor.constructor cannot reach the host Function", () => {
-    assert.throws(() => evaluateClauses([clause('value.constructor.constructor("return process")()')], "a"), /EvalError/);
-    assert.throws(() => evaluateClauses([clause('value.constructor.constructor("return process")()')], 1n), /EvalError/);
+    assert.throws(() => evaluateClauses([clause('value.constructor.constructor("return process")()')], "a"), /EvalError|predicate threw/);
+    assert.throws(() => evaluateClauses([clause('value.constructor.constructor("return process")()')], 1n), /EvalError|predicate threw/);
   });
 
   it("process and require are not in scope", () => {
@@ -68,5 +68,37 @@ describe("refinedEval sandbox (unit)", () => {
       evaluateClauses([clause('new globalThis.RegExp("^(?:" + "[a-z]+" + ")$").test(value)')], "abc").kind,
       "valid",
     );
+  });
+
+  describe("hostile payloads return within the time limit", () => {
+    const bounded = (check: string): void => {
+      const t0 = Date.now();
+      try {
+        evaluateClauses([clause(check)], "a", 100);
+      } catch {
+        // a thrown verdict is fine; hanging is not
+      }
+      assert.ok(Date.now() - t0 < 2000, `${check} took ${Date.now() - t0}ms`);
+    };
+
+    it("a queued microtask loop", () => {
+      bounded("(Promise.resolve().then(function () { for (;;) {} }), true)");
+    });
+
+    it("a thrown object with a hostile getter", () => {
+      bounded('(function () { throw { get code() { for (;;) {} }, get name() { for (;;) {} } }; })()');
+    });
+
+    it("a thrown object with a hostile toString", () => {
+      bounded('(function () { throw { toString: function () { for (;;) {} } }; })()');
+    });
+
+    it("a thrown Proxy", () => {
+      bounded('(function () { throw new Proxy({}, { get: function () { for (;;) {} }, getPrototypeOf: function () { for (;;) {} } }); })()');
+    });
+  });
+
+  it("the Error binding cannot be replaced", () => {
+    assert.strictEqual(evaluateClauses([clause('(function () { Error = 1; return typeof Error === "function"; })()')], "a").kind, "valid");
   });
 });
