@@ -35,6 +35,18 @@ version).
   asks for the environment, and for the context when the project has several.
   Needs a `bynk` with the command (v0.436.0 or newer).
 
+### Fixed
+
+- The packaged VSIX no longer ships the compiled test build (`out/src/**`) when
+  tests were built before packaging, and CI now fails if it would.
+
+### Changed
+
+- The pure unit tests run in plain Node (`npm run test:unit`), with a coverage
+  floor (`npm run test:unit:coverage`) and in CI right after the type check. The
+  webview renderers now have jsdom tests, including that markup in a name or
+  message renders as text.
+
 ## [0.436.0] - 2026-10-29
 
 Built against `bynk` v0.436.0.
