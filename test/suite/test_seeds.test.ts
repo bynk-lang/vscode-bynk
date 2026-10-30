@@ -16,7 +16,8 @@ import * as vscode from "vscode";
 
 import { applyDocument, placeHandlers, type RunSink } from "../../src/testing";
 import { caseKey, planRun, type JsonCase, type TestRun } from "../../src/testPlan";
-import { FAKE_BYNK, useFakeBynk, waitFor, type FakeLogEntry } from "./fakeBynk";
+import { FAKE_BYNK, useFakeBynk, type FakeLogEntry } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 const FIXTURES = path.resolve(__dirname, "../../../test/fixtures");
 
@@ -76,7 +77,7 @@ describe("Seeds for generative tests", () => {
   async function runFailing(): Promise<string[]> {
     const from = fake.read().length;
     await vscode.commands.executeCommand("bynk.runTestCase", FAILING);
-    await waitFor(() => runs(from).length > 0, "the case's run");
+    await waitFor(() => runs(from).length > 0, truthy, "the case's run");
     return runs(from)[0];
   }
 
@@ -109,7 +110,7 @@ describe("Seeds for generative tests", () => {
     await runFailing(); // the failure whose seed is remembered
     const from = fake.read().length;
     await vscode.commands.executeCommand("bynk.rerunWithSeed", { id });
-    await waitFor(() => runs(from).length > 0, "the re-run");
+    await waitFor(() => runs(from).length > 0, truthy, "the re-run");
     const argv = runs(from)[0];
     assert.deepStrictEqual(argv.slice(argv.indexOf("--case")), ["--case", FAILING, "--seed", "0x5f3a"]);
   });
@@ -125,7 +126,7 @@ describe("Seeds for generative tests", () => {
     // A whole-project run draws a fresh seed: one root seed cannot honour several pins.
     const from = fake.read().length;
     await vscode.commands.executeCommand("testing.runAll");
-    await waitFor(() => runs(from).length > 0, "a whole-project run");
+    await waitFor(() => runs(from).length > 0, truthy, "a whole-project run");
     assert.ok(!runs(from)[0].includes("--seed"), `no seed for a whole run: ${runs(from)[0]}`);
 
     await vscode.commands.executeCommand("bynk.unpinSeed", { id });

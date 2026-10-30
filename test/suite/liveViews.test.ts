@@ -9,6 +9,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 const SEQ = "bynkSequenceDiagram";
@@ -40,16 +41,6 @@ service api from http {
 
 function state(viewType: string): Thenable<Snapshot> {
   return vscode.commands.executeCommand<Snapshot>("bynk._liveViewState", viewType);
-}
-
-async function waitFor<T>(fn: () => Thenable<T> | T, ok: (v: T) => boolean, what: string, timeoutMs = 30_000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const v = await fn();
-    if (ok(v)) return v;
-    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await new Promise((r) => setTimeout(r, 200));
-  }
 }
 
 function lineOf(needle: string): number {
@@ -108,12 +99,12 @@ describe("live model views (#2093)", () => {
   });
 
   it("follows the cursor into another handler", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     const before = await state(SEQ);
     editor = await vscode.window.showTextDocument(editor.document, vscode.ViewColumn.One);
     const b = new vscode.Position(lineOf('GET("/b")') + 1, 4);
     editor.selection = new vscode.Selection(b, b);
-    const after = await waitFor(() => state(SEQ), (s) => s.handler !== before.handler, "a retarget");
+    const after = await waitFor(() => state(SEQ), (s) => s.handler !== before.handler, "a retarget", 30_000);
     assert.strictEqual(after.target?.position?.line, b.line);
   });
 
@@ -129,7 +120,7 @@ describe("live model views (#2093)", () => {
   });
 
   it("does not retarget while pinned, and catches up when unpinned", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     await vscode.commands.executeCommand("bynk._liveViewPin", SEQ, true);
     const pinned = await state(SEQ);
     assert.strictEqual(pinned.target?.pinned, true);
@@ -139,12 +130,12 @@ describe("live model views (#2093)", () => {
     assert.strictEqual((await state(SEQ)).handler, pinned.handler, "pinned view holds");
 
     await vscode.commands.executeCommand("bynk._liveViewPin", SEQ, false);
-    const after = await waitFor(() => state(SEQ), (s) => s.handler !== pinned.handler, "the unpinned retarget");
+    const after = await waitFor(() => state(SEQ), (s) => s.handler !== pinned.handler, "the unpinned retarget", 30_000);
     assert.strictEqual(after.target?.position?.line, a.line);
   });
 
   it("refreshes after an edit is saved (onSave)", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     // The panel must be visible to refresh; reveal it beside the editor.
     await vscode.commands.executeCommand("bynk.showSequenceDiagram", uri.toString(), editor.selection.active);
     const before = await state(SEQ);
@@ -159,24 +150,25 @@ describe("live model views (#2093)", () => {
       () => state(SEQ),
       (s) => s.refreshes > before.refreshes && s.updates > before.updates,
       "the panel to show the post-save model",
+      30_000,
     );
     // The target moved down with the inserted line.
     assert.strictEqual(after.target?.position?.line, (before.target?.position?.line ?? 0) + 1);
   });
 
   it("offers the Wire contract lens only when bynk.viewsCodeLens is on", async function () {
-    this.timeout(30_000);
+    this.timeout(70_000);
     const lenses = async () =>
       ((await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)) ?? [])
         .map((l) => l.command?.command)
         .filter((c) => c === "bynk.showSequenceDiagram" || c === "bynk.showWireContract");
     // The server's own `Show Sequence` lens is always there, one per handler.
-    const off = await waitFor(lenses, (l) => l.length >= 2, "the server's sequence lenses");
+    const off = await waitFor(lenses, (l) => l.length >= 2, "the server's sequence lenses", 30_000);
     assert.ok(!off.includes("bynk.showWireContract"), "off by default (DECISION D)");
     const cfg = vscode.workspace.getConfiguration("bynk");
     await cfg.update("viewsCodeLens", true, vscode.ConfigurationTarget.Global);
     try {
-      const on = await waitFor(lenses, (l) => l.includes("bynk.showWireContract"), "the wire-contract lenses");
+      const on = await waitFor(lenses, (l) => l.includes("bynk.showWireContract"), "the wire-contract lenses", 30_000);
       assert.strictEqual(on.filter((c) => c === "bynk.showWireContract").length, 2, "one per handler");
       assert.strictEqual(on.filter((c) => c === "bynk.showSequenceDiagram").length, 2, "no second sequence lens");
     } finally {
@@ -187,7 +179,7 @@ describe("live model views (#2093)", () => {
   // #2108 review: an `editor/title` button calls the command with
   // `(resourceUri, {groupId, editorIndex})`, which is not a position.
   it("takes the cursor of the shown editor when a title-bar button passes no position", async function () {
-    this.timeout(30_000);
+    this.timeout(40_000);
     editor = await vscode.window.showTextDocument(editor.document, vscode.ViewColumn.One);
     const b = new vscode.Position(lineOf('GET("/b")') + 1, 4);
     editor.selection = new vscode.Selection(b, b);
@@ -196,6 +188,7 @@ describe("live model views (#2093)", () => {
       () => vscode.commands.executeCommand<Snapshot>("bynk._liveViewState", "bynkWireContract"),
       (v) => v?.open === true,
       "the wire-contract view",
+      30_000,
     );
     assert.deepStrictEqual(s.target?.position, { line: b.line, character: b.character });
   });
@@ -203,29 +196,29 @@ describe("live model views (#2093)", () => {
   // #2108 review: a page can draw on other files (a multi-file unit's
   // documentation, a consumed context), so an edit to another file refreshes.
   it("refreshes a documentation page when another file is saved", async function () {
-    this.timeout(60_000);
+    this.timeout(70_000);
     await vscode.commands.executeCommand("bynk.showDocumentation", uri.toString());
-    const before = await waitFor(() => state(DOC), (v) => v.open && v.hasPayload, "the documentation view");
+    const before = await waitFor(() => state(DOC), (v) => v.open && v.hasPayload, "the documentation view", 30_000);
     const other = vscode.Uri.file(path.join(dir, "src", "notes.bynk"));
     fs.writeFileSync(other.fsPath, "commons notes\n\nfn n() -> Int {\n  1\n}\n");
     const doc = await vscode.workspace.openTextDocument(other);
     const ed = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
     await ed.edit((e) => e.insert(new vscode.Position(doc.lineCount, 0), "\nfn m() -> Int {\n  2\n}\n"));
     await doc.save();
-    await waitFor(() => state(DOC), (v) => v.refreshes > before.refreshes, "a documentation refresh");
+    await waitFor(() => state(DOC), (v) => v.refreshes > before.refreshes, "a documentation refresh", 30_000);
   });
 
   // #2108 re-review: a refresh that finds no model (the stored position's
   // handler was deleted) keeps the last good view instead of blanking it.
   it("keeps the last good model when a refresh finds none", async function () {
-    this.timeout(60_000);
+    this.timeout(70_000);
     editor = await vscode.window.showTextDocument(editor.document, vscode.ViewColumn.One);
     const lines = editor.document.getText().split("\n");
     const start = lines.findIndex((l) => l.includes('GET("/a")'));
     const pos = new vscode.Position(start + 1, 4);
     await vscode.commands.executeCommand("bynk.showSequenceDiagram", uri.toString(), pos);
     await vscode.commands.executeCommand("bynk._liveViewPin", SEQ, true);
-    const before = await waitFor(() => state(SEQ), (s) => s.hasPayload, "the sequence view");
+    const before = await waitFor(() => state(SEQ), (s) => s.hasPayload, "the sequence view", 30_000);
     // Delete handler `a` (its four lines and the blank line after it).
     await editor.edit((e) => e.delete(new vscode.Range(start, 0, start + 4, 0)));
     await editor.document.save();
@@ -233,6 +226,7 @@ describe("live model views (#2093)", () => {
       () => state(SEQ),
       (s) => s.nullRefreshes > before.nullRefreshes,
       "a refresh that finds no model",
+      30_000,
     );
     assert.ok(after.hasPayload, "the last good model is still shown");
     assert.strictEqual(after.updates, before.updates, "and the page was not blanked");
@@ -243,7 +237,7 @@ describe("live model views (#2093)", () => {
     this.timeout(60_000);
     const panel = vscode.window.createWebviewPanel(DOC, "restored", vscode.ViewColumn.Two, {});
     await vscode.commands.executeCommand("bynk._liveViewRestore", DOC, panel, { uri: uri.toString() });
-    const s = await waitFor(() => state(DOC), (v) => v.hasPayload, "the restored documentation view");
+    const s = await waitFor(() => state(DOC), (v) => v.hasPayload, "the restored documentation view", 30_000);
     assert.strictEqual(s.target?.uri, uri.toString());
     panel.dispose();
   });

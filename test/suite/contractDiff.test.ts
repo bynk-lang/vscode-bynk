@@ -9,6 +9,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 const VIEW = "bynkContractDiff";
@@ -51,16 +52,6 @@ interface Snapshot {
   open: boolean;
   hasPayload: boolean;
   nullRefreshes: number;
-}
-
-async function waitFor<T>(fn: () => Thenable<T> | T, ok: (v: T) => boolean, what: string, timeoutMs = 60_000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const v = await fn();
-    if (ok(v)) return v;
-    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await new Promise((r) => setTimeout(r, 200));
-  }
 }
 
 describe("contract diff view (#2467)", () => {
@@ -106,6 +97,7 @@ describe("contract diff view (#2467)", () => {
       },
       (s) => s?.open === true && s.hasPayload,
       "the contract diff to open with a payload",
+      60_000,
     );
     assert.ok(snap.hasPayload);
   });
