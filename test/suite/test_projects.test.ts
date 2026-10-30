@@ -19,10 +19,13 @@ describe("Testing view with two projects", () => {
   let b: string;
 
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-  const lenses = async (uri: vscode.Uri): Promise<string[]> =>
-    ((await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)) ?? [])
+  const lenses = async (uri: vscode.Uri): Promise<string[]> => {
+    // The provider answers for a document the editor has loaded.
+    await vscode.workspace.openTextDocument(uri);
+    return ((await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)) ?? [])
       .filter((l) => l.command?.command === "bynk.runTestCase")
       .map((l) => String(l.command?.arguments?.[0]));
+  };
   /** Invocations of `bynk test` (discovery or a run) in `root`, oldest first. */
   const invocations = (root: string, run: boolean): FakeLogEntry[] =>
     fake
