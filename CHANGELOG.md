@@ -29,12 +29,18 @@ version).
 - A language client that fails to start is no longer left assigned (#31).
 - The server's `--version` check no longer blocks the extension host, and the
   status bar no longer shows a stale project name when editors switch quickly.
+- The packaged VSIX no longer ships the compiled test build (`out/src/**`) when
+  tests were built before packaging, and CI now fails if it would.
 
 ### Changed
 
 - Changing `bynk.executablePath` restarts the server.
 - `bynk.executablePath`, `bynk.bynkPath` and `bynk.dev.args` are
   machine-scoped, so a workspace's settings cannot redirect them.
+- The pure unit tests run in plain Node (`npm run test:unit`), with a coverage
+  floor (`npm run test:unit:coverage`) and in CI right after the type check. The
+  webview renderers now have jsdom tests, including that markup in a name or
+  message renders as text.
 
 ## [0.436.0] - 2026-10-29
 
