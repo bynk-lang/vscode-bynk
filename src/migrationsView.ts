@@ -28,6 +28,7 @@ import {
   type SweepTarget,
   typedConfirmation,
 } from "./migrationsCore";
+import { Generations } from "./refreshScope";
 import { bynkPath } from "./tasks";
 
 /** A project's status: the classes, or why the driver could not report them. */
@@ -41,6 +42,7 @@ export class MigrationsStore implements vscode.Disposable {
   readonly onDidChange = this.emitter.event;
   private readonly states = new Map<string, MigrationsState>();
   private readonly pending = new Map<string, Promise<MigrationsState>>();
+  private readonly generations = new Generations();
 
   /** The cached state, loading it the first time. */
   get(root: vscode.Uri): Promise<MigrationsState> {
@@ -55,19 +57,33 @@ export class MigrationsStore implements vscode.Disposable {
     const key = root.toString();
     const running = this.pending.get(key);
     if (running) return running;
-    const run = this.load(root).then((state) => {
-      this.states.set(key, state);
-      this.pending.delete(key);
-      this.emitter.fire();
+    // A sweep (`clear`) that lands while this runs makes its answer stale:
+    // the caller still gets it, but it is neither cached nor handed to later readers.
+    const generation = this.generations.current(key);
+    const run: Promise<MigrationsState> = this.load(root).then((state) => {
+      if (this.pending.get(key) === run) this.pending.delete(key);
+      if (this.generations.isCurrent(key, generation)) {
+        this.states.set(key, state);
+        this.emitter.fire();
+      }
       return state;
     });
     this.pending.set(key, run);
     return run;
   }
 
-  /** Forget the cached states: the next read runs `bynk migrate status` again. */
-  clear(): void {
-    this.states.clear();
+  /** Forget the cached states (of `root`, else every project's), dropping runs
+   *  in flight too: the next read runs `bynk migrate status` again. */
+  clear(root?: vscode.Uri): void {
+    const key = root?.toString();
+    this.generations.bump(key);
+    if (key === undefined) {
+      this.states.clear();
+      this.pending.clear();
+    } else {
+      this.states.delete(key);
+      this.pending.delete(key);
+    }
   }
 
   /** Forget the cached states and repaint, e.g. after a sweep changed the lock. */

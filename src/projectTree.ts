@@ -37,6 +37,7 @@ import {
 import { MigrationsStore, registerMigrations } from "./migrationsView";
 import { clearProjectRoots, projectRootFor } from "./projectRoots";
 import type { SymbolLike } from "./refreshScheduler";
+import { inScope, mapLimit, ReloadQueue, type Scope } from "./refreshScope";
 import type { ViewRefresh } from "./viewRefresh";
 import type { ArchLoc } from "./webview/architectureTypes";
 
@@ -99,6 +100,9 @@ const SYMBOL_KIND_METHOD = 5;
 const MODEL_RETRY_MS = 3000;
 const MODEL_RETRIES = 10;
 
+/** `.bynk` headers read at once while loading the tree. */
+const READ_CONCURRENCY = 32;
+
 function openCommand(loc: ArchLoc | { uri: string; range: vscode.Range }, title = "Open"): vscode.Command {
   const r = loc.range;
   return {
@@ -128,9 +132,8 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
   private projects: Project[] = [];
-  private loading: Promise<void> | undefined;
-  /** Each load's number; only the latest may publish its result. */
-  private loadGen = 0;
+  /** Reloads are serialized: those asked for during a pass join one follow-up. */
+  private readonly queue = new ReloadQueue((scope, fresh) => this.pass(scope, fresh));
   private loaded = false;
   private dirty = false;
   private retries = 0;
@@ -158,28 +161,60 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   attach(view: vscode.TreeView<Node>): vscode.Disposable {
     this.visible = () => view.visible;
     return view.onDidChangeVisibility((e) => {
-      if (e.visible && this.dirty) void this.reload();
+      if (e.visible && this.dirty) void this.start();
     });
   }
 
-  /** Something changed: reload now if visible, else when next shown. */
-  invalidate(): void {
+  /** Something changed: reload now if visible, else when next shown. `keys`
+   *  are the changed files' URIs; only their projects reload (all, when omitted
+   *  or when a manifest is among them, since that moves project roots). */
+  invalidate(keys?: ReadonlySet<string>): void {
     if (!this.loaded) return; // nothing shown yet; the first getChildren loads
-    if (this.visible()) void this.reload();
-    else this.dirty = true;
+    void this.scopeOf(keys).then((scope) => {
+      this.queue.want(scope);
+      if (this.visible()) void this.start();
+      else this.dirty = true;
+    });
   }
 
-  async reload(fresh = false): Promise<void> {
+  /** The projects `keys` belong to. */
+  private async scopeOf(keys: ReadonlySet<string> | undefined): Promise<Scope> {
+    if (!keys || keys.size === 0) return "all";
+    const roots = new Set<string>();
+    for (const key of keys) {
+      const uri = vscode.Uri.parse(key);
+      if (uri.path.endsWith("/bynk.toml")) return "all";
+      const root = await projectRootFor(uri);
+      if (!root) return "all"; // outside every project we know of: be safe
+      roots.add(root.toString());
+    }
+    return roots;
+  }
+
+  /** Reload the projects in `scope` (and whatever else was asked for while a
+   *  load ran, in one follow-up pass). */
+  reload(fresh = false, scope: Scope = "all"): Promise<void> {
+    this.queue.want(scope, fresh);
+    return this.start();
+  }
+
+  private start(): Promise<void> {
     this.dirty = false;
+    return this.queue.start();
+  }
+
+  private async pass(scope: Scope, fresh: boolean): Promise<void> {
     this.reloads++;
-    // The State Migrations node re-reads `bynk migrate status` with the rest.
-    this.migrations.clear();
-    const run = this.load(fresh);
-    this.loading = run;
-    await run;
-    if (this.loading === run) this.loading = undefined;
-    this.emitter.fire(undefined);
-    this.scheduleRetry();
+    // The State Migrations node re-reads `bynk migrate status` with the
+    // rest, for the projects that reload.
+    if (scope === "all") this.migrations.clear();
+    else for (const root of scope) this.migrations.clear(vscode.Uri.parse(root));
+    try {
+      await this.load(fresh, scope);
+      this.emitter.fire(undefined);
+    } finally {
+      this.scheduleRetry();
+    }
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
@@ -294,7 +329,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
 
   async getChildren(node?: Node): Promise<Node[]> {
     if (!node) {
-      if (!this.loaded) await (this.loading ?? this.reloadQuiet());
+      if (!this.loaded) await this.reload();
       if (this.projects.length === 1) {
         const p = this.projects[0];
         return [
@@ -368,14 +403,6 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     this.emitter.dispose();
   }
 
-  private async reloadQuiet(): Promise<void> {
-    const run = this.load(false);
-    this.loading = run;
-    await run;
-    if (this.loading === run) this.loading = undefined;
-    this.scheduleRetry();
-  }
-
   /** While a project's model is missing (the server has not committed a
    *  round yet), re-ask a few times, so the edges appear without an edit.
    *  The next load re-requests just the missing projects' models, fresh
@@ -384,34 +411,47 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     if (this.retryTimer !== undefined) return;
     if (!this.projects.some((p) => p.modelMissing) || this.retries >= MODEL_RETRIES) return;
     this.retries++;
+    const missing = new Set(this.projects.filter((p) => p.modelMissing).map((p) => p.root.toString()));
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;
-      this.invalidate();
+      this.queue.want(missing);
+      if (this.loaded && this.visible()) void this.start();
+      else this.dirty = true;
     }, MODEL_RETRY_MS);
   }
 
-  private async load(fresh: boolean): Promise<void> {
-    const gen = ++this.loadGen;
+  private async load(fresh: boolean, scope: Scope): Promise<void> {
     // A project whose model was missing last time is asked again, bypassing
     // the cache (which holds that `null`), however this load was triggered.
     const wasMissing = new Set(this.projects.filter((p) => p.modelMissing).map((p) => p.root.toString()));
-    const files = await vscode.workspace.findFiles("**/*.bynk", "**/node_modules/**");
+    const files =
+      scope === "all"
+        ? await vscode.workspace.findFiles("**/*.bynk", "**/node_modules/**")
+        : (
+            await Promise.all(
+              [...scope].map((root) =>
+                vscode.workspace.findFiles(
+                  new vscode.RelativePattern(vscode.Uri.parse(root), "**/*.bynk"),
+                  "**/node_modules/**",
+                ),
+              ),
+            )
+          ).flat();
     const byRoot = new Map<string, { root: vscode.Uri; headers: UnitHeader[] }>();
-    await Promise.all(
-      files.map(async (file) => {
-        const root = await projectRootFor(file);
-        if (!root) return;
-        const header = parseUnitHeader(await readText(file));
-        if (!header) return;
-        const key = root.toString();
-        let entry = byRoot.get(key);
-        if (!entry) {
-          entry = { root, headers: [] };
-          byRoot.set(key, entry);
-        }
-        entry.headers.push({ ...header, uri: file.toString() });
-      }),
-    );
+    await mapLimit(files, READ_CONCURRENCY, async (file) => {
+      const root = await projectRootFor(file);
+      // A nested project's files are found under its parent's pattern too.
+      if (!root || !inScope(scope, root.toString())) return;
+      const header = parseUnitHeader(await readText(file));
+      if (!header) return;
+      const key = root.toString();
+      let entry = byRoot.get(key);
+      if (!entry) {
+        entry = { root, headers: [] };
+        byRoot.set(key, entry);
+      }
+      entry.headers.push({ ...header, uri: file.toString() });
+    });
 
     const client = this.hub.getClient();
     const projects: Project[] = [];
@@ -431,13 +471,13 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
       const expectsModel = headers.some((h) => h.kind === "context" || h.kind === "adapter");
       projects.push({
         root,
-        dependencies: (await loadDependencies(root.fsPath)) ?? [],
+        dependencies: (await loadDependencies(root.fsPath, fresh)) ?? [],
         groups: buildProjectModel(headers, model),
         modelMissing: !!client && !model && expectsModel,
       });
     }
-    // A newer load started while this one ran: its result wins.
-    if (gen !== this.loadGen) return;
+    // Projects outside the scope keep what they had.
+    for (const p of this.projects) if (!inScope(scope, p.root.toString())) projects.push(p);
     projects.sort((a, b) => a.root.toString().localeCompare(b.root.toString()));
     if (projects.every((p) => !p.modelMissing)) this.retries = 0;
     this.projects = projects;
@@ -594,7 +634,7 @@ export function registerProjectTree(
     ...(approvals ? [approvals.onDidChange(badge)] : []),
     // The live views' trigger (#2093): saves by default, `bynk.views.refresh`,
     // and changes made outside the editor.
-    hub.onDidRefresh(() => provider.invalidate()),
+    hub.onDidRefresh((keys) => provider.invalidate(keys)),
     hub.onDidStartClient(() => {
       provider.resetRetries();
       provider.invalidate();
