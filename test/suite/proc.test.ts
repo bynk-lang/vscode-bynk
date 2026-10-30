@@ -64,4 +64,28 @@ describe("shared process helper", () => {
     // The stand-in traps SIGTERM and exits 143.
     assert.strictEqual(await closed, 143);
   });
+
+  it("signals the group after its leader has exited", async function () {
+    if (process.platform === "win32") this.skip();
+    this.timeout(20_000);
+    // The leader starts a grandchild, prints its pid and exits at once.
+    const child = spawnTree("sh", ["-c", "sleep 300 >/dev/null 2>&1 & echo $!"]);
+    let out = "";
+    child.stdout!.setEncoding("utf8").on("data", (d: string) => (out += d));
+    await new Promise((resolve) => child.once("close", resolve));
+    const grandchild = Number(out.trim());
+    assert.ok(grandchild > 0, `grandchild pid: ${out}`);
+    process.kill(grandchild, 0); // still alive
+    killTree(child);
+    for (let i = 0; i < 50; i++) {
+      try {
+        process.kill(grandchild, 0);
+      } catch {
+        return; // gone
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    process.kill(grandchild, "SIGKILL");
+    assert.fail("the grandchild survived killTree");
+  });
 });

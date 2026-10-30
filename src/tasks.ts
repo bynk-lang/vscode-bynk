@@ -8,6 +8,7 @@
 // richer than a bare PATH lookup — a driver-first install (`bynkc` reachable
 // only via `BYNK_BYNKC`, or sitting next to `bynk` off PATH) now works here too.
 
+import * as os from "node:os";
 import * as vscode from "vscode";
 
 import { reportBynkNotFound } from "./doctor";
@@ -15,6 +16,9 @@ import { findExecutable } from "./procCore";
 import { managedBynkPath } from "./toolchain";
 
 const TASK_TYPE = "bynkc";
+
+/** Task runs already reported as "bynk not found" by the start-time check. */
+const reported = new WeakSet<vscode.TaskExecution>();
 
 /** The `bynk` driver command: the `bynk.bynkPath` setting, else `bynk` on PATH,
  *  else the copy the extension downloaded (see `toolchain.ts`). */
@@ -67,15 +71,25 @@ export function registerTasks(context: vscode.ExtensionContext): void {
         task.definition.type === TASK_TYPE ? checkTask(task.definition) : undefined,
     }),
     // #2095: `bynk` itself missing is the one gap the Doctor can't diagnose, so
-    // say how to fix it. Found by resolving the executable as the task starts,
-    // not from the shell's exit code (127 is a POSIX shell's; cmd and PowerShell
-    // never produce it).
+    // say how to fix it. Found by resolving the executable as the task starts
+    // (conservatively: only a command that resolves nowhere), with the POSIX
+    // shell's exit 127 as the fallback. Windows shells never produce 127.
     vscode.tasks.onDidStartTask((e) => {
+      if (e.execution.task.definition.type !== TASK_TYPE) return;
+      const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!findExecutable(bynkPath(), { platform: process.platform, env: process.env, cwd, home: os.homedir() })) {
+        reported.add(e.execution);
+        void reportBynkNotFound("not found");
+      }
+    }),
+    vscode.tasks.onDidEndTaskProcess((e) => {
       if (
         e.execution.task.definition.type === TASK_TYPE &&
-        !findExecutable(bynkPath(), { platform: process.platform, env: process.env })
+        e.exitCode === 127 &&
+        process.platform !== "win32" &&
+        !reported.delete(e.execution)
       ) {
-        void reportBynkNotFound("not found");
+        void reportBynkNotFound("command not found");
       }
     }),
   );

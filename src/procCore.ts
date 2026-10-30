@@ -25,9 +25,17 @@ export function killPlan(
   platform: NodeJS.Platform,
   pid: number,
   signal: NodeJS.Signals = "SIGTERM",
+  env: NodeJS.ProcessEnv = process.env,
 ): KillPlan {
   if (platform === "win32") {
-    return { kind: "taskkill", command: "taskkill", args: ["/T", "/F", "/PID", String(pid)] };
+    // By full path: a bare name would be found through the child's PATH, which a
+    // workspace could point at its own `taskkill`.
+    const root = env.SystemRoot ?? env.windir ?? "C:\\Windows";
+    return {
+      kind: "taskkill",
+      command: path.win32.join(root, "System32", "taskkill.exe"),
+      args: ["/T", "/F", "/PID", String(pid)],
+    };
   }
   return { kind: "group", pid, signal };
 }
@@ -41,6 +49,10 @@ export function findExecutable(
     platform: NodeJS.Platform;
     env: NodeJS.ProcessEnv;
     exists?: (file: string) => boolean;
+    /** What a relative path is relative to (the task's folder). */
+    cwd?: string;
+    /** What a leading `~` stands for. */
+    home?: string;
   },
 ): string | undefined {
   const exists = opts.exists ?? isExecutableFile(opts.platform);
@@ -49,9 +61,13 @@ export function findExecutable(
   const exts = win
     ? ["", ...(opts.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)]
     : [""];
+  if (opts.home && (command === "~" || /^~[\\/]/.test(command))) {
+    command = sep.join(opts.home, command.slice(1));
+  }
+  const hasDir = /[\\/]/.test(command);
   const candidates =
-    sep.isAbsolute(command) || /[\\/]/.test(command)
-      ? [command]
+    sep.isAbsolute(command) || hasDir
+      ? [opts.cwd && !sep.isAbsolute(command) ? sep.join(opts.cwd, command) : command]
       : (opts.env[win ? "Path" : "PATH"] ?? opts.env.PATH ?? "")
           .split(win ? ";" : ":")
           .filter(Boolean)

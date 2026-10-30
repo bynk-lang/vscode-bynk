@@ -1233,6 +1233,9 @@ function testArgs(root: vscode.Uri, opts: TestRunOptions | undefined, format: "j
   return args;
 }
 
+/** The most `bynk test --format json` output taken from one run. */
+const MAX_OUTPUT = 64 * 1024 * 1024;
+
 function runBynkcTest(
   root: vscode.Uri,
   token?: vscode.CancellationToken,
@@ -1243,8 +1246,17 @@ function runBynkcTest(
     const child = spawnTree(bynkPath(), args, { cwd: root.fsPath, env: bynkEnv() });
     let stdout = "";
     let stderr = "";
-    child.stdout?.setEncoding("utf8").on("data", (d: string) => (stdout += d));
-    child.stderr?.setEncoding("utf8").on("data", (d: string) => (stderr += d));
+    child.stdout?.setEncoding("utf8").on("data", (d: string) => {
+      stdout += d;
+      // The cap `execFile`'s maxBuffer gave: a runaway run must not fill memory.
+      if (stdout.length > MAX_OUTPUT) {
+        killTree(child);
+        reject(new Error("`bynk test` wrote more than 64 MB of output"));
+      }
+    });
+    child.stderr?.setEncoding("utf8").on("data", (d: string) => {
+      if (stderr.length < MAX_OUTPUT) stderr += d;
+    });
     // Kill the whole tree: the driver may not forward SIGTERM to the runner.
     const cancel = token?.onCancellationRequested(() => killTree(child));
     child.once("error", (err) => {

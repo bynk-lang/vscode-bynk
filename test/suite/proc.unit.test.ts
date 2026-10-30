@@ -26,12 +26,29 @@ describe("process helper decisions", () => {
   it("runs taskkill on the tree on Windows", () => {
     assert.deepStrictEqual(killPlan("win32", 42), {
       kind: "taskkill",
-      command: "taskkill",
+      command: "C:\\Windows\\System32\\taskkill.exe",
       args: ["/T", "/F", "/PID", "42"],
     });
   });
 
+  it("finds taskkill under SystemRoot", () => {
+    const plan = killPlan("win32", 1, "SIGTERM", { SystemRoot: "D:\\WIN" });
+    assert.strictEqual(plan.kind === "taskkill" && plan.command, "D:\\WIN\\System32\\taskkill.exe");
+  });
+
   describe("findExecutable", () => {
+    it("resolves relative paths against cwd and expands ~", () => {
+      const exists = (f: string) => f === "/ws/tools/bynk" || f === "/home/me/bin/bynk";
+      assert.strictEqual(
+        findExecutable("./tools/bynk", { platform: "linux", env: {}, exists, cwd: "/ws" }),
+        "/ws/tools/bynk",
+      );
+      assert.strictEqual(
+        findExecutable("~/bin/bynk", { platform: "linux", env: {}, exists, home: "/home/me" }),
+        "/home/me/bin/bynk",
+      );
+    });
+
     it("looks a bare name up on PATH", () => {
       const exists = (f: string) => f === "/opt/bin/bynk";
       const env = { PATH: "/usr/bin:/opt/bin" };

@@ -46,7 +46,7 @@ export function spawnTree(
   return child;
 }
 
-/** Stop `child` and everything it started: SIGTERM to its process group (`bynk
+/** Stop `child` and everything it started (even after `child` itself has exited, off Windows): SIGTERM to its process group (`bynk
  *  dev` traps it and tears down wrangler and workerd), or `taskkill /T /F` on
  *  Windows. A no-op for a child that has already ended. */
 export function killTree(
@@ -54,9 +54,11 @@ export function killTree(
   signal: NodeJS.Signals = "SIGTERM",
   platform: NodeJS.Platform = process.platform,
 ): void {
-  if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) {
-    return;
-  }
+  if (child.pid === undefined) return;
+  // On POSIX the group outlives its leader: `bynk` may be gone while wrangler or
+  // workerd are not, and ESRCH (nothing left) is fine. Windows has no group to
+  // signal once the root process is gone.
+  if (platform === "win32" && (child.exitCode !== null || child.signalCode !== null)) return;
   const plan = killPlan(platform, child.pid, signal);
   try {
     if (plan.kind === "taskkill") {
