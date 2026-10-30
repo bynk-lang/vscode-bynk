@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+## [0.447.0] - 2026-10-30
+
+Built against `bynk` v0.447.0.
+
 ### Added
 
 - **Bynk: Send Request** sends a request to the `from http` handler at the
