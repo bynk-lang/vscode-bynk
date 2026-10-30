@@ -33,7 +33,9 @@ describe("Bynk dev server restart and cleanup (#44)", function () {
   const realCreateQuickPick = window.createQuickPick;
   let menus: FakeQuickPick[];
 
-  const devRuns = () => fake.read().filter((e) => e.argv?.[0] === "dev");
+  /** Log entries before the running test, so earlier sessions do not count. */
+  let seen = 0;
+  const devRuns = () => fake.read().slice(seen).filter((e) => e.argv?.[0] === "dev");
   const devPids = () => [...new Set(devRuns().map((e) => e.pid!))];
   const running = () => devPids().filter(alive);
   const allGone = () => waitFor(running, (l) => l.length === 0, "every `bynk dev` process to exit", 20_000);
@@ -56,6 +58,7 @@ describe("Bynk dev server restart and cleanup (#44)", function () {
   });
 
   beforeEach(() => {
+    seen = fake.read().length;
     menus = [];
     // The menu is a `createQuickPick`, which has no stand-in helper; this one
     // records what it was given and lets the test accept an item.
@@ -154,7 +157,7 @@ describe("Bynk dev server restart and cleanup (#44)", function () {
     await allGone();
     assert.ok(devRuns().length >= 2);
     assert.ok(
-      fake.read().filter((e) => e.signal === "SIGTERM").length >= 2,
+      fake.read().slice(seen).filter((e) => e.signal === "SIGTERM").length >= 2,
       "each session was stopped with SIGTERM",
     );
   });
