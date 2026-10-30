@@ -12,3 +12,5 @@ wasm/
 .contract-cache/
 .bynk-test-bin/
 coverage/
+# Written and removed by test/suite/chat.test.ts; ignored in case a run leaves it behind.
+test/fixtures/workspace/src/chat_fix.bynk
