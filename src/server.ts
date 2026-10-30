@@ -228,8 +228,14 @@ export function expectedSha(sumsText: string, basename: string): string | undefi
   return undefined;
 }
 
-async function fetchBuffer(url: string): Promise<Buffer> {
-  const res = await fetch(url, { redirect: "follow" });
+/** A stalled connection must not hold a download (and what waits on it) forever. */
+const FETCH_TIMEOUT_MS = 5 * 60_000;
+
+async function fetchBuffer(url: string, cancel?: AbortSignal): Promise<Buffer> {
+  const signal = cancel
+    ? AbortSignal.any([cancel, AbortSignal.timeout(FETCH_TIMEOUT_MS)])
+    : AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  const res = await fetch(url, { redirect: "follow", signal });
   if (!res.ok) {
     throw new Error(`GET ${url} → ${res.status} ${res.statusText}`);
   }
@@ -262,11 +268,14 @@ async function downloadTools(
     {
       location: vscode.ProgressLocation.Notification,
       title: `Bynk: downloading ${what} ${version} (${target})`,
-      cancellable: false,
+      cancellable: true,
     },
-    async () => {
+    async (_progress, token) => {
+      const abort = new AbortController();
+      token?.onCancellationRequested(() => abort.abort());
+      const signal = abort.signal;
       output.appendLine(`${log} fetching ${base}/SHA256SUMS`);
-      const sums = (await fetchBuffer(`${base}/SHA256SUMS`)).toString("utf8");
+      const sums = (await fetchBuffer(`${base}/SHA256SUMS`, signal)).toString("utf8");
 
       const verified: [Tool, Buffer][] = [];
       for (const tool of tools) {
@@ -276,7 +285,7 @@ async function downloadTools(
           throw new Error(`SHA256SUMS has no entry for ${asset}`);
         }
         output.appendLine(`${log} fetching ${base}/${asset}`);
-        const bin = await fetchBuffer(`${base}/${asset}`);
+        const bin = await fetchBuffer(`${base}/${asset}`, signal);
         const got = crypto.createHash("sha256").update(bin).digest("hex");
         if (got !== want) {
           throw new Error(
@@ -352,15 +361,12 @@ export function userSuppliedBynk(): boolean {
 }
 
 /** The server's `--version` string, or undefined if it can't be run. */
-export function readServerVersion(serverPath: string): string | undefined {
-  try {
-    return cp
-      .spawnSync(serverPath, ["--version"], { timeout: 2000 })
-      .stdout?.toString("utf8")
-      .trim();
-  } catch {
-    return undefined;
-  }
+export function readServerVersion(serverPath: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    cp.execFile(serverPath, ["--version"], { timeout: 2000 }, (err, stdout) =>
+      resolve(err ? undefined : stdout.trim()),
+    );
+  });
 }
 
 /** Pull a bare `MAJOR.MINOR.PATCH` out of a version string, tolerating a

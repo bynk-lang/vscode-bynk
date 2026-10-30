@@ -19,6 +19,23 @@ version).
   asks for the environment, and for the context when the project has several.
   Needs a `bynk` with the command (v0.436.0 or newer).
 
+### Fixed
+
+- Starting and restarting the language server is serialized, so overlapping
+  restarts or a download no longer leave two servers running, and a successful
+  "Download Server" no longer shows "not running" (#31).
+- Activation no longer waits on the "no server" prompt or a server download;
+  the download can be cancelled and times out on a stalled connection (#31).
+- A language client that fails to start is no longer left assigned (#31).
+- The server's `--version` check no longer blocks the extension host, and the
+  status bar no longer shows a stale project name when editors switch quickly.
+
+### Changed
+
+- Changing `bynk.executablePath` restarts the server.
+- `bynk.executablePath`, `bynk.bynkPath` and `bynk.dev.args` are
+  machine-overridable, so a workspace's settings cannot redirect them.
+
 ## [0.436.0] - 2026-10-29
 
 Built against `bynk` v0.436.0.
