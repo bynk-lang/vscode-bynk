@@ -12,6 +12,22 @@ version).
 
 ## [Unreleased]
 
+### Changed
+
+- A save refreshes the project it is in, not the whole workspace. The Project
+  view reloads only that project, `bynk deps` is cached until the project's
+  `bynk.toml` or `bynk.lock` changes, State Migrations are re-read only for the
+  project that changed, a `bynk.toml` save rescans only the files under it for
+  file decorations (bulk reads are bounded), and Show Compiled Output rebuilds
+  only the views in the edited project, one compile per project.
+
+### Fixed
+
+- Open Show Compiled Output views no longer cancel each other's builds, which
+  left a view without highlighting until the next edit.
+- A `bynk migrate status` that started before a sweep can no longer put its
+  pre-sweep answer back in the State Migrations cache.
+
 ### Added
 
 - **Bynk: Tail Deployed Logs…** streams a deployed Worker's logs with
