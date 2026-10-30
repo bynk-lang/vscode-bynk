@@ -24,10 +24,16 @@ version).
 - Live panels (wire contract, agent state, sequence diagram and the rest) no longer show a stale render when commands or cursor moves overlap, and a refresh cut short by a cursor move into a handler with no model is redone.
 - Bynk Logs rebuilds its output channel once per buffer's worth of lines instead of on every line once the buffer is full.
 - Clicking through to a location in a view checks the message and reports a file that can no longer be opened, instead of failing silently.
+- The packaged VSIX no longer ships the compiled test build (`out/src/**`) when
+  tests were built before packaging, and CI now fails if it would.
 
 ### Changed
 
 - The Mermaid live panels no longer keep their webview alive while hidden; they restore from the host when shown again.
+- The pure unit tests run in plain Node (`npm run test:unit`), with a coverage
+  floor (`npm run test:unit:coverage`) and in CI right after the type check. The
+  webview renderers now have jsdom tests, including that markup in a name or
+  message renders as text.
 
 ## [0.436.0] - 2026-10-29
 

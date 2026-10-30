@@ -29,6 +29,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      # The pure unit tests, in plain Node with a coverage floor (c8, .c8rc.json):
+      # a logic regression fails here in seconds rather than in the xvfb job.
+      - name: Unit tests with coverage
+        run: npm run test:unit:coverage
       - run: npm run test:contract
       # The pinned release's contract + bynkc, kept per pin.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -48,6 +52,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Web extension smoke tests (@vscode/test-web, headless)
         run: npm run test:web
+      # What the VSIX would ship, after the test build above has run (#39).
+      - run: node scripts/check-bundle.mjs --package
       - run: npx --no vsce package --no-dependencies --skip-license
 
   integration:

@@ -260,4 +260,36 @@ describe("LiveFlow", () => {
     assert.strictEqual(h.requests.length, 2);
     assert.strictEqual(h.requests[1].uri, "a");
   });
+
+  it("redoes a refresh deferred behind a show that a retarget then superseded", async () => {
+    const h = harness();
+    h.openPanel();
+    h.flow.target = at("a");
+    const shown = h.flow.show(at("b"));
+    void h.flow.refresh(); // deferred: the show is the newest request
+    const followed = h.flow.retarget(at("agent"), {});
+    h.requests[1].d.resolve(null); // the follow has no model: the refresh is owed
+    assert.strictEqual(await followed, "empty");
+    assert.strictEqual(h.requests.length, 3, "re-issued, not deferred again");
+    assert.strictEqual(h.requests[2].uri, "a");
+    h.requests[0].d.resolve("B"); // the superseded show drops out
+    await shown;
+    assert.deepStrictEqual(h.rendered, []);
+  });
+
+  it("refreshes after a show when an edit arrived after its request began", async () => {
+    const h = harness();
+    h.openPanel();
+    h.flow.target = at("a");
+    const shown = h.flow.show(at("b"));
+    await h.flow.refresh(); // an edit: deferred behind the show
+    h.requests[0].d.resolve("B");
+    await tick();
+    h.lookups[0].d.resolve({});
+    await shown;
+    assert.deepStrictEqual(h.rendered, ["B"]);
+    assert.strictEqual(h.requests.length, 2, "the stale render is followed by a refresh");
+    assert.strictEqual(h.requests[1].uri, "b");
+    assert.strictEqual(h.requests[1].fresh, false);
+  });
 });

@@ -55,6 +55,9 @@ export class LiveFlow<P, T extends FlowTarget> {
   private refreshLost = false;
   /** The seq of the show now in flight, 0 when none. */
   private showSeq = 0;
+  /** An edit arrived after the show in flight made its request: its render
+   *  is already stale, so the refresh follows it. */
+  private editedDuringShow = false;
 
   constructor(private readonly deps: FlowDeps<P, T>) {}
 
@@ -90,6 +93,11 @@ export class LiveFlow<P, T extends FlowTarget> {
     this.deps.ensurePanel();
     this.deps.render(payload);
     this.deps.reveal();
+    if (this.editedDuringShow) {
+      this.editedDuringShow = false;
+      this.showSeq = 0;
+      void this.refresh();
+    }
   }
 
   /** Re-pull for the current target and update the page in place. */
@@ -97,10 +105,11 @@ export class LiveFlow<P, T extends FlowTarget> {
     const panel = this.deps.panel();
     const target = this.target;
     if (!panel || !target) return;
-    if (this.showSeq !== 0) {
+    if (this.showSeq !== 0 && this.showSeq === this.seq) {
       // A command is fetching the view anew; it must not be cancelled. If it
       // ends without rendering, the refresh is redone.
       this.refreshLost = true;
+      this.editedDuringShow = true;
       return;
     }
     if (!this.deps.visible()) {
@@ -111,6 +120,7 @@ export class LiveFlow<P, T extends FlowTarget> {
     const seq = ++this.seq;
     this.refreshSeq = seq;
     this.refreshLost = false;
+    this.editedDuringShow = false;
     this.deps.onRefresh();
     let payload: P | null | undefined;
     try {
@@ -177,6 +187,7 @@ export class LiveFlow<P, T extends FlowTarget> {
       return "empty";
     }
     this.refreshLost = false;
+    this.editedDuringShow = false;
     this.apply(target, scope);
     this.deps.render(payload);
     return "applied";

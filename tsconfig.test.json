@@ -4,13 +4,10 @@
     "target": "ES2022",
     "outDir": "out",
     "rootDir": ".",
-    // "DOM" added for #855: `wire-render.unit.test.ts` imports
-    // `src/webview/wire-render.ts`, which (like the browser-context modules
-    // below) mixes DOM-touching code with the pure functions the test
-    // actually exercises — the whole file still has to type-check. There is
-    // no DOM *at runtime* here (no jsdom in this project); a test that
-    // called `document.*` directly would compile but crash on `node
-    // out/test/runTest.js`. See wire-render.ts's own module doc.
+    // "DOM" so the browser-context modules below type-check. There is no DOM
+    // at runtime unless a test installs one: the webview renderer tests do,
+    // with jsdom (`test/suite/domHarness.ts`, #45); the pure ones don't, and
+    // one calling `document.*` without it would crash.
     "lib": ["ES2022", "DOM"],
     "sourceMap": true,
     "strict": true,
@@ -51,7 +48,14 @@
     "src/web/positions.ts",
     "src/web/convert.ts",
     "src/web/project.ts",
-    "src/web/wasmCall.ts"
+    "src/web/wasmCall.ts",
+    "src/webview/wire-render.ts",
+    "src/webview/contract-diff-render.ts",
+    "src/webview/docview.ts",
+    "src/webview/state.ts",
+    "src/webview/architecture.ts",
+    "src/webview/refinedExplorer.ts",
+    "src/webview/live.ts"
   ],
   // A fixture project's adapter binding module is data for the web suite, not
   // test code (it imports the emitted runtime, which isn't here).
