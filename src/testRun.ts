@@ -8,7 +8,7 @@ import { offerDoctor, reportBynkNotFound } from "./doctor";
 import { coverageFiles, coverageUnavailable } from "./coverageModel";
 import type { FailureOnce } from "./continuousRun";
 import type { ViewRefresh } from "./viewRefresh";
-import { rejectsSets, driverSupport } from "./testStream";
+import { rejectsSets, type DriverSupport } from "./testStream";
 import {
   carriesTiers,
   coverageScope,
@@ -48,6 +48,7 @@ export interface RunEnv {
   problems: vscode.DiagnosticCollection;
   seeds: SeedState;
   hub: ViewRefresh;
+  driverSupport: DriverSupport;
 }
 
 export interface AgainstRun {
@@ -124,7 +125,7 @@ export async function runInProject(
   seedOverride?: string,
   label?: string,
 ): Promise<"retry" | void> {
-  const { ctrl, problems, seeds, hub } = env;
+  const { ctrl, problems, seeds, hub, driverSupport } = env;
   // With several projects in the run, say which one a message is about.
   const say = (m: string): void => run.appendOutput(label ? m.replace(/^Bynk:/, `Bynk (${label}):`) : m);
   // DECISION D: in a continuous session a notification is shown once, and every
@@ -248,7 +249,7 @@ export async function runInProject(
       if (!coverage && driverSupport.ndjson) {
         ({ doc, streamed } = await runBynkcTestStream(root, token, stepOptions, (shown, soFar) =>
           applyResults({ passed: 0, failed: 0, suites: [shown] }, soFar),
-        ));
+        driverSupport));
       } else {
         doc = await runBynkcTest(root, token, stepOptions);
       }

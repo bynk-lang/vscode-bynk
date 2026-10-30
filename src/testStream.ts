@@ -22,7 +22,16 @@ export interface StreamEvent {
  *  kept until the extension is pointed at a different binary: the `ndjson` format
  *  (Slice D), and a repeatable `--case` with `--suite` (#2273). A driver that
  *  predates either rejects it on stderr, and the extension runs as it did before. */
-export const driverSupport = { ndjson: true, sets: true };
+export interface DriverSupport {
+  ndjson: boolean;
+  sets: boolean;
+}
+
+/** A fresh record: everything assumed supported. One is owned by `activate()` and
+ *  handed to the Test Explorer and the debugger, which learn from the same driver. */
+export function newDriverSupport(): DriverSupport {
+  return { ndjson: true, sets: true };
+}
 
 /** Whether `stderr` is a driver refusing a repeated `--case` or `--suite` (one that
  *  predates the set filter): clap says the argument cannot be used twice, or does

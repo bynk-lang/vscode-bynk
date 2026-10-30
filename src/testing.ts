@@ -24,7 +24,7 @@ import { debugBynkTests } from "./debug";
 import { devServerRunning, stopDevServer } from "./devServer";
 import { ContinuousScheduler, FailureOnce, runPass } from "./continuousRun";
 import type { ViewRefresh } from "./viewRefresh";
-import { driverSupport } from "./testStream";
+import type { DriverSupport } from "./testStream";
 import { caseKey, casesInFile, debugTarget } from "./testPlan";
 import { DEV_TARGET } from "./testTargets";
 import { describePins, loadPins, savePins, suiteFingerprint, type SeedState } from "./testSeedState";
@@ -48,7 +48,11 @@ export interface TestApi {
   onDidChangeTests: vscode.Event<void>;
 }
 
-export function registerTesting(context: vscode.ExtensionContext, hub: ViewRefresh): TestApi {
+export function registerTesting(
+  context: vscode.ExtensionContext,
+  hub: ViewRefresh,
+  driverSupport: DriverSupport,
+): TestApi {
   // What a driver understands is learned from its refusals (see `driverSupport`),
   // so it is forgotten when the user points the extension at a different binary.
   context.subscriptions.push(
@@ -73,7 +77,7 @@ export function registerTesting(context: vscode.ExtensionContext, hub: ViewRefre
   // clears them without disturbing the LSP's live diagnostics.
   const problems = vscode.languages.createDiagnosticCollection("bynk-tests");
   context.subscriptions.push(problems);
-  const env: RunEnv = { ctrl, problems, seeds: seedState, hub };
+  const env: RunEnv = { ctrl, problems, seeds: seedState, hub, driverSupport };
 
   // Slice E: the Run profile alone supports a continuous run (DECISION C). Debug is
   // interactive, and Coverage needs the `tsc → node` path, so on a machine with only

@@ -6,7 +6,7 @@ import type * as vscode from "vscode";
 import { killTree, spawnTree } from "./proc";
 import { bynkPath } from "./tasks";
 import { BynkNotFoundError, bynkEnv } from "./cli";
-import { EventReader, RunAssembler, driverSupport, rejectsNdjson } from "./testStream";
+import { EventReader, RunAssembler, rejectsNdjson, type DriverSupport } from "./testStream";
 import type { JsonSuite, TestRun } from "./testPlan";
 import { testArgs, type TestRunOptions } from "./testArgs";
 
@@ -79,6 +79,7 @@ export function runBynkcTestStream(
   token: vscode.CancellationToken,
   opts: TestRunOptions,
   onSuite: (suite: JsonSuite, soFar: TestRun) => void,
+  driverSupport: DriverSupport,
 ): Promise<{ doc: TestRun; streamed: boolean }> {
   return new Promise((resolve, reject) => {
     const child = spawnTree(bynkPath(), testArgs(root.fsPath, opts, "ndjson"), {
