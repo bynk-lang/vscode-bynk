@@ -19,6 +19,16 @@ version).
   asks for the environment, and for the context when the project has several.
   Needs a `bynk` with the command (v0.436.0 or newer).
 
+### Fixed
+
+- Live panels (wire contract, agent state, sequence diagram and the rest) no longer show a stale render when commands or cursor moves overlap, and a refresh cut short by a cursor move into a handler with no model is redone.
+- Bynk Logs rebuilds its output channel once per buffer's worth of lines instead of on every line once the buffer is full.
+- Clicking through to a location in a view checks the message and reports a file that can no longer be opened, instead of failing silently.
+
+### Changed
+
+- The Mermaid live panels no longer keep their webview alive while hidden; they restore from the host when shown again.
+
 ## [0.436.0] - 2026-10-29
 
 Built against `bynk` v0.436.0.

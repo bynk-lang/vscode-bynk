@@ -28,6 +28,7 @@ import {
   shiftPosition,
   type SymbolLike,
 } from "./refreshScheduler";
+import { LiveFlow } from "./liveFlow";
 import type { ViewRefresh } from "./viewRefresh";
 import {
   getNonce,
@@ -99,8 +100,7 @@ const FOLLOW_DEBOUNCE_MS = 200;
 
 export class LivePanel<P> implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
-  private target: ViewTarget | undefined;
-  private handler: string | undefined;
+  private readonly flow: LiveFlow<P, ViewTarget>;
   /** The last handler a retarget was tried for, so a handler with no model
    *  is not re-requested on every selection event inside it. */
   private tried: string | undefined;
@@ -109,7 +109,6 @@ export class LivePanel<P> implements vscode.Disposable {
   private htmlJson: string | undefined;
   private pageLoaded = false;
   private dirty = false;
-  private seq = 0;
   private followTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly disposables: vscode.Disposable[] = [];
   /** Test seam counters (read through `snapshot()`). */
@@ -118,14 +117,50 @@ export class LivePanel<P> implements vscode.Disposable {
   /** The cursor moved while the panel was hidden. */
   private followPending = false;
   private updates = 0;
+
+  private get target(): ViewTarget | undefined {
+    return this.flow.target;
+  }
+  private set target(t: ViewTarget | undefined) {
+    this.flow.target = t;
+  }
+  private get handler(): string | undefined {
+    return this.flow.handler;
+  }
   /** The handler under the cursor, for an owner-scoped view. */
-  private focus: string | undefined;
+  private get focus(): string | undefined {
+    return this.flow.focus;
+  }
+  private set focus(f: string | undefined) {
+    this.flow.focus = f;
+  }
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly spec: LiveViewSpec<P>,
     private readonly hub: ViewRefresh,
   ) {
+    this.flow = new LiveFlow<P, ViewTarget>({
+      request: async (target, fresh, waitForClient) => {
+        const client = waitForClient ? await this.hub.whenClient() : this.hub.getClient();
+        return client ? this.spec.request(client, target, this.hub, fresh) : undefined;
+      },
+      lookup: (target) => this.lookupScope(target),
+      panel: () => this.panel,
+      visible: () => this.panel?.visible ?? false,
+      pageLoaded: () => this.pageLoaded,
+      ensurePanel: () => this.ensurePanel(),
+      render: (payload) => this.render(payload),
+      reveal: () => this.panel?.reveal(vscode.ViewColumn.Beside, true),
+      setDirty: (dirty) => {
+        this.dirty = dirty;
+      },
+      onError: (err) =>
+        void vscode.window.showErrorMessage(`Bynk: ${this.spec.commandLabel} failed: ${String(err)}`),
+      onMiss: () => void vscode.window.showInformationMessage(this.spec.missMessage),
+      onRefresh: () => void this.refreshes++,
+      onNullRefresh: () => void this.nullRefreshes++,
+    });
     this.disposables.push(
       hub.onDidRefresh((keys) => this.onRefresh(keys)),
       vscode.window.registerWebviewPanelSerializer(spec.viewType, {
@@ -150,61 +185,12 @@ export class LivePanel<P> implements vscode.Disposable {
       return;
     }
     const pinned = this.target?.pinned && this.panel ? this.target.pinned : undefined;
-    const next: ViewTarget = { ...target, pinned };
-    const seq = ++this.seq;
-    let payload: P | null;
-    try {
-      payload = await this.spec.request(client, next, this.hub, true);
-    } catch (err) {
-      void vscode.window.showErrorMessage(`Bynk: ${this.spec.commandLabel} failed: ${String(err)}`);
-      return;
-    }
-    if (seq !== this.seq) return;
-    if (!payload) {
-      void vscode.window.showInformationMessage(this.spec.missMessage);
-      return;
-    }
-    this.target = next;
-    await this.rememberHandler(next);
-    this.ensurePanel();
-    this.render(payload);
-    this.panel?.reveal(vscode.ViewColumn.Beside, true);
+    await this.flow.show({ ...target, pinned });
   }
 
   /** Re-pull for the current target and update the page in place. */
-  async refresh(): Promise<void> {
-    const panel = this.panel;
-    const target = this.target;
-    if (!panel || !target) return;
-    if (!panel.visible) {
-      this.dirty = true;
-      return;
-    }
-    this.dirty = false;
-    const seq = ++this.seq;
-    this.refreshes++;
-    const client = await this.hub.whenClient();
-    if (!client) return;
-    let payload: P | null;
-    try {
-      payload = await this.spec.request(client, target, this.hub, false);
-    } catch {
-      return; // keep showing the last good model
-    }
-    // A newer request (refresh, retarget or command) superseded this one, or
-    // the panel closed meanwhile.
-    if (seq !== this.seq || this.panel !== panel) return;
-    // A target can lose its model for a moment — an edit swallowed the stored
-    // position, or the file was saved mid-edit and does not parse. Keep the
-    // last good model, as the throw path above does, rather than blanking the
-    // view (a pinned one could not get back). Only a panel with nothing shown
-    // yet (a restore) takes the empty state.
-    if (payload === null) {
-      this.nullRefreshes++;
-      if (!this.pageLoaded) this.render(null);
-      return;
-    }
-    this.render(payload);
+  refresh(): Promise<void> {
+    return this.flow.refresh();
   }
 
   /** Restore a panel VS Code kept across a window reload. */
@@ -217,12 +203,7 @@ export class LivePanel<P> implements vscode.Disposable {
       this.render(null);
       return;
     }
-    this.target = target;
-    await this.rememberHandler(target);
-    await this.refresh();
-    // A restore with nothing to show (the file was deleted or renamed) still
-    // needs a page: render the "nothing to show" state rather than an error.
-    if (!this.pageLoaded) this.render(null);
+    await this.flow.restore(target);
   }
 
   /** Test seam: what the panel is showing. */
@@ -312,27 +293,9 @@ export class LivePanel<P> implements vscode.Disposable {
     }
     if (key === this.tried) return;
     this.tried = key;
-    const client = this.hub.getClient();
-    if (!client) return;
     const target: ViewTarget = { uri, position: { line: pos.line, character: pos.character } };
-    const seq = ++this.seq;
-    let payload: P | null;
-    try {
-      payload = await this.spec.request(client, target, this.hub, false);
-    } catch {
-      return;
-    }
-    if (seq !== this.seq || !this.panel) {
-      if (this.tried === key) this.tried = undefined; // superseded: may retry
-      return;
-    }
-    // A handler with no model (a wire contract for an agent handler, say)
-    // keeps the last view rather than blanking it.
-    if (!payload) return;
-    this.target = target;
-    this.handler = key;
-    this.focus = this.focusAt(symbols, pos);
-    this.render(payload);
+    const outcome = await this.flow.retarget(target, { handler: key, focus: this.focusAt(symbols, pos) });
+    if (outcome === "superseded" && this.tried === key) this.tried = undefined; // may retry
   }
 
   /** The follow key for `pos`: its handler, or for an owner-scoped view its
@@ -360,15 +323,15 @@ export class LivePanel<P> implements vscode.Disposable {
     this.postView();
   }
 
-  private async rememberHandler(target: ViewTarget): Promise<void> {
-    this.handler = undefined;
-    this.focus = undefined;
-    if (!this.spec.followsCursor || !target.position) return;
+  private async lookupScope(target: ViewTarget): Promise<{ handler?: string; focus?: string }> {
+    if (!this.spec.followsCursor || !target.position) return {};
     const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === target.uri);
-    if (!doc) return;
+    if (!doc) return {};
     const symbols = await this.hub.documentSymbols(doc);
-    this.handler = this.scopeKey(target.uri, symbols, target.position);
-    this.focus = this.focusAt(symbols, target.position);
+    return {
+      handler: this.scopeKey(target.uri, symbols, target.position),
+      focus: this.focusAt(symbols, target.position),
+    };
   }
 
   /** Keep a stored position on the same code as lines move above it. */
@@ -391,7 +354,7 @@ export class LivePanel<P> implements vscode.Disposable {
       this.spec.viewType,
       this.spec.title(null),
       vscode.ViewColumn.Beside,
-      { ...this.webviewOptions(), retainContextWhenHidden: true },
+      this.webviewOptions(),
     );
     this.adopt(panel);
   }
@@ -404,8 +367,7 @@ export class LivePanel<P> implements vscode.Disposable {
     panel.onDidDispose(() => {
       if (this.panel !== panel) return;
       this.panel = undefined;
-      this.target = undefined;
-      this.handler = undefined;
+      this.flow.closed();
       this.lastJson = undefined;
       this.pageLoaded = false;
     });
