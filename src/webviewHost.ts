@@ -47,21 +47,51 @@ export function getNonce(): string {
   return text;
 }
 
-/** Open `uriStr` and select `range` — the host end of click-to-code, shared
- *  by every Bynk webview. Reveals in the first editor column, focused. */
-export async function revealLocation(uriStr: string, range: RevealRange): Promise<void> {
-  const uri = vscode.Uri.parse(uriStr);
-  const vsRange = new vscode.Range(
-    new vscode.Position(range.start.line, range.start.character),
-    new vscode.Position(range.end.line, range.end.character),
+/** Whether `value` is a line/character position of non-negative integers. */
+function isPosition(value: unknown): value is { line: number; character: number } {
+  const p = value as { line?: unknown; character?: unknown } | null | undefined;
+  return (
+    Number.isInteger(p?.line) && (p?.line as number) >= 0 &&
+    Number.isInteger(p?.character) && (p?.character as number) >= 0
   );
-  const doc = await vscode.workspace.openTextDocument(uri);
-  const editor = await vscode.window.showTextDocument(doc, {
-    viewColumn: vscode.ViewColumn.One,
-    preserveFocus: false,
-  });
-  editor.selection = new vscode.Selection(vsRange.start, vsRange.start);
-  editor.revealRange(vsRange, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+}
+
+/** Shape-check a webview's `reveal` message: a webview is untrusted, so its
+ *  uri and range are validated before they reach `vscode.Uri.parse` or
+ *  `new vscode.Range`. */
+export function isRevealMessage(message: unknown): message is RevealMessage {
+  const m = message as { type?: unknown; uri?: unknown; range?: unknown } | null | undefined;
+  if (m?.type !== "reveal" || typeof m.uri !== "string" || m.uri === "") return false;
+  const r = m.range as { start?: unknown; end?: unknown } | null | undefined;
+  return isPosition(r?.start) && isPosition(r?.end);
+}
+
+/** Open `uriStr` and select `range` — the host end of click-to-code, shared
+ *  by every Bynk webview. Reveals in the first editor column, focused. A
+ *  malformed message is ignored; a file that cannot be opened (deleted since
+ *  the view was drawn) is reported rather than left an unhandled rejection. */
+export async function revealLocation(uriStr: string, range: RevealRange): Promise<void> {
+  if (!isRevealMessage({ type: "reveal", uri: uriStr, range })) return;
+  try {
+    const uri = vscode.Uri.parse(uriStr);
+    // A webview must not be able to open an arbitrary scheme: only local files
+    // and the schemes of the workspace's own folders.
+    const schemes = new Set(["file", ...(vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.scheme)]);
+    if (!schemes.has(uri.scheme)) return;
+    const vsRange = new vscode.Range(
+      new vscode.Position(range.start.line, range.start.character),
+      new vscode.Position(range.end.line, range.end.character),
+    );
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.One,
+      preserveFocus: false,
+    });
+    editor.selection = new vscode.Selection(vsRange.start, vsRange.start);
+    editor.revealRange(vsRange, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  } catch (err) {
+    void vscode.window.showErrorMessage(`Bynk: could not open ${uriStr}: ${String(err)}`);
+  }
 }
 
 /** Open an http(s) URL a webview surfaced from doc-comment Markdown. Anything

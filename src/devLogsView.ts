@@ -16,6 +16,7 @@ import {
   passes,
   renderEntry,
 } from "./devLogs";
+import { ChannelWindow } from "./logChannelWindow";
 import type { LogLevel } from "./devEvents";
 
 /** The context a session marker is filed under; it passes every context filter. */
@@ -25,14 +26,14 @@ export class DevLogs implements vscode.Disposable {
   private readonly buffer = new LogBuffer();
   private filter: LogFilter = NO_FILTER;
   private readonly channel = vscode.window.createOutputChannel("Bynk Logs");
-  /** Lines appended to the channel since it was last rendered whole. The
-   *  channel is bounded like the buffer: past this it is rendered afresh. */
-  private appended = 0;
+  /** The channel is bounded like the buffer: past twice its size it is
+   *  rendered afresh, so rebuilds are amortized rather than one per line. */
+  private readonly window = new ChannelWindow(MAX_LOG_ENTRIES);
 
   push(entry: LogEntry): void {
     this.buffer.push(entry);
     if (!this.shown(entry)) return;
-    if (++this.appended > MAX_LOG_ENTRIES) {
+    if (this.window.append()) {
       this.render();
       return;
     }
@@ -108,7 +109,7 @@ export class DevLogs implements vscode.Disposable {
   private render(): void {
     this.channel.clear();
     const lines = this.lines();
-    this.appended = lines.length;
+    this.window.rendered(lines.length);
     if (lines.length > 0) this.channel.append(lines.join("\n") + "\n");
   }
 }

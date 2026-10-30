@@ -29,6 +29,8 @@
     "src/cliCore.ts",
     "src/devEvents.ts",
     "src/devLogs.ts",
+    "src/liveFlow.ts",
+    "src/logChannelWindow.ts",
     "src/deployPlan.ts",
     "src/dependenciesCore.ts",
     "src/migrationsCore.ts",
