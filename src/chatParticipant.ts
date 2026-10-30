@@ -18,6 +18,8 @@
 
 import * as vscode from "vscode";
 
+import { validateFixArgs } from "./applyFixCore";
+
 import {
   type ChatDeps,
   type ChatMsg,
@@ -170,7 +172,13 @@ async function handle(
 
 /** Apply a `/fix` proposal after the user clicks its button — and only if the
  *  lines still read as they did when it was proposed. */
-async function applyFix(uri: string, fix: FixProposal): Promise<void> {
+async function applyFix(rawUri: unknown, rawFix: unknown): Promise<void> {
+  const args = validateFixArgs(rawUri, rawFix);
+  if (!args.ok) {
+    void vscode.window.showWarningMessage(args.message);
+    return;
+  }
+  const { uri, fix } = args;
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(uri));
   if (fix.endLine > doc.lineCount) {
     void vscode.window.showWarningMessage("The file changed since @bynk proposed this fix; ask again.");

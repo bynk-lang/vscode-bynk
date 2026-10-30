@@ -2,14 +2,18 @@
 // panel (`refinedExplorer.ts`). Pure of `vscode`, so it unit-tests directly.
 //
 // Each clause's `check` is the condition the emitter lowers for `.of`, printed
-// by the server as a JavaScript expression over `value`. Running it here is
-// DECISION A of #2470: no project code is evaluated — the text comes from a
-// closed set of eight predicate forms the compiler generates, the one
-// user-written part (a `Matches` pattern) sits inside a string literal, and the
-// candidate is bound as `value`, never spliced into source. It runs in a fresh
-// `node:vm` context with string `eval` disabled and a time limit, so a slow
-// pattern cannot hang the extension host. (`vm` is not a security boundary; the
-// guarantee is that nothing but compiler-generated predicates reaches it.)
+// by the server as a JavaScript expression over `value`. The server sends no
+// structured form of it yet, so the text is run — a MITIGATION (#35), not a
+// boundary: `node:vm` is not a sandbox, and safety still rests on the server
+// emitting only the closed set of predicate forms (the one user-written part,
+// a `Matches` pattern, sits inside a string literal). The real fix is the
+// server sending predicates structurally, to be interpreted here without JS.
+//
+// Until then nothing from the host realm is reachable from the predicate: the
+// context's global is a null-prototype object, `value` is built inside the
+// context from a quoted literal (never a host object), `Error` is frozen so
+// `prepareStackTrace` cannot be hooked, string `eval` is off, and a time limit
+// stops a slow pattern hanging the extension host.
 
 import * as vm from "node:vm";
 
@@ -50,6 +54,19 @@ export function parseCandidate(
   }
 }
 
+/** `value` as source text for the context to evaluate, so the candidate is
+ *  created inside it rather than passed in from the host. */
+function valueLiteral(value: bigint | number | string): string {
+  switch (typeof value) {
+    case "bigint":
+      return `${value}n`;
+    case "number":
+      return Object.is(value, -0) ? "-0" : String(value);
+    default:
+      return JSON.stringify(value);
+  }
+}
+
 /** Evaluate every clause against `value`; all failures are reported. */
 export function evaluateClauses(
   clauses: readonly RefinedClause[],
@@ -57,13 +74,15 @@ export function evaluateClauses(
   timeoutMs: number = CLAUSE_TIMEOUT_MS,
 ): CandidateVerdict {
   const failures: Array<{ source: string; message: string }> = [];
+  const literal = valueLiteral(value);
   for (const clause of clauses) {
-    const context = vm.createContext(
-      { value },
-      { codeGeneration: { strings: false, wasm: false } },
-    );
+    // A null-prototype global: a host `Object` is no way to a host `Function`.
+    const context = vm.createContext(Object.create(null), {
+      codeGeneration: { strings: false, wasm: false },
+    });
     let holds: unknown;
     try {
+      vm.runInContext(`"use strict"; Object.freeze(Error); var value = ${literal};`, context);
       holds = vm.runInContext(clause.check, context, { timeout: timeoutMs });
     } catch (err) {
       if ((err as { code?: string }).code === "ERR_SCRIPT_EXECUTION_TIMEOUT") {

@@ -19,6 +19,13 @@ version).
   asks for the environment, and for the context when the project has several.
   Needs a `bynk` with the command (v0.436.0 or newer).
 
+### Fixed
+
+- The refined-type explorer evaluates predicates in a context with no host-realm objects (a mitigation: the real fix is the server sending predicates structurally).
+- Export OpenAPI saves only the unsaved `.bynk` files, not every dirty document.
+- The `@bynk` chat participant's Apply fix command rejects a malformed proposal with a message instead of throwing.
+- The Test CodeLens provider disposes its event subscriptions.
+
 ## [0.436.0] - 2026-10-29
 
 Built against `bynk` v0.436.0.

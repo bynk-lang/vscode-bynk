@@ -20,13 +20,15 @@ async function exportOpenapi(): Promise<void> {
   }
   // The CLI reads the project from disk: unsaved edits would be left out of a
   // spec that then reads as current.
-  if (vscode.workspace.textDocuments.some((d) => d.languageId === "bynk" && d.isDirty)) {
+  const dirty = vscode.workspace.textDocuments.filter((d) => d.languageId === "bynk" && d.isDirty);
+  if (dirty.length > 0) {
     const save = await vscode.window.showWarningMessage(
       "Some Bynk files have unsaved changes, which the export would leave out.",
       "Save and Export",
     );
     if (!save) return;
-    await vscode.workspace.saveAll(false);
+    // Only the Bynk files the prompt named, not every dirty document.
+    for (const d of dirty) await d.save();
   }
   const target = await vscode.window.showSaveDialog({
     defaultUri: vscode.Uri.joinPath(root, "openapi.json"),
