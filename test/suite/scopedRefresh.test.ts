@@ -5,6 +5,7 @@
 
 import * as assert from "assert";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 import * as vscode from "vscode";
@@ -16,6 +17,7 @@ const EXT_ID = "bynk-lang.bynk-vscode";
 describe("Scoped refresh on save (#38)", () => {
   let fake: Awaited<ReturnType<typeof useFakeBynk>>;
   let dirs: string[] = [];
+  let depsDoc: string;
   const dirA = () => dirs[0];
   const dirB = () => dirs[1];
 
@@ -31,6 +33,10 @@ describe("Scoped refresh on save (#38)", () => {
     assert.ok(ext, `extension ${EXT_ID} is installed`);
     await ext.activate();
     fake = await useFakeBynk();
+    // `bynk deps` answers (an unanswered run is not cached, so it would re-run).
+    depsDoc = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bynk-sr-")), "deps.json");
+    fs.writeFileSync(depsDoc, JSON.stringify({ dependencies: [] }));
+    process.env.BYNK_FAKE_DEPS = depsDoc;
     const workspace = path.resolve(__dirname, "../../../test/fixtures/workspace");
     for (const name of ["a", "b"]) {
       const dir = fs.realpathSync(fs.mkdtempSync(path.join(workspace, `.sr-${name}-`)));
@@ -46,6 +52,8 @@ describe("Scoped refresh on save (#38)", () => {
 
   after(async () => {
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    delete process.env.BYNK_FAKE_DEPS;
+    if (depsDoc) fs.rmSync(path.dirname(depsDoc), { recursive: true, force: true });
     await fake?.restore();
     for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
     dirs = [];

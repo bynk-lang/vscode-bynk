@@ -52,18 +52,18 @@ function channel(): vscode.OutputChannel {
   return output;
 }
 
-/** `bynk deps` for the project at `root`: `undefined` when the driver is
+/** `bynk deps` for the project at `root` (`fresh` skips the cache): `undefined` when the driver is
  *  missing or does not know the command (an older toolchain). Never throws. */
-export async function loadDependencies(root: string): Promise<DepRow[] | undefined> {
+export async function loadDependencies(root: string, fresh = false): Promise<DepRow[] | undefined> {
   const key = depsKey(await stamp(path.join(root, "bynk.toml")), await stamp(path.join(root, "bynk.lock")));
   const hit = depsCache.get(root);
-  if (hit?.key === key) return hit.rows;
+  if (!fresh && hit?.key === key) return hit.rows;
   try {
     const r = await runBynk(depsArgs(), root);
     const rows = r.code === 0 ? parseDeps(r.stdout) : undefined;
-    // A driver that ran but doesn't know the command is remembered too; a
-    // missing driver (thrown) is retried next time.
-    depsCache.set(root, { key, rows });
+    // Only an answer is remembered: no driver, or one that doesn't know the
+    // command, is asked again next time.
+    if (rows) depsCache.set(root, { key, rows });
     return rows;
   } catch {
     return undefined;
@@ -72,7 +72,7 @@ export async function loadDependencies(root: string): Promise<DepRow[] | undefin
 
 /** `bynk deps` answers by manifest directory, valid while neither the manifest
  *  nor the lock has changed (a save elsewhere in the project leaves it alone). */
-const depsCache = new Map<string, { key: string; rows: DepRow[] | undefined }>();
+const depsCache = new Map<string, { key: string; rows: DepRow[] }>();
 
 async function stamp(file: string): Promise<string> {
   try {

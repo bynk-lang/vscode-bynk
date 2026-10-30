@@ -494,7 +494,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
       const expectsModel = headers.some((h) => h.kind === "context" || h.kind === "adapter");
       projects.push({
         root,
-        dependencies: (await loadDependencies(root.fsPath)) ?? [],
+        dependencies: (await loadDependencies(root.fsPath, fresh)) ?? [],
         groups: buildProjectModel(headers, model),
         modelMissing: !!client && !model && expectsModel,
       });
