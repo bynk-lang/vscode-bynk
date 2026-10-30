@@ -25,3 +25,4 @@ scripts/**
 .c8rc.json
 .mocharc.json
 coverage/**
+.claude/**

@@ -154,7 +154,7 @@ describe("renderWireContract (jsdom)", () => {
     // And the text itself is all there.
     const text = root.textContent ?? "";
     for (const where of ["Unit", "/pay/", "who", "call(", "Matches(", "Circle", "Declined", "why", "id"]) {
-      assert.ok(text.includes(`${where}${HOSTILE}`) || text.includes(where), where);
+      assert.ok(text.includes(`${where}${HOSTILE}`), where);
     }
     assert.ok(text.includes(HOSTILE), "the hostile string appears verbatim as text");
     assert.ok(!root.innerHTML.includes("<img"), "no raw <img in the serialised page");

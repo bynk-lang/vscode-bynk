@@ -74,7 +74,7 @@ function checkWeb() {
 // With `--package` it checks what `vsce package` would ship (#39). The VSIX
 // must hold only the bundles under `out/` (the extension, its webview
 // bundles, and the web build) and no sources, compiled test output or repo
-// tooling: `npm test` compiles the pure modules to `out/src/`, which a stale
+// tooling (anything outside the top-level entries below): `npm test` compiles the pure modules to `out/src/`, which a stale
 // `.vscodeignore` would silently ship.
 function checkPackage() {
   const files = execFileSync("npx", ["--no", "vsce", "ls", "--no-dependencies"], {
@@ -83,12 +83,9 @@ function checkPackage() {
   })
     .split(/\r?\n/)
     .filter(Boolean);
-  const allowedOut = /^out\/(?:[A-Za-z]+\.js|web\/.+)$/;
-  const stray = files.filter(
-    (f) =>
-      (f.startsWith("out/") && !allowedOut.test(f)) ||
-      /^(?:src|test|scripts|\.github|coverage|node_modules)\//.test(f),
-  );
+  const allowedOut = /^out\/(?:[\w-]+\.js|web\/.+)$/;
+  const shipped = /^(?:out|assets|snippets|syntaxes|themes|walkthroughs)\/|^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE(?:-\w+)?(?:\.md)?|language-configuration\.json)$/;
+  const stray = files.filter((f) => !shipped.test(f) || (f.startsWith("out/") && !allowedOut.test(f)));
   if (stray.length > 0) {
     console.error(`The VSIX would ship ${stray.length} stray file(s):`);
     for (const f of stray.slice(0, 20)) console.error(`  ${f}`);
