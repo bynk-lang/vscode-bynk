@@ -1246,10 +1246,13 @@ function runBynkcTest(
     const child = spawnTree(bynkPath(), args, { cwd: root.fsPath, env: bynkEnv() });
     let stdout = "";
     let stderr = "";
+    let capped = false;
     child.stdout?.setEncoding("utf8").on("data", (d: string) => {
+      if (capped) return;
       stdout += d;
       // The cap `execFile`'s maxBuffer gave: a runaway run must not fill memory.
-      if (stdout.length > MAX_OUTPUT) {
+      if (stdout.length > MAX_OUTPUT && !capped) {
+        capped = true;
         killTree(child);
         reject(new Error("`bynk test` wrote more than 64 MB of output"));
       }
