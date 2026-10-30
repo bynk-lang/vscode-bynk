@@ -19,6 +19,17 @@ version).
   asks for the environment, and for the context when the project has several.
   Needs a `bynk` with the command (v0.436.0 or newer).
 
+### Changed
+
+- The Testing view shows one top-level item per Bynk project, with every test id
+  namespaced by its project. It discovers all the workspace's projects, so Refresh
+  with a non-Bynk editor focused no longer empties the tree, and a run goes to the
+  project its items belong to rather than the focused editor's. Seed pins saved
+  under the old ids no longer match and can be pinned again.
+- Test discovery runs on save, on open and when the active editor changes, instead
+  of on every keystroke, and only for the project involved. Its compile errors no
+  longer go to Problems, where they duplicated the language server's.
+
 ## [0.436.0] - 2026-10-29
 
 Built against `bynk` v0.436.0.

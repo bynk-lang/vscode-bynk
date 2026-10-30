@@ -370,7 +370,44 @@ export function systemOnly(
 /** The driver's name for a suite item: the item id is `bynk-test:<kind>:<name>`, and
  *  `--suite` takes the name alone (any kind of suite by that name). */
 export function suiteNameOf(suiteId: string): string {
-  return suiteId.split(":").slice(2).join(":");
+  return bareSuiteId(suiteId).split(":").slice(2).join(":");
+}
+
+// A workspace can hold several Bynk projects, so a suite item's id is namespaced by
+// its project: `<project root URI>|bynk-test:<kind>:<name>`. A URI string percent-
+// encodes `|` and never holds `::`, so neither separator can appear in the root.
+const SCOPE_SEP = "|";
+
+/** `suiteId` namespaced by the project `scope` (a root URI string); unchanged
+ *  without one. */
+export function scopeSuiteId(scope: string | undefined, suiteId: string): string {
+  return scope === undefined ? suiteId : `${scope}${SCOPE_SEP}${suiteId}`;
+}
+
+/** The project root (URI string) a scoped suite or case id belongs to. */
+export function projectOf(id: string): string | undefined {
+  const at = id.indexOf(SCOPE_SEP);
+  return at < 0 ? undefined : id.slice(0, at);
+}
+
+/** An id without its project scope. */
+export function bareSuiteId(id: string): string {
+  const at = id.indexOf(SCOPE_SEP);
+  return at < 0 ? id : id.slice(at + SCOPE_SEP.length);
+}
+
+/** Group requested items by the project they belong to, in first-seen order, so a
+ *  request spanning projects runs once per project. An id with no project scope
+ *  groups under `""`. */
+export function groupByProject<T extends { suiteId: string }>(refs: readonly T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const ref of refs) {
+    const key = projectOf(ref.suiteId) ?? "";
+    const list = groups.get(key);
+    if (list) list.push(ref);
+    else groups.set(key, [ref]);
+  }
+  return groups;
 }
 
 /** The one process a selection of several cases runs as, given `--suite` and
