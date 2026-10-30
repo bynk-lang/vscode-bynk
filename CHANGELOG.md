@@ -12,6 +12,22 @@ version).
 
 ## [Unreleased]
 
+### Changed
+
+- A save refreshes the project it is in, not the whole workspace. The Project
+  view reloads only that project, `bynk deps` is cached until the project's
+  `bynk.toml` or `bynk.lock` changes, State Migrations are re-read only for the
+  project that changed, a `bynk.toml` save rescans only the files under it for
+  file decorations (bulk reads are bounded), and Show Compiled Output rebuilds
+  only the views in the edited project, one compile per project.
+
+### Fixed
+
+- Open Show Compiled Output views no longer cancel each other's builds, which
+  left a view without highlighting until the next edit.
+- A `bynk migrate status` that started before a sweep can no longer put its
+  pre-sweep answer back in the State Migrations cache.
+
 ### Added
 
 - **Bynk: Tail Deployed Logs…** streams a deployed Worker's logs with
@@ -24,6 +40,15 @@ version).
 - Live panels (wire contract, agent state, sequence diagram and the rest) no longer show a stale render when commands or cursor moves overlap, and a refresh cut short by a cursor move into a handler with no model is redone.
 - Bynk Logs rebuilds its output channel once per buffer's worth of lines instead of on every line once the buffer is full.
 - Clicking through to a location in a view checks the message and reports a file that can no longer be opened, instead of failing silently.
+- A debug session no longer freezes once the debugged CLI has written about
+  64 KB: its output is read for the life of the session, and goes to the
+  **Bynk Debug** output channel.
+- The dev server, debug sessions and test runs stop through one helper: a
+  process group on Linux and macOS, `taskkill /T /F` on Windows (untested on a
+  real Windows machine), and no console window per debug session. Cancelling a
+  test run ends the whole tree, and its cancellation listener is disposed.
+- A missing `bynk` for the `bynkc: check` task is found by resolving the
+  executable when the task starts (exit code 127 stays as a POSIX fallback).
 - The packaged VSIX no longer ships the compiled test build (`out/src/**`) when
   tests were built before packaging, and CI now fails if it would.
 

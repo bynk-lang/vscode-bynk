@@ -23,16 +23,22 @@ export type BuildResult =
   | { ok: false; message: string };
 
 /**
- * Compile the project at `root` with `buffers` (absolute path -> text) layered
- * over disk, and return the modules generated from `sourcePath`. A failed
- * compile (diagnostics, no compiler) is `{ ok: false }` with the reason.
+ * Compile the project at `root` once, with `buffers` (absolute path -> text)
+ * layered over disk, and return the modules generated from each of
+ * `sourcePaths`. A failed compile (diagnostics, no compiler) is `{ ok: false }`
+ * with the reason, for every source.
  */
-export async function buildModules(
+export async function buildProjectModules(
   root: string,
-  sourcePath: string,
+  sourcePaths: readonly string[],
   buffers: Record<string, string>,
   token?: vscode.CancellationToken,
-): Promise<BuildResult> {
+): Promise<Map<string, BuildResult>> {
+  const results = new Map<string, BuildResult>();
+  const fail = (message: string): Map<string, BuildResult> => {
+    for (const p of sourcePaths) results.set(p, { ok: false, message });
+    return results;
+  };
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "bynk-emitted-"));
   try {
     const result = await runBynk(
@@ -41,15 +47,26 @@ export async function buildModules(
       token,
       JSON.stringify(buffers),
     );
-    if (token?.isCancellationRequested) return { ok: false, message: "cancelled" };
+    if (token?.isCancellationRequested) return fail("cancelled");
     if (result.code !== 0) {
       const reason = (result.stderr || result.stdout).trim().split("\n")[0];
-      return { ok: false, message: reason || `bynk compile exited with ${result.code}` };
+      return fail(reason || `bynk compile exited with ${result.code}`);
     }
-    return { ok: true, files: readModules(scratch, sourcePath) };
+    for (const p of sourcePaths) results.set(p, { ok: true, files: readModules(scratch, p) });
+    return results;
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    return fail(e instanceof Error ? e.message : String(e));
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/** {@link buildProjectModules} for the one source `sourcePath`. */
+export async function buildModules(
+  root: string,
+  sourcePath: string,
+  buffers: Record<string, string>,
+  token?: vscode.CancellationToken,
+): Promise<BuildResult> {
+  return (await buildProjectModules(root, [sourcePath], buffers, token)).get(sourcePath)!;
 }
