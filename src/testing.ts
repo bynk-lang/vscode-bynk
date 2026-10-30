@@ -17,15 +17,15 @@
 // run (`--format json`, no `--no-run`) reconciles onto the same tree items
 // (same suite name/kind, same case names) and adds pass/fail state.
 
-import { execFile, spawn } from "node:child_process";
 import * as vscode from "vscode";
 
-import { bynkPath, compilerOverride } from "./tasks";
+import { killTree, spawnTree } from "./proc";
+import { bynkPath } from "./tasks";
 import { projectRootFor } from "./projectRoots";
 import { testFailures } from "./fileDecorationsCore";
 import { debugBynkTests } from "./debug";
 import { devServerRunning, stopDevServer } from "./devServer";
-import { BynkNotFoundError } from "./cli";
+import { BynkNotFoundError, bynkEnv } from "./cli";
 import { offerDoctor, reportBynkNotFound } from "./doctor";
 import { coverageFiles, coverageUnavailable } from "./coverageModel";
 import { ContinuousScheduler, FailureOnce, runPass } from "./continuousRun";
@@ -1429,40 +1429,52 @@ function testArgs(root: vscode.Uri, opts: TestRunOptions | undefined, format: "j
   return args;
 }
 
+/** The most `bynk test --format json` output taken from one run. */
+const MAX_OUTPUT = 64 * 1024 * 1024;
+
 function runBynkcTest(
   root: vscode.Uri,
   token?: vscode.CancellationToken,
   opts?: TestRunOptions,
 ): Promise<TestRun> {
   const args = testArgs(root, opts, "json");
-  const override = compilerOverride();
   return new Promise((resolve, reject) => {
-    const child = execFile(
-      bynkPath(),
-      args,
-      {
-        cwd: root.fsPath,
-        maxBuffer: 64 * 1024 * 1024,
-        env: override ? { ...process.env, BYNK_BYNKC: override } : undefined,
-      },
-      (err, stdout, stderr) => {
-        if ((err as NodeJS.ErrnoException | null)?.code === "ENOENT") {
-          reject(new BynkNotFoundError(bynkPath(), err));
-          return;
-        }
-        const text = stdout.trim();
-        if (!text) {
-          reject(new Error(stderr.trim() || "no output from `bynk test`"));
-          return;
-        }
-        try {
-          resolve(JSON.parse(text) as TestRun);
-        } catch (e) {
-          reject(new Error(`could not parse \`bynk test\` output: ${String(e)}`));
-        }
-      },
-    );
-    token?.onCancellationRequested(() => child.kill());
+    const child = spawnTree(bynkPath(), args, { cwd: root.fsPath, env: bynkEnv() });
+    let stdout = "";
+    let stderr = "";
+    let capped = false;
+    child.stdout?.setEncoding("utf8").on("data", (d: string) => {
+      if (capped) return;
+      stdout += d;
+      // The cap `execFile`'s maxBuffer gave: a runaway run must not fill memory.
+      if (stdout.length > MAX_OUTPUT && !capped) {
+        capped = true;
+        killTree(child);
+        reject(new Error("`bynk test` wrote more than 64 MB of output"));
+      }
+    });
+    child.stderr?.setEncoding("utf8").on("data", (d: string) => {
+      if (stderr.length < MAX_OUTPUT) stderr += d;
+    });
+    // Kill the whole tree: the driver may not forward SIGTERM to the runner.
+    const cancel = token?.onCancellationRequested(() => killTree(child));
+    child.once("error", (err) => {
+      cancel?.dispose();
+      reject((err as NodeJS.ErrnoException).code === "ENOENT" ? new BynkNotFoundError(bynkPath(), err) : err);
+    });
+    child.once("close", () => {
+      cancel?.dispose();
+      const text = stdout.trim();
+      if (!text) {
+        reject(new Error(stderr.trim() || "no output from `bynk test`"));
+        return;
+      }
+      try {
+        resolve(JSON.parse(text) as TestRun);
+      } catch (e) {
+        reject(new Error(`could not parse \`bynk test\` output: ${String(e)}`));
+      }
+    });
   });
 }
 
@@ -1479,11 +1491,10 @@ export function runBynkcTestStream(
   opts: TestRunOptions,
   onSuite: (suite: JsonSuite, soFar: TestRun) => void,
 ): Promise<{ doc: TestRun; streamed: boolean }> {
-  const override = compilerOverride();
   return new Promise((resolve, reject) => {
-    const child = spawn(bynkPath(), testArgs(root, opts, "ndjson"), {
+    const child = spawnTree(bynkPath(), testArgs(root, opts, "ndjson"), {
       cwd: root.fsPath,
-      env: override ? { ...process.env, BYNK_BYNKC: override } : undefined,
+      env: bynkEnv(),
     });
     const reader = new EventReader();
     const assembler = new RunAssembler();
@@ -1494,10 +1505,10 @@ export function runBynkcTestStream(
         if (done) onSuite(done, assembler.doc);
       }
     };
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => handle(reader.push(chunk)));
-    child.stderr.on("data", (chunk: string) => {
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => handle(reader.push(chunk)));
+    child.stderr?.on("data", (chunk: string) => {
       stderr += chunk;
     });
     child.on("error", (err) => {
@@ -1523,7 +1534,7 @@ export function runBynkcTestStream(
       }
       resolve({ doc: assembler.finish(stderr), streamed: true });
     });
-    const cancel = token.onCancellationRequested(() => child.kill());
+    const cancel = token.onCancellationRequested(() => killTree(child));
     child.on("close", () => cancel.dispose());
   });
 }

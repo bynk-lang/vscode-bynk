@@ -8,10 +8,11 @@
 // exits (a `--format json` document, `--format short` diagnostics), and
 // `spawnBynk` for a long-running one whose output is streamed (`bynk dev`).
 
-import { spawn, ChildProcess } from "node:child_process";
+import { ChildProcess } from "node:child_process";
 import * as vscode from "vscode";
 
 import { contextNames } from "./devEvents";
+import { killTree, OutputSink, spawnTree } from "./proc";
 import { bynkPath, compilerOverride } from "./tasks";
 
 /** The contexts the project's `.bynk` sources declare, sorted: what a
@@ -102,43 +103,19 @@ export function runBynk(
   });
 }
 
-/** Spawn `bynk <args>` in `cwd` with piped stdout/stderr, in its own process
- *  group (`detached`) so `stopTree` reaches everything it starts (`bynk` →
- *  `wrangler` → `workerd`). A start failure arrives as the child's `error`. */
+/** Spawn `bynk <args>` in `cwd` with the extension's settings applied, through
+ *  the shared `spawnTree` so `stopTree` reaches everything it starts (`bynk` →
+ *  `wrangler` → `workerd`) and its output is always drained. */
 export function spawnBynk(
   args: string[],
   cwd: string,
-  opts: { stdin?: "ignore" | "pipe" } = {},
+  opts: { stdin?: "ignore" | "pipe"; output?: OutputSink } = {},
 ): ChildProcess {
-  return spawn(bynkPath(), args, {
-    cwd,
-    detached: process.platform !== "win32",
-    stdio: [opts.stdin ?? "ignore", "pipe", "pipe"],
-    env: bynkEnv(),
-  });
+  return spawnTree(bynkPath(), args, { cwd, env: bynkEnv(), ...opts });
 }
 
-/** Ask a `spawnBynk` child and its process group to stop (SIGTERM). `bynk dev`
- *  traps it and tears down every `wrangler` and `workerd` before exiting. */
-export function stopTree(child: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): void {
-  if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) {
-    return;
-  }
-  try {
-    if (process.platform === "win32") {
-      child.kill(signal);
-    } else {
-      // Negative pid: the whole process group (see `detached` above).
-      process.kill(-child.pid, signal);
-    }
-  } catch {
-    try {
-      child.kill(signal);
-    } catch {
-      /* already gone */
-    }
-  }
-}
+/** Stop a `spawnBynk` child and its process tree. */
+export const stopTree = killTree;
 
 /** The directory of the nearest `bynk.toml`: walking up from the active `.bynk`
  *  file, then the workspace-folder roots. Mirrors the rooting in testing.ts and

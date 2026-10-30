@@ -17,13 +17,14 @@ import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { buildModules } from "./emittedBuild";
+import { buildModules, buildProjectModules } from "./emittedBuild";
 import {
   generatedRangeForSource,
   sourceRangeForGenerated,
   type EmittedFile,
   type LineRange,
 } from "./emittedMap";
+import { groupByRoot } from "./refreshScope";
 import type { ViewRefresh } from "./viewRefresh";
 
 export const EMITTED_SCHEME = "bynk-emitted";
@@ -77,7 +78,8 @@ export function emittedUri(source: vscode.Uri, outputPath: string): vscode.Uri {
 export function registerEmittedOutput(
   context: vscode.ExtensionContext,
   hub: ViewRefresh,
-): void {  const views = new Map<string, View>();
+): void {
+  const views = new Map<string, View>();
   const changed = new vscode.EventEmitter<vscode.Uri>();
   const highlight = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
@@ -86,17 +88,33 @@ export function registerEmittedOutput(
     overviewRulerLane: vscode.OverviewRulerLane.Center,
   });
 
+  /** Builds in flight, each with its own token: `view:<source>` for a view
+   *  opening, `root:<project>` for a refresh, so one view's build never cancels
+   *  another's (only a newer build of the same thing does). */
+  const building = new Map<string, vscode.CancellationTokenSource>();
+  async function withToken<T>(
+    key: string,
+    run: (token: vscode.CancellationToken) => Promise<T>,
+  ): Promise<T> {
+    building.get(key)?.cancel();
+    const mine = new vscode.CancellationTokenSource();
+    building.set(key, mine);
+    try {
+      return await run(mine.token);
+    } finally {
+      if (building.get(key) === mine) building.delete(key);
+      mine.dispose();
+    }
+  }
+
   /** Build the modules for `source` from the project on disk plus its
    *  unsaved buffers, or say why not. */
-  let building: vscode.CancellationTokenSource | undefined;
   async function build(source: vscode.Uri): Promise<EmittedFile[] | string> {
     const root = projectRootOf(source.fsPath);
     if (!root) return "the file is not in a Bynk project (no bynk.toml above it)";
-    building?.cancel();
-    const mine = (building = new vscode.CancellationTokenSource());
-    const result = await buildModules(root, source.fsPath, dirtyBuffers(root), mine.token);
-    if (building === mine) building = undefined;
-    mine.dispose();
+    const result = await withToken(`view:${source.toString()}`, (token) =>
+      buildModules(root, source.fsPath, dirtyBuffers(root), token),
+    );
     return result.ok ? result.files : result.message;
   }
 
@@ -200,26 +218,52 @@ export function registerEmittedOutput(
     return uri.toString();
   }
 
-  /** Rebuild every open view. A project that stops compiling keeps the last
-   *  good output on screen (and stays stale: its lines no longer line up). */
-  async function refreshAll(): Promise<void> {
-    for (const [key, view] of [...views]) {
-      const built = await build(view.source);
-      if (typeof built === "string") continue;
-      const file = built.find((f) => f.path === view.file.path);
-      if (!file || !views.has(key)) continue;
-      views.set(key, { source: view.source, file, stale: false });
-      changed.fire(vscode.Uri.parse(key));
-    }
+  /** Rebuild the open views of `roots` (every view when `undefined`), one
+   *  compile per project however many views it has. A project that stops
+   *  compiling keeps the last good output on screen (and stays stale: its lines
+   *  no longer line up). */
+  async function refresh(roots: ReadonlySet<string> | undefined): Promise<void> {
+    const byRoot = groupByRoot([...views].map(([key, v]) => ({ key, source: v.source.fsPath, root: projectRootOf(v.source.fsPath) })));
+    await Promise.all(
+      [...byRoot].map(async ([root, members]) => {
+        if (roots && !roots.has(root)) return;
+        const sources = [...new Set(members.map((m) => m.source))];
+        const results = await withToken(`root:${root}`, (token) =>
+          buildProjectModules(root, sources, dirtyBuffers(root), token),
+        );
+        for (const { key, source } of members) {
+          const view = views.get(key);
+          const built = results.get(source);
+          if (!view || !built?.ok) continue;
+          const file = built.files.find((f) => f.path === view.file.path);
+          if (!file) continue;
+          views.set(key, { source: view.source, file, stale: false });
+          changed.fire(vscode.Uri.parse(key));
+        }
+      }),
+    );
     const active = vscode.window.activeTextEditor;
     if (active) syncFrom(active);
   }
 
+  /** The projects touched since the last rebuild; `undefined` once something
+   *  of unknown project changed (then every view rebuilds). */
+  let dirty: Set<string> | undefined = new Set();
   let timer: NodeJS.Timeout | undefined;
-  const scheduleRefresh = () => {
+  const scheduleRefresh = (uris: Iterable<string>) => {
     if (views.size === 0) return;
+    for (const u of uris) {
+      const parsed = vscode.Uri.parse(u);
+      const root = parsed.scheme === "file" ? projectRootOf(parsed.fsPath) : undefined;
+      if (root) dirty?.add(root);
+      else dirty = undefined;
+    }
     clearTimeout(timer);
-    timer = setTimeout(() => void refreshAll(), EDIT_DEBOUNCE_MS);
+    timer = setTimeout(() => {
+      const roots = dirty;
+      dirty = new Set();
+      void refresh(roots);
+    }, EDIT_DEBOUNCE_MS);
   };
 
   context.subscriptions.push(
@@ -239,10 +283,10 @@ export function registerEmittedOutput(
           clearHighlights(vscode.Uri.parse(generatedKey), view);
         }
       }
-      scheduleRefresh();
+      scheduleRefresh([key]);
     }),
     // Saves and changes made outside the editor (a git checkout, codegen).
-    hub.onDidRefresh(scheduleRefresh),
+    hub.onDidRefresh((keys) => scheduleRefresh(keys)),
     vscode.workspace.onDidCloseTextDocument((doc) => {
       if (doc.uri.scheme !== EMITTED_SCHEME) return;
       const key = doc.uri.toString();
@@ -250,6 +294,6 @@ export function registerEmittedOutput(
       if (view) clearHighlights(doc.uri, view);
       views.delete(key);
     }),
-    { dispose: () => { clearTimeout(timer); building?.cancel(); } },
+    { dispose: () => { clearTimeout(timer); for (const b of building.values()) b.cancel(); } },
   );
 }
