@@ -21,6 +21,11 @@ version).
 
 ### Changed
 
+- Internal: the Doctor, Deploy Plan, npm Requirements, Explanation, Sweep Plan
+  and Refined Type panels keep their state in instances created at activation
+  and disposed with the extension, not in module-level variables. No
+  user-visible change, except that the open panels are now closed when the
+  extension deactivates.
 - A save refreshes the project it is in, not the whole workspace. The Project
   view reloads only that project, `bynk deps` is cached until the project's
   `bynk.toml` or `bynk.lock` changes, State Migrations are re-read only for the

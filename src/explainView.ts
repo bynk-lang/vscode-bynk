@@ -32,8 +32,6 @@ const EXPLAIN_CSS = `
   .more { margin-top: 16px; }
 `;
 
-let panel: vscode.WebviewPanel | undefined;
-
 /** The client capability that tells the server this client runs
  *  `bynk.explainDiagnostic`, so it should offer the "Explain …" quick fix. */
 export function explainClientFeature(): StaticFeature {
@@ -54,18 +52,66 @@ export function registerExplainView(
   context: vscode.ExtensionContext,
   getClient: () => LanguageClient | undefined,
 ): void {
+  const view = new ExplainView(context);
   context.subscriptions.push(
+    view,
     vscode.commands.registerCommand(EXPLAIN_COMMAND, (code?: unknown) =>
-      explain(context, getClient, typeof code === "string" ? code : undefined),
+      explain(view, getClient, typeof code === "string" ? code : undefined),
     ),
   );
+}
+
+/** The "Bynk: Explanation" webview, reused across explanations. */
+class ExplainView implements vscode.Disposable {
+  private panel: vscode.WebviewPanel | undefined;
+
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  dispose(): void {
+    this.panel?.dispose();
+  }
+
+  show(payload: ExplainPayload): void {
+    const { context } = this;
+    if (!this.panel) {
+      const panel = (this.panel = vscode.window.createWebviewPanel(
+        "bynkExplanation",
+        "Bynk: Explanation",
+        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+        {
+          enableScripts: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "out")],
+        },
+      ));
+      panel.onDidDispose(() => {
+        this.panel = undefined;
+      });
+      panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
+        if (message?.type === "openExternal") void openExternalHref(message.href);
+      });
+    }
+    const panel = this.panel;
+    panel.title = `Bynk: Explanation — ${payload.explanation.title}`;
+    panel.webview.html = renderWebviewHtml({
+      webview: panel.webview,
+      scriptUri: panel.webview.asWebviewUri(
+        vscode.Uri.joinPath(context.extensionUri, "out", "explainview.js"),
+      ),
+      nonce: getNonce(),
+      title: "Bynk: Explanation",
+      globalName: "__BYNK_EXPLAIN__",
+      payload,
+      bodyCss: EXPLAIN_CSS,
+    });
+    panel.reveal(vscode.ViewColumn.Beside, true);
+  }
 }
 
 /** Run the command. Resolves to the explanation shown, `null` when the code
  *  has none, or `undefined` when nothing was asked (cancelled, no server). The
  *  return value is for tests; the command palette ignores it. */
 async function explain(
-  context: vscode.ExtensionContext,
+  view: ExplainView,
   getClient: () => LanguageClient | undefined,
   given: string | undefined,
 ): Promise<Explanation | null | undefined> {
@@ -106,7 +152,7 @@ async function explain(
       });
     return null;
   }
-  showPanel(context, { explanation });
+  view.show({ explanation });
   return explanation;
 }
 
@@ -140,37 +186,4 @@ async function askForCode(): Promise<string | undefined> {
     prompt: "A diagnostic code, e.g. bynk.resolve.unknown_type",
     placeHolder: "bynk.resolve.unknown_type",
   });
-}
-
-function showPanel(context: vscode.ExtensionContext, payload: ExplainPayload): void {
-  if (!panel) {
-    panel = vscode.window.createWebviewPanel(
-      "bynkExplanation",
-      "Bynk: Explanation",
-      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
-      {
-        enableScripts: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "out")],
-      },
-    );
-    panel.onDidDispose(() => {
-      panel = undefined;
-    });
-    panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
-      if (message?.type === "openExternal") void openExternalHref(message.href);
-    });
-  }
-  panel.title = `Bynk: Explanation — ${payload.explanation.title}`;
-  panel.webview.html = renderWebviewHtml({
-    webview: panel.webview,
-    scriptUri: panel.webview.asWebviewUri(
-      vscode.Uri.joinPath(context.extensionUri, "out", "explainview.js"),
-    ),
-    nonce: getNonce(),
-    title: "Bynk: Explanation",
-    globalName: "__BYNK_EXPLAIN__",
-    payload,
-    bodyCss: EXPLAIN_CSS,
-  });
-  panel.reveal(vscode.ViewColumn.Beside, true);
 }

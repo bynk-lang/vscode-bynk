@@ -5,10 +5,12 @@
 // `activate` that every concurrent feature also edits (and conflicts on).
 //
 // Features that hand something back to `activate` (the Test Explorer's API, the
-// approvals, the live model views, which others use) stay registered there.
+// live model views, which others use) stay registered there. The approvals are
+// registered there too, just before this table runs, and passed in through
+// `FeatureEnv` to the features that report to them.
 //
-// Registration order: the table runs right after the refresh hub is built and
-// before the Test Explorer, the approvals and the live views, so a feature here
+// Registration order: the table runs right after the refresh hub and the
+// approvals are built and before the Test Explorer and the live views, so a feature here
 // registers earlier than it used to relative to those and later relative to the
 // toolchain and task registrations, which moved in from the top. None of these
 // reads another's registration at activation: they register commands and
@@ -19,6 +21,7 @@
 import type * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
+import type { ApprovalState } from "./approveRequirements";
 import { registerCapabilityPath } from "./capabilityPath";
 import { registerChatParticipant } from "./chatParticipant";
 import { registerDebug } from "./debug";
@@ -51,6 +54,8 @@ export interface FeatureEnv {
   /** What the `bynk` driver is known to understand, shared by the Test Explorer and
    *  the debugger. */
   driverSupport: DriverSupport;
+  /** The npm-requirement approvals, which `bynk dev`/`deploy` output is reported to. */
+  approvals: ApprovalState;
 }
 
 /** Keep this sorted by feature name. */
@@ -64,9 +69,9 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   // #2472: Add Dependency…, Fetch Dependencies, upgrade lenses, Publish….
   ({ context }) => registerDependencies(context),
   // #2101: plan-first deploy.
-  ({ context }) => registerDeploy(context),
+  ({ context, approvals }) => registerDeploy(context, approvals),
   // #2094: run and manage `bynk dev`.
-  ({ context }) => registerDevServer(context),
+  ({ context, approvals }) => registerDevServer(context, approvals),
   // #2095: "Bynk: Doctor", offered by failures elsewhere, never run on activation.
   ({ context }) => registerDoctor(context),
   // #2471: "Show Compiled Output", highlighted both ways through the source map.

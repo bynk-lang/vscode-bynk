@@ -19,7 +19,7 @@ import * as net from "node:net";
 import type { ChildProcess } from "node:child_process";
 import * as vscode from "vscode";
 
-import { noteDriverOutput } from "./approveRequirements";
+import type { ApprovalState } from "./approveRequirements";
 import { MISSING_CWD } from "./procCore";
 import { findProjectRoot, projectContexts, runBynk, spawnBynk, stopTree } from "./cli";
 import { diagnosticPath, LineSplitter, parseShortDiagnostic, toTerminalText } from "./cliCore";
@@ -63,8 +63,8 @@ export async function stopDevServer(): Promise<void> {
   await controller?.stop();
 }
 
-export function registerDevServer(context: vscode.ExtensionContext): void {
-  controller = new DevServerController();
+export function registerDevServer(context: vscode.ExtensionContext, approvals: ApprovalState): void {
+  controller = new DevServerController(approvals);
   const c = controller;
   context.subscriptions.push(
     c,
@@ -111,7 +111,7 @@ class DevServerController implements vscode.Disposable {
    *  after a later good rebuild cleared them. */
   private checkGeneration = 0;
 
-  constructor() {
+  constructor(private readonly approvals: ApprovalState) {
     this.item.command = "bynk.devServerMenu";
     this.item.name = "Bynk Dev Server";
     this.subs.push(
@@ -222,7 +222,7 @@ class DevServerController implements vscode.Disposable {
       return;
     }
     if (generation !== this.checkGeneration) return;
-    noteDriverOutput(root.fsPath, output);
+    this.approvals.noteDriverOutput(root.fsPath, output);
     const byFile = new Map<string, vscode.Diagnostic[]>();
     for (const line of output.split(/\r?\n/)) {
       const d = parseShortDiagnostic(line);

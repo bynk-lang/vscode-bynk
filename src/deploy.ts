@@ -15,7 +15,7 @@
 
 import * as vscode from "vscode";
 
-import { noteDriverOutput } from "./approveRequirements";
+import type { ApprovalState } from "./approveRequirements";
 import { BynkNotFoundError, bynkEnv, findProjectRoot, projectContexts, runBynk } from "./cli";
 import { isActionMessage, renderActionHtml } from "./cliView";
 import {
@@ -39,16 +39,13 @@ interface PlanState {
   canDeploy: boolean;
 }
 
-let panel: vscode.WebviewPanel | undefined;
-let state: PlanState | undefined;
-let output: vscode.OutputChannel | undefined;
-
-export function registerDeploy(context: vscode.ExtensionContext): void {
+export function registerDeploy(context: vscode.ExtensionContext, approvals: ApprovalState): void {
+  const view = new DeployView(approvals);
   context.subscriptions.push(
-    vscode.commands.registerCommand("bynk.deploy", (preset?: Preset) => start(true, preset)),
-    vscode.commands.registerCommand("bynk.showDeployPlan", (preset?: Preset) => start(false, preset)),
+    view,
+    vscode.commands.registerCommand("bynk.deploy", (preset?: Preset) => view.start(true, preset)),
+    vscode.commands.registerCommand("bynk.showDeployPlan", (preset?: Preset) => view.start(false, preset)),
     vscode.commands.registerCommand("bynk.tailLogs", (preset?: Preset) => tail(preset)),
-    { dispose: () => output?.dispose() },
   );
 }
 
@@ -87,15 +84,122 @@ async function resolveEnvironment(
   return environment === undefined ? undefined : { root, environment };
 }
 
-async function start(canDeploy: boolean, preset?: Preset): Promise<void> {
-  const resolved = await resolveEnvironment(preset, pickEnvironment);
-  if (!resolved) return;
-  const { root, environment } = resolved;
-  const scope = typeof preset?.context === "string" ? preset.context : await pickScope(root);
-  if (scope === undefined) return;
-  const target: DeployTarget = { environment };
-  if (scope) target.context = scope;
-  await showPlan({ root, target, canDeploy });
+/** The deploy plan's one panel, the plan it shows and the output channel for a
+ *  dry run the driver refused. */
+class DeployView implements vscode.Disposable {
+  private panel: vscode.WebviewPanel | undefined;
+  private state: PlanState | undefined;
+  private output: vscode.OutputChannel | undefined;
+
+  constructor(private readonly approvals: ApprovalState) {}
+
+  dispose(): void {
+    this.panel?.dispose();
+    this.output?.dispose();
+  }
+
+  async start(canDeploy: boolean, preset?: Preset): Promise<void> {
+    const resolved = await resolveEnvironment(preset, pickEnvironment);
+    if (!resolved) return;
+    const { root, environment } = resolved;
+    const scope = typeof preset?.context === "string" ? preset.context : await pickScope(root);
+    if (scope === undefined) return;
+    const target: DeployTarget = { environment };
+    if (scope) target.context = scope;
+    await this.showPlan({ root, target, canDeploy });
+  }
+
+  /** Run the dry run and show (or refresh) the plan view. */
+  async showPlan(next: PlanState): Promise<void> {
+    const args = deployArgs(next.target, "plan");
+    let result;
+    let cancelled = false;
+    try {
+      result = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Bynk: planning a deploy to ${next.target.environment}…`,
+          cancellable: true,
+        },
+        (_progress, token) => {
+          token.onCancellationRequested(() => (cancelled = true));
+          return runBynk(args, next.root.fsPath, token);
+        },
+      );
+    } catch (e) {
+      if (e instanceof BynkNotFoundError) {
+        await reportBynkNotFound();
+      } else {
+        void vscode.window.showErrorMessage(`Bynk: the deploy plan failed: ${String(e)}`);
+      }
+      return;
+    }
+    const outcome = planOutcome(result, cancelled);
+    this.state = settledState(this.state, next, outcome);
+    if (outcome.kind === "cancelled") return; // the user pressed Cancel
+    if (outcome.kind === "failed") {
+      // The driver refused before planning (contract skew, a cycle, a broken
+      // pin, a build error…): its stderr says why and what to do. The view, if
+      // open, keeps showing the last plan it had.
+      const output = (this.output ??= vscode.window.createOutputChannel("Bynk Deploy"));
+      output.clear();
+      output.appendLine(`$ bynk ${args.join(" ")}`);
+      output.append(outcome.detail);
+      this.approvals.noteDriverOutput(next.root.fsPath, outcome.detail);
+      const choice = await vscode.window.showErrorMessage(
+        `Bynk: \`bynk deploy --dry-run\` could not plan a deploy to ${next.target.environment}.`,
+        "Show Output",
+      );
+      if (choice) output.show();
+      return;
+    }
+    const plan = outcome.plan;
+    if (!this.panel) {
+      const panel = (this.panel = vscode.window.createWebviewPanel("bynkDeployPlan", "Bynk Deploy Plan", vscode.ViewColumn.Active, {
+        enableScripts: true,
+      }));
+      panel.onDidDispose(() => {
+        this.panel = undefined;
+        this.state = undefined;
+      });
+      panel.webview.onDidReceiveMessage((m: unknown) => {
+        if (isActionMessage(m) && this.state) void this.onAction(m.action, this.state);
+      });
+    }
+    const panel = this.panel;
+    const title = `Bynk Deploy Plan: ${plan.environment}`;
+    panel.title = title;
+    panel.webview.html = renderActionHtml(
+      panel.webview,
+      title,
+      renderPlanHtml(plan, { target: next.target, canDeploy: next.canDeploy, warnings: outcome.warnings }),
+      PLAN_CSS,
+    );
+    panel.reveal();
+  }
+
+  private async onAction(action: string, current: PlanState): Promise<void> {
+    switch (action) {
+      case "refresh":
+        await this.showPlan(current);
+        break;
+      case "secretsFile": {
+        const picked = await vscode.window.showOpenDialog({
+          defaultUri: current.root,
+          canSelectMany: false,
+          openLabel: "Use as secrets file",
+          title: "A dotenv-style NAME=value file for `bynk deploy --secrets-file`",
+        });
+        if (!picked?.[0]) return;
+        // Only the path is kept: the driver reads the file, the editor never does.
+        await this.showPlan({ ...current, target: { ...current.target, secretsFile: picked[0].fsPath } });
+        break;
+      }
+      case "deploy":
+        if (current.canDeploy) await runDeploy(current);
+        break;
+    }
+  }
 }
 
 /** #2546: stream a deployed Worker's logs, stack frames at their `.bynk` lines.
@@ -223,97 +327,6 @@ async function pickScope(root: vscode.Uri): Promise<string | undefined> {
     { placeHolder: "What should the deploy cover?" },
   );
   return picked?.context;
-}
-
-/** Run the dry run and show (or refresh) the plan view. */
-async function showPlan(next: PlanState): Promise<void> {
-  const args = deployArgs(next.target, "plan");
-  let result;
-  let cancelled = false;
-  try {
-    result = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: `Bynk: planning a deploy to ${next.target.environment}…`,
-        cancellable: true,
-      },
-      (_progress, token) => {
-        token.onCancellationRequested(() => (cancelled = true));
-        return runBynk(args, next.root.fsPath, token);
-      },
-    );
-  } catch (e) {
-    if (e instanceof BynkNotFoundError) {
-      await reportBynkNotFound();
-    } else {
-      void vscode.window.showErrorMessage(`Bynk: the deploy plan failed: ${String(e)}`);
-    }
-    return;
-  }
-  const outcome = planOutcome(result, cancelled);
-  state = settledState(state, next, outcome);
-  if (outcome.kind === "cancelled") return; // the user pressed Cancel
-  if (outcome.kind === "failed") {
-    // The driver refused before planning (contract skew, a cycle, a broken
-    // pin, a build error…): its stderr says why and what to do. The view, if
-    // open, keeps showing the last plan it had.
-    output ??= vscode.window.createOutputChannel("Bynk Deploy");
-    output.clear();
-    output.appendLine(`$ bynk ${args.join(" ")}`);
-    output.append(outcome.detail);
-    noteDriverOutput(next.root.fsPath, outcome.detail);
-    const choice = await vscode.window.showErrorMessage(
-      `Bynk: \`bynk deploy --dry-run\` could not plan a deploy to ${next.target.environment}.`,
-      "Show Output",
-    );
-    if (choice) output.show();
-    return;
-  }
-  const plan = outcome.plan;
-  if (!panel) {
-    panel = vscode.window.createWebviewPanel("bynkDeployPlan", "Bynk Deploy Plan", vscode.ViewColumn.Active, {
-      enableScripts: true,
-    });
-    panel.onDidDispose(() => {
-      panel = undefined;
-      state = undefined;
-    });
-    panel.webview.onDidReceiveMessage((m: unknown) => {
-      if (isActionMessage(m) && state) void onAction(m.action, state);
-    });
-  }
-  const title = `Bynk Deploy Plan: ${plan.environment}`;
-  panel.title = title;
-  panel.webview.html = renderActionHtml(
-    panel.webview,
-    title,
-    renderPlanHtml(plan, { target: next.target, canDeploy: next.canDeploy, warnings: outcome.warnings }),
-    PLAN_CSS,
-  );
-  panel.reveal();
-}
-
-async function onAction(action: string, current: PlanState): Promise<void> {
-  switch (action) {
-    case "refresh":
-      await showPlan(current);
-      break;
-    case "secretsFile": {
-      const picked = await vscode.window.showOpenDialog({
-        defaultUri: current.root,
-        canSelectMany: false,
-        openLabel: "Use as secrets file",
-        title: "A dotenv-style NAME=value file for `bynk deploy --secrets-file`",
-      });
-      if (!picked?.[0]) return;
-      // Only the path is kept: the driver reads the file, the editor never does.
-      await showPlan({ ...current, target: { ...current.target, secretsFile: picked[0].fsPath } });
-      break;
-    }
-    case "deploy":
-      if (current.canDeploy) await runDeploy(current);
-      break;
-  }
 }
 
 /** Run the real deploy in a terminal, with exactly the previewed arguments

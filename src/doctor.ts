@@ -23,13 +23,12 @@ export type Capability = "compile" | "test" | "deploy" | "editor" | "build";
 
 const CAPABILITIES: readonly string[] = ["compile", "test", "deploy", "editor", "build"];
 
-let panel: vscode.WebviewPanel | undefined;
-let current: { report: DoctorReport; cwd: string; only?: string } | undefined;
-
 export function registerDoctor(context: vscode.ExtensionContext): void {
+  const view = new DoctorView();
   context.subscriptions.push(
+    view,
     vscode.commands.registerCommand("bynk.doctor", (args?: { only?: string }) =>
-      runDoctor(typeof args?.only === "string" && CAPABILITIES.includes(args.only) ? args.only : undefined),
+      view.run(typeof args?.only === "string" && CAPABILITIES.includes(args.only) ? args.only : undefined),
     ),
   );
 }
@@ -61,84 +60,95 @@ export async function reportBynkNotFound(detail?: string): Promise<void> {
   }
 }
 
-async function runDoctor(only?: string): Promise<void> {
-  const root = await findProjectRoot();
-  const cwd = root?.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
-  const args = ["doctor", "--format", "json", ...(only ? ["--only", only] : []), "."];
-  let result;
-  try {
-    result = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: "Bynk: checking your setup…", cancellable: true },
-      (_p, token) => runBynk(args, cwd, token),
-    );
-  } catch (e) {
-    if (e instanceof BynkNotFoundError) await reportBynkNotFound();
-    else void vscode.window.showErrorMessage(`Bynk: the doctor failed: ${String(e)}`);
-    return;
-  }
-  let report: DoctorReport;
-  try {
-    // `--only` exits non-zero when its tools are missing; the report is still there.
-    report = parseDoctorReport(result.stdout);
-  } catch {
-    void vscode.window.showErrorMessage(
-      `Bynk: \`bynk doctor\` gave no report. ${result.stderr.trim() || `It exited with ${result.code}.`}`,
-    );
-    return;
-  }
-  current = { report, cwd, only };
-  if (!panel) {
-    panel = vscode.window.createWebviewPanel("bynkDoctor", "Bynk Doctor", vscode.ViewColumn.Active, {
-      enableScripts: true,
-    });
-    panel.onDidDispose(() => {
-      panel = undefined;
-      current = undefined;
-    });
-    panel.webview.onDidReceiveMessage((m: unknown) => {
-      if (isActionMessage(m)) void onAction(m.action, m.args);
-    });
-  }
-  panel.webview.html = renderActionHtml(panel.webview, "Bynk Doctor", renderDoctorHtml(report, { only }), DOCTOR_CSS);
-  panel.reveal();
-}
+/** The doctor's one panel and the report it shows. */
+class DoctorView implements vscode.Disposable {
+  private panel: vscode.WebviewPanel | undefined;
+  private current: { report: DoctorReport; cwd: string; only?: string } | undefined;
 
-async function onAction(action: string, args: Record<string, string>): Promise<void> {
-  if (!current) return;
-  switch (action) {
-    case "rerun":
-      await runDoctor(current.only);
-      break;
-    case "copy":
-      if (args.text) {
-        await vscode.env.clipboard.writeText(args.text);
-        void vscode.window.showInformationMessage("Copied the remedy.");
-      }
-      break;
-    case "open":
-      if (args.url && /^https?:\/\//.test(args.url)) void vscode.env.openExternal(vscode.Uri.parse(args.url));
-      break;
-    case "setting":
-      if (args.setting?.startsWith("bynk.")) {
-        void vscode.commands.executeCommand("workbench.action.openSettings", args.setting);
-      }
-      break;
-    case "run": {
-      // Only a command the current report offers, and only after the user has
-      // seen it: remedies install software (DECISION B).
-      const command = args.command;
-      if (!command || !offeredCommands(current.report).has(command)) return;
-      const run = "Run in Terminal";
-      const choice = await vscode.window.showWarningMessage(
-        `Run \`${command}\`?`,
-        { modal: true, detail: "It runs in a new terminal in your project, where you can watch it." },
-        run,
+  dispose(): void {
+    this.panel?.dispose();
+  }
+
+  async run(only?: string): Promise<void> {
+    const root = await findProjectRoot();
+    const cwd = root?.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+    const args = ["doctor", "--format", "json", ...(only ? ["--only", only] : []), "."];
+    let result;
+    try {
+      result = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: "Bynk: checking your setup…", cancellable: true },
+        (_p, token) => runBynk(args, cwd, token),
       );
-      if (choice !== run) return;
-      const terminal = vscode.window.createTerminal({ name: "Bynk Doctor", cwd: current.cwd });
-      terminal.show();
-      terminal.sendText(command);
-      break;
+    } catch (e) {
+      if (e instanceof BynkNotFoundError) await reportBynkNotFound();
+      else void vscode.window.showErrorMessage(`Bynk: the doctor failed: ${String(e)}`);
+      return;
+    }
+    let report: DoctorReport;
+    try {
+      // `--only` exits non-zero when its tools are missing; the report is still there.
+      report = parseDoctorReport(result.stdout);
+    } catch {
+      void vscode.window.showErrorMessage(
+        `Bynk: \`bynk doctor\` gave no report. ${result.stderr.trim() || `It exited with ${result.code}.`}`,
+      );
+      return;
+    }
+    this.current = { report, cwd, only };
+    if (!this.panel) {
+      const panel = (this.panel = vscode.window.createWebviewPanel("bynkDoctor", "Bynk Doctor", vscode.ViewColumn.Active, {
+        enableScripts: true,
+      }));
+      panel.onDidDispose(() => {
+        this.panel = undefined;
+        this.current = undefined;
+      });
+      panel.webview.onDidReceiveMessage((m: unknown) => {
+        if (isActionMessage(m)) void this.onAction(m.action, m.args);
+      });
+    }
+    this.panel.webview.html = renderActionHtml(this.panel.webview, "Bynk Doctor", renderDoctorHtml(report, { only }), DOCTOR_CSS);
+    this.panel.reveal();
+  }
+
+  private async onAction(action: string, args: Record<string, string>): Promise<void> {
+    const current = this.current;
+    if (!current) return;
+    switch (action) {
+      case "rerun":
+        await this.run(current.only);
+        break;
+      case "copy":
+        if (args.text) {
+          await vscode.env.clipboard.writeText(args.text);
+          void vscode.window.showInformationMessage("Copied the remedy.");
+        }
+        break;
+      case "open":
+        if (args.url && /^https?:\/\//.test(args.url)) void vscode.env.openExternal(vscode.Uri.parse(args.url));
+        break;
+      case "setting":
+        if (args.setting?.startsWith("bynk.")) {
+          void vscode.commands.executeCommand("workbench.action.openSettings", args.setting);
+        }
+        break;
+      case "run": {
+        // Only a command the current report offers, and only after the user has
+        // seen it: remedies install software (DECISION B).
+        const command = args.command;
+        if (!command || !offeredCommands(current.report).has(command)) return;
+        const run = "Run in Terminal";
+        const choice = await vscode.window.showWarningMessage(
+          `Run \`${command}\`?`,
+          { modal: true, detail: "It runs in a new terminal in your project, where you can watch it." },
+          run,
+        );
+        if (choice !== run) return;
+        const terminal = vscode.window.createTerminal({ name: "Bynk Doctor", cwd: current.cwd });
+        terminal.show();
+        terminal.sendText(command);
+        break;
+      }
     }
   }
 }

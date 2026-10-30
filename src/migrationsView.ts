@@ -123,20 +123,16 @@ interface PlanState {
   environments: string[];
 }
 
-let panel: vscode.WebviewPanel | undefined;
-let planned: PlanState | undefined;
-let storeRef: MigrationsStore | undefined;
-
 export function registerMigrations(context: vscode.ExtensionContext, store: MigrationsStore): void {
-  storeRef = store;
+  const view = new SweepView(store);
   context.subscriptions.push(
     store,
+    view,
     vscode.commands.registerCommand("bynk.migrate.refresh", async () => {
       const roots = await migrationRoots();
       await Promise.all(roots.map((r) => store.refresh(r)));
     }),
-    vscode.commands.registerCommand("bynk.migrate.sweep", (arg?: unknown) => startSweep(store, arg)),
-    { dispose: () => panel?.dispose() },
+    vscode.commands.registerCommand("bynk.migrate.sweep", (arg?: unknown) => view.startSweep(arg)),
   );
 }
 
@@ -158,54 +154,6 @@ function parseArg(arg: unknown): { root?: vscode.Uri; preset: Preset; cls?: stri
   if (typeof a.context === "string") preset.context = a.context;
   const status = rec(a.status);
   return { root, preset, cls: typeof status.class === "string" ? status.class : undefined };
-}
-
-async function startSweep(store: MigrationsStore, arg: unknown): Promise<void> {
-  const parsed = parseArg(arg);
-  const root = parsed.root ?? (await findProjectRoot());
-  if (!root) {
-    void vscode.window.showErrorMessage("Bynk: no bynk.toml found in the workspace.");
-    return;
-  }
-  const state = await store.refresh(root);
-  if (state.kind === "missing") {
-    await reportBynkNotFound();
-    return;
-  }
-  if (state.kind === "failed") {
-    void vscode.window.showErrorMessage(
-      `Bynk: \`bynk migrate status\` could not report: ${state.detail.split("\n")[0] || "no output"}`,
-    );
-    return;
-  }
-  const classes = state.classes;
-  if (classes.length === 0) {
-    void vscode.window.showInformationMessage("Bynk: no agent classes are recorded in bynk.schema.lock; nothing to sweep.");
-    return;
-  }
-  const { preset } = parsed;
-  if (preset.environment !== undefined && !validEnvironmentName(preset.environment)) {
-    void vscode.window.showErrorMessage(`Bynk: ${JSON.stringify(preset.environment)} is not an environment name.`);
-    return;
-  }
-  if (preset.context && !validContextName(preset.context)) {
-    void vscode.window.showErrorMessage(
-      `Bynk: ${JSON.stringify(preset.context)} is not a context name (\`commerce.orders\` or \`commerce-orders\`).`,
-    );
-    return;
-  }
-  const scope = preset.context ?? (parsed.cls ? contextOf(parsed.cls) : await pickScope(classes));
-  if (scope === undefined) return;
-  const target: SweepTarget = { environments: [] };
-  if (scope) target.context = scope;
-  let environment: string | undefined = preset.environment;
-  if (environment === undefined) {
-    // A preset that names only a context sweeps every recorded environment.
-    environment = preset.context !== undefined ? "" : await pickEnvironment(classes, target);
-    if (environment === undefined) return; // cancelled
-  }
-  if (environment) target.environments = [environment];
-  await showPlan({ root, target, environments: sweptEnvironments(classes, target) }, classes);
 }
 
 /** The whole project (`""`) or one context; `undefined` when cancelled. A
@@ -241,86 +189,147 @@ async function pickEnvironment(classes: ClassStatus[], target: SweepTarget): Pro
   return picked?.environment;
 }
 
-/** Show (or refresh) the sweep plan view. */
-async function showPlan(input: PlanState, classes: ClassStatus[]): Promise<void> {
-  const next = { ...input, environments: sweptEnvironments(classes, input.target) };
-  planned = next;
-  const confirmation = typedConfirmation(next.environments);
-  if (!panel) {
-    panel = vscode.window.createWebviewPanel("bynkSweepPlan", "Bynk Sweep Plan", vscode.ViewColumn.Active, {
-      enableScripts: true,
-    });
-    panel.onDidDispose(() => {
-      panel = undefined;
-      planned = undefined;
-    });
-    panel.webview.onDidReceiveMessage((m: unknown) => {
-      if (isActionMessage(m) && planned) void onAction(m.action, planned);
-    });
-  }
-  const title = `Bynk Sweep Plan: ${next.target.environments[0] ?? "all environments"}`;
-  panel.title = title;
-  panel.webview.html = renderActionHtml(
-    panel.webview,
-    title,
-    renderSweepPlanHtml(classes, { target: next.target, confirmation }),
-    PLAN_CSS,
-  );
-  panel.reveal();
-}
+/** The sweep plan's one panel and the plan it shows. */
+class SweepView implements vscode.Disposable {
+  private panel: vscode.WebviewPanel | undefined;
+  private planned: PlanState | undefined;
 
-async function onAction(action: string, current: PlanState): Promise<void> {
-  if (action === "refresh") {
-    const state = storeRef ? await storeRef.refresh(current.root) : undefined;
-    if (state?.kind === "status") {
-      await showPlan(current, state.classes);
-    } else {
-      // Keep the plan the user was looking at, but say why it is not refreshed.
-      void vscode.window.showErrorMessage(
-        `Bynk: the sweep plan could not be refreshed: ${state?.kind === "failed" ? state.detail.split("\n")[0] : "bynk is not available"}`,
-      );
+  constructor(private readonly store: MigrationsStore) {}
+
+  dispose(): void {
+    this.panel?.dispose();
+  }
+
+  async startSweep(arg: unknown): Promise<void> {
+    const parsed = parseArg(arg);
+    const root = parsed.root ?? (await findProjectRoot());
+    if (!root) {
+      void vscode.window.showErrorMessage("Bynk: no bynk.toml found in the workspace.");
+      return;
     }
-  } else if (action === "sweep") {
-    await runSweep(current);
+    const state = await this.store.refresh(root);
+    if (state.kind === "missing") {
+      await reportBynkNotFound();
+      return;
+    }
+    if (state.kind === "failed") {
+      void vscode.window.showErrorMessage(
+        `Bynk: \`bynk migrate status\` could not report: ${state.detail.split("\n")[0] || "no output"}`,
+      );
+      return;
+    }
+    const classes = state.classes;
+    if (classes.length === 0) {
+      void vscode.window.showInformationMessage("Bynk: no agent classes are recorded in bynk.schema.lock; nothing to sweep.");
+      return;
+    }
+    const { preset } = parsed;
+    if (preset.environment !== undefined && !validEnvironmentName(preset.environment)) {
+      void vscode.window.showErrorMessage(`Bynk: ${JSON.stringify(preset.environment)} is not an environment name.`);
+      return;
+    }
+    if (preset.context && !validContextName(preset.context)) {
+      void vscode.window.showErrorMessage(
+        `Bynk: ${JSON.stringify(preset.context)} is not a context name (\`commerce.orders\` or \`commerce-orders\`).`,
+      );
+      return;
+    }
+    const scope = preset.context ?? (parsed.cls ? contextOf(parsed.cls) : await pickScope(classes));
+    if (scope === undefined) return;
+    const target: SweepTarget = { environments: [] };
+    if (scope) target.context = scope;
+    let environment: string | undefined = preset.environment;
+    if (environment === undefined) {
+      // A preset that names only a context sweeps every recorded environment.
+      environment = preset.context !== undefined ? "" : await pickEnvironment(classes, target);
+      if (environment === undefined) return; // cancelled
+    }
+    if (environment) target.environments = [environment];
+    await this.showPlan({ root, target, environments: sweptEnvironments(classes, target) }, classes);
   }
-}
 
-/** The typed confirmation (production only), then a modal, then the terminal. */
-async function runSweep(current: PlanState): Promise<void> {
-  const envs = current.environments;
-  const phrase = typedConfirmation(envs);
-  if (phrase) {
-    const typed = await vscode.window.showInputBox({
-      title: "Sweep production?",
-      prompt: `This sweep touches ${envs.filter(isProductionEnvironment).join(", ")}. Type "${phrase}" to continue.`,
-      validateInput: (v) => (v === phrase ? undefined : `Type ${phrase} exactly.`),
-    });
-    if (typed !== phrase) return;
+  /** Show (or refresh) the sweep plan view. */
+  async showPlan(input: PlanState, classes: ClassStatus[]): Promise<void> {
+    const next = { ...input, environments: sweptEnvironments(classes, input.target) };
+    this.planned = next;
+    const confirmation = typedConfirmation(next.environments);
+    if (!this.panel) {
+      const panel = (this.panel = vscode.window.createWebviewPanel("bynkSweepPlan", "Bynk Sweep Plan", vscode.ViewColumn.Active, {
+        enableScripts: true,
+      }));
+      panel.onDidDispose(() => {
+        this.panel = undefined;
+        this.planned = undefined;
+      });
+      panel.webview.onDidReceiveMessage((m: unknown) => {
+        if (isActionMessage(m) && this.planned) void this.onAction(m.action, this.planned);
+      });
+    }
+    const panel = this.panel;
+    const title = `Bynk Sweep Plan: ${next.target.environments[0] ?? "all environments"}`;
+    panel.title = title;
+    panel.webview.html = renderActionHtml(
+      panel.webview,
+      title,
+      renderSweepPlanHtml(classes, { target: next.target, confirmation }),
+      PLAN_CSS,
+    );
+    panel.reveal();
   }
-  const args = sweepArgs(current.target);
-  const go = "Open Terminal and Sweep";
-  const choice = await vscode.window.showWarningMessage(
-    `Sweep ${envs.length > 0 ? envs.join(", ") : "the recorded environments"}?`,
-    {
-      modal: true,
-      detail: `This runs \`bynk ${args.join(" ")}\` in a terminal. bynk lists the instances and asks you to confirm there before it changes anything on your Cloudflare account.`,
-    },
-    go,
-  );
-  if (choice !== go) return;
-  const override = bynkEnv().BYNK_BYNKC;
-  const terminal = vscode.window.createTerminal({
-    name: `Bynk Sweep (${envs.join(", ") || "all"})`,
-    cwd: current.root,
-    shellPath: bynkPath(),
-    shellArgs: args,
-    env: override ? { BYNK_BYNKC: override } : undefined,
-  });
-  terminal.show();
-  // The lock may change when the run ends: refresh when the terminal closes.
-  const sub = vscode.window.onDidCloseTerminal((t) => {
-    if (t !== terminal) return;
-    sub.dispose();
-    storeRef?.invalidate();
-  });
+
+  private async onAction(action: string, current: PlanState): Promise<void> {
+    if (action === "refresh") {
+      const state = await this.store.refresh(current.root);
+      if (state.kind === "status") {
+        await this.showPlan(current, state.classes);
+      } else {
+        // Keep the plan the user was looking at, but say why it is not refreshed.
+        void vscode.window.showErrorMessage(
+          `Bynk: the sweep plan could not be refreshed: ${state.kind === "failed" ? state.detail.split("\n")[0] : "bynk is not available"}`,
+        );
+      }
+    } else if (action === "sweep") {
+      await this.runSweep(current);
+    }
+  }
+
+  /** The typed confirmation (production only), then a modal, then the terminal. */
+  private async runSweep(current: PlanState): Promise<void> {
+    const envs = current.environments;
+    const phrase = typedConfirmation(envs);
+    if (phrase) {
+      const typed = await vscode.window.showInputBox({
+        title: "Sweep production?",
+        prompt: `This sweep touches ${envs.filter(isProductionEnvironment).join(", ")}. Type "${phrase}" to continue.`,
+        validateInput: (v) => (v === phrase ? undefined : `Type ${phrase} exactly.`),
+      });
+      if (typed !== phrase) return;
+    }
+    const args = sweepArgs(current.target);
+    const go = "Open Terminal and Sweep";
+    const choice = await vscode.window.showWarningMessage(
+      `Sweep ${envs.length > 0 ? envs.join(", ") : "the recorded environments"}?`,
+      {
+        modal: true,
+        detail: `This runs \`bynk ${args.join(" ")}\` in a terminal. bynk lists the instances and asks you to confirm there before it changes anything on your Cloudflare account.`,
+      },
+      go,
+    );
+    if (choice !== go) return;
+    const override = bynkEnv().BYNK_BYNKC;
+    const terminal = vscode.window.createTerminal({
+      name: `Bynk Sweep (${envs.join(", ") || "all"})`,
+      cwd: current.root,
+      shellPath: bynkPath(),
+      shellArgs: args,
+      env: override ? { BYNK_BYNKC: override } : undefined,
+    });
+    terminal.show();
+    // The lock may change when the run ends: refresh when the terminal closes.
+    const sub = vscode.window.onDidCloseTerminal((t) => {
+      if (t !== terminal) return;
+      sub.dispose();
+      this.store.invalidate();
+    });
+  }
 }

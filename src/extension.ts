@@ -102,20 +102,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   viewRefresh = new ViewRefresh(() => client);
   context.subscriptions.push(viewRefresh);
 
-  // The features that need only the context, the hub, the client getter or the
-  // output channel: see features.ts (add new ones there, not here).
   const driverSupport = newDriverSupport();
-  registerFeatures({ context, output, viewRefresh, client: () => client, driverSupport });
+  // #2473: review and approve the npm packages dependencies' adapters ask for;
+  // pending ones are found in `check`/`dev`/`deploy` output, and badge the
+  // Project view. Built before the feature table, whose `dev` and `deploy`
+  // report their output to it.
+  const approvals = registerApproveRequirements(context);
+  // The features that need only the context, the hub, the client getter, the
+  // output channel, the driver support or the approvals: see features.ts (add
+  // new ones there, not here).
+  registerFeatures({ context, output, viewRefresh, client: () => client, driverSupport, approvals });
 
   // v0.59: the Test Explorer — runs `bynkc test --format json`. v0.78: also discovers
   // eagerly and exposes case locations for the Test CodeLens. #2269: its Watch toggle
   // reruns on the hub's change signal, so the hub is built first.
   const testApi = registerTesting(context, viewRefresh, driverSupport);
-
-  // #2473: review and approve the npm packages dependencies' adapters ask for;
-  // pending ones are found in `check`/`dev`/`deploy` output, and badge the
-  // Project view.
-  const approvals = registerApproveRequirements(context);
 
   // v0.78: a `▷ Run | Debug` CodeLens above each test case (+ native gutter glyphs
   // from the eager discovery above).
