@@ -9,6 +9,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 
@@ -61,16 +62,6 @@ function find(entries: Entry[] | undefined, ...labels: string[]): Entry | undefi
     list = hit?.children;
   }
   return hit;
-}
-
-async function waitFor<T>(fn: () => Thenable<T> | T, ok: (v: T) => boolean, what: string, timeoutMs = 45_000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const v = await fn();
-    if (ok(v)) return v;
-    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await new Promise((r) => setTimeout(r, 500));
-  }
 }
 
 describe("Bynk project sidebar (#2097)", () => {

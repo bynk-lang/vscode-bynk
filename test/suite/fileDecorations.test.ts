@@ -10,6 +10,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { useFakeBynk } from "./fakeBynk";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 const FIXTURES = path.resolve(__dirname, "../../../test/fixtures");
@@ -25,16 +26,6 @@ interface Decoration {
 
 const decoration = (file: string): Thenable<Decoration> =>
   vscode.commands.executeCommand<Decoration>("bynk._fileDecoration", vscode.Uri.file(file).toString());
-
-async function waitFor<T>(fn: () => Thenable<T>, ok: (v: T) => boolean, what: string, timeoutMs = 15_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const v = await fn();
-    if (ok(v)) return v;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await new Promise((r) => setTimeout(r, 100));
-  }
-}
 
 describe("Bynk Explorer file decorations (#2478)", () => {
   let dir: string;

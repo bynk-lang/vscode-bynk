@@ -8,7 +8,8 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as vscode from "vscode";
 
-import { FAKE_BYNK, useFakeBynk, waitFor, type FakeLogEntry } from "./fakeBynk";
+import { FAKE_BYNK, useFakeBynk, type FakeLogEntry } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 describe("Debugging a set of tests", () => {
   let fake: Awaited<ReturnType<typeof useFakeBynk>>;
@@ -46,7 +47,7 @@ describe("Debugging a set of tests", () => {
     this.timeout(60_000);
     const from = fake.read().length;
     await launch({ suites: ["text"], cases: ["one", "two"] });
-    await waitFor(() => inspects(from).length >= 1, "the inspected run");
+    await waitFor(() => inspects(from).length >= 1, truthy, "the inspected run");
     const argv = inspects(from)[0];
     assert.deepStrictEqual(argv.slice(argv.indexOf("--inspect") + 1), [
       "--suite",
@@ -63,7 +64,7 @@ describe("Debugging a set of tests", () => {
     process.env.BYNK_FAKE_SETS = "unsupported";
     const from = fake.read().length;
     await launch({ suites: ["text"], cases: ["one", "two"] });
-    await waitFor(() => inspects(from).length >= 2, "the unfiltered retry");
+    await waitFor(() => inspects(from).length >= 2, truthy, "the unfiltered retry");
     const [first, second] = inspects(from);
     assert.ok(first.includes("--suite"), `the set was tried first: ${JSON.stringify(first)}`);
     assert.deepStrictEqual(second.slice(second.indexOf("--inspect") + 1), [], "then the whole project");

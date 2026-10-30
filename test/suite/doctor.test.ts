@@ -6,7 +6,8 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 
-import { useFakeBynk, waitFor } from "./fakeBynk";
+import { useFakeBynk } from "./fakeBynk";
+import { truthy, waitFor } from "./util";
 
 function doctorTabOpen(): boolean {
   return vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.label === "Bynk Doctor"));
@@ -28,7 +29,7 @@ describe("Bynk: Doctor (#2095)", () => {
     if (process.platform === "win32") this.skip();
     this.timeout(30_000);
     await vscode.commands.executeCommand("bynk.doctor", { only: "test" });
-    await waitFor(doctorTabOpen, "the doctor view");
+    await waitFor(doctorTabOpen, truthy, "the doctor view");
     const run = fake.read().find((e) => e.argv?.[0] === "doctor");
     assert.deepStrictEqual(run?.argv, ["doctor", "--format", "json", "--only", "test", "."]);
   });

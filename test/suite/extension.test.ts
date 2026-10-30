@@ -1,6 +1,7 @@
 import * as assert from "assert";
 
 import * as vscode from "vscode";
+import { present, waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 
@@ -8,26 +9,6 @@ function fixtureUri(rel: string): vscode.Uri {
   const folder = vscode.workspace.workspaceFolders?.[0];
   assert.ok(folder, "a fixture workspace folder is open");
   return vscode.Uri.joinPath(folder.uri, rel);
-}
-
-/** Poll `fn` until it yields a non-empty result or the timeout elapses. The
- *  language server analyses asynchronously, so LSP requests right after open
- *  can return nothing until the first analysis round lands. */
-async function waitFor<T>(
-  fn: () => Thenable<T | undefined>,
-  what: string,
-  timeoutMs = 40_000,
-): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const value = await fn();
-    const nonEmpty = Array.isArray(value) ? value.length > 0 : value !== undefined;
-    if (nonEmpty) return value as T;
-    if (Date.now() - start > timeoutMs) {
-      throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`);
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
 }
 
 describe("Bynk extension", () => {
@@ -96,6 +77,7 @@ describe("Bynk extension", () => {
           doc.uri,
           pos,
         ),
+      present,
       "definition of `shout`",
     );
     assert.ok(defs.length > 0, "at least one definition location");
@@ -111,6 +93,7 @@ describe("Bynk extension", () => {
           doc.uri,
           pos,
         ),
+      present,
       "references of `shout`",
     );
     assert.ok(refs.length >= 1, "`shout` has at least one reference");
@@ -131,6 +114,7 @@ describe("Bynk extension", () => {
           "vscode.executeCodeLensProvider",
           doc.uri,
         ),
+      present,
       "code lenses",
     );
     const refLens = lenses.find(

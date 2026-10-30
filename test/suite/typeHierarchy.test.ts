@@ -1,27 +1,9 @@
 import * as assert from "assert";
 
 import * as vscode from "vscode";
+import { present, waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
-
-/** Poll `fn` until it yields a non-empty result or the timeout elapses. The
- *  server registers type hierarchy dynamically at `initialized` and analyses
- *  asynchronously, so a request right after open can come back empty. */
-async function waitFor<T>(
-  fn: () => Thenable<T[] | undefined>,
-  what: string,
-  timeoutMs = 40_000,
-): Promise<T[]> {
-  const start = Date.now();
-  for (;;) {
-    const value = await fn();
-    if (value && value.length > 0) return value;
-    if (Date.now() - start > timeoutMs) {
-      throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`);
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
 
 describe("Bynk type hierarchy", () => {
   let doc: vscode.TextDocument;
@@ -55,6 +37,7 @@ describe("Bynk type hierarchy", () => {
           doc.uri,
           pos,
         ),
+      present,
       "type hierarchy prepare on `Qty`",
     );
     assert.strictEqual(items[0].name, "Qty");
@@ -96,6 +79,7 @@ describe("Bynk type hierarchy", () => {
           doc.uri,
           pos,
         ),
+      present,
       "type hierarchy prepare on `Int`",
     );
     assert.strictEqual(items[0].name, "Int");

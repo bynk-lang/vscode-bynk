@@ -8,6 +8,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 const VIEW = "bynkAgentState";
@@ -69,16 +70,6 @@ agent Counter {
 
 function state(): Thenable<Snapshot> {
   return vscode.commands.executeCommand<Snapshot>("bynk._liveViewState", VIEW);
-}
-
-async function waitFor<T>(fn: () => Thenable<T> | T, ok: (v: T) => boolean, what: string, timeoutMs = 30_000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const v = await fn();
-    if (ok(v)) return v;
-    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
-    await new Promise((r) => setTimeout(r, 200));
-  }
 }
 
 function lineOf(needle: string): number {

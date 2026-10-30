@@ -8,6 +8,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { present, truthy, waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 
@@ -19,16 +20,6 @@ service api from http {
   }
 }
 `;
-
-async function waitFor<T>(fn: () => T | undefined, what: string, timeoutMs = 40_000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const v = fn();
-    if (v !== undefined) return v;
-    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
 
 const emittedDoc = () =>
   vscode.workspace.textDocuments.find((d) => d.uri.scheme === "bynk-emitted");
@@ -72,7 +63,7 @@ describe("Bynk compiled output (#2471)", () => {
       if (!uri) await new Promise((r) => setTimeout(r, 500));
     }
     assert.ok(uri, "the command opened a compiled-output document");
-    const out = await waitFor(() => emittedDoc(), "the bynk-emitted document");
+    const out = await waitFor(emittedDoc, present, "the bynk-emitted document");
     assert.ok(out.uri.path.endsWith(".ts"), `a TypeScript module: ${out.uri.path}`);
     assert.ok(out.getText().includes("hello"), "it holds the generated handler");
 
@@ -82,7 +73,8 @@ describe("Bynk compiled output (#2471)", () => {
     await vscode.workspace.applyEdit(edit);
     assert.ok(doc.isDirty, "the edit is unsaved");
     await waitFor(
-      () => (emittedDoc()?.getText().includes("goodbye") ? true : undefined),
+      () => emittedDoc()?.getText().includes("goodbye"),
+      truthy,
       "the view to follow the unsaved edit",
     );
     assert.ok(!fs.readFileSync(probe, "utf8").includes("goodbye"), "disk is unchanged");

@@ -10,6 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import * as vscode from "vscode";
+import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
 
@@ -18,23 +19,6 @@ interface Model {
   base: string;
   clauses: Array<{ source: string; description: string; check: string }>;
   examples: string[];
-}
-
-async function waitFor<T>(
-  fn: () => Thenable<T | undefined>,
-  ok: (value: T) => boolean,
-  what: string,
-  timeoutMs = 40_000,
-): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const value = await fn();
-    if (value !== undefined && ok(value)) return value;
-    if (Date.now() - start > timeoutMs) {
-      throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`);
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
 }
 
 describe("Bynk refined-type explorer (#2470)", () => {
