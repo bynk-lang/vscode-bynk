@@ -22,7 +22,7 @@ describe("Bynk debug command (#44)", () => {
 
   it("bynk.debugTests does not hang on a debuggee that fills its pipes", async function () {
     if (process.platform === "win32") this.skip();
-    this.timeout(60_000);
+    this.timeout(90_000);
     process.env.BYNK_FAKE_CHATTY = "1";
     // The provider hands VS Code a `node` attach to the fake's inspector port,
     // where nothing listens; catch it so no attach is attempted.
@@ -39,6 +39,8 @@ describe("Bynk debug command (#44)", () => {
         20_000,
       );
       assert.deepStrictEqual(launch.argv!.slice(0, 3), ["test", ".", "--inspect"]);
+      // The port parsed from the ready line, while output is still being written.
+      await waitFor(() => attached.find((c) => c.port === 9229), present, "the attach to the parsed port", 20_000);
       await waitFor(
         () => fake.read().some((e) => e.pid === launch.pid && e.exit === 0),
         truthy,

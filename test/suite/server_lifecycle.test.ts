@@ -7,6 +7,7 @@
 
 import * as assert from "assert";
 import { createHash } from "crypto";
+import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -14,6 +15,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { serverAssetName, targetTriple } from "../../src/server";
+import { alive } from "./fakeBynk";
 import { present, truthy, waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
@@ -33,15 +35,6 @@ function findOnPath(bin: string): string | undefined {
   return undefined;
 }
 
-const alive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 describe("Bynk server lifecycle (#44)", () => {
   const realFetch = globalThis.fetch;
   const window = vscode.window as unknown as { showErrorMessage: unknown };
@@ -55,6 +48,8 @@ describe("Bynk server lifecycle (#44)", () => {
   let previous: string | undefined;
   let errors: string[];
   let cached: string[];
+  /** The server the harness started at activation, before any wrapper. */
+  let harness: number[];
 
   /** Every process the wrapper has started (the `--version` probe included). */
   const spawned = (): Spawned[] =>
@@ -112,6 +107,11 @@ describe("Bynk server lifecycle (#44)", () => {
     pos = doc.positionAt(doc.getText().indexOf("shout(name)") + 1);
     // The start-up server answers before the tests swap it.
     await waitFor(answers, truthy, "the initial server to answer", 60_000);
+    harness = spawnSync("pgrep", ["-P", String(process.pid), "bynkc-lsp"], { encoding: "utf8" })
+      .stdout.split("\n")
+      .filter(Boolean)
+      .map(Number);
+    assert.ok(harness.length > 0, "the harness server is a child of the extension host");
     previous = vscode.workspace.getConfiguration("bynk").inspect<string>("executablePath")?.globalValue;
   });
 
@@ -134,7 +134,7 @@ describe("Bynk server lifecycle (#44)", () => {
   });
 
   after(async function () {
-    this.timeout(60_000);
+    this.timeout(150_000);
     window.showErrorMessage = realShowErrorMessage;
     (globalThis as { fetch: unknown }).fetch = realFetch;
     if (!dir) return;
@@ -152,6 +152,9 @@ describe("Bynk server lifecycle (#44)", () => {
     await vscode.commands.executeCommand("bynk.restartServer");
     const before = await settled("after the setting change");
     assert.strictEqual(before.path, wrapper);
+    for (const pid of harness) {
+      await waitFor(() => alive(pid), (a) => !a, "the harness server to exit once replaced", SHORT);
+    }
 
     await vscode.commands.executeCommand("bynk.restartServer");
     const after = await settled("after a restart");
@@ -162,8 +165,11 @@ describe("Bynk server lifecycle (#44)", () => {
   it("restarts issued together end with one server", async function () {
     this.timeout(90_000);
     await setPath(wrapper);
+    await vscode.commands.executeCommand("bynk.restartServer");
+    const before = await settled("before the restarts");
     await Promise.all([1, 2, 3].map(() => vscode.commands.executeCommand("bynk.restartServer")));
-    await settled("after three restarts");
+    const after = await settled("after three restarts");
+    assert.notStrictEqual(after.pid, before.pid, "the restarts replaced the server");
   });
 
   it("a restart supersedes a download in flight", async function () {

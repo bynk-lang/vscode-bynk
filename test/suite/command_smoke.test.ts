@@ -45,9 +45,10 @@ describe("Bynk command smoke tests (#44)", () => {
 
   it("bynk.migrate.refresh asks the driver for the migration status", async function () {
     if (process.platform === "win32") this.skip();
+    const seen = fake.read().length;
     await vscode.commands.executeCommand("bynk.migrate.refresh");
     await waitFor(
-      () => fake.read().some((e) => e.argv?.[0] === "migrate" && e.argv[1] === "status"),
+      () => fake.read().slice(seen).some((e) => e.argv?.[0] === "migrate" && e.argv[1] === "status"),
       truthy,
       "`bynk migrate status` to run",
     );

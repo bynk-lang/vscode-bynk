@@ -6,17 +6,8 @@ import * as assert from "assert";
 
 import * as vscode from "vscode";
 
-import { useFakeBynk } from "./fakeBynk";
+import { alive, useFakeBynk } from "./fakeBynk";
 import { present, waitFor } from "./util";
-
-const alive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 interface FakeQuickPick {
   items: (vscode.QuickPickItem & { run?: () => unknown; url?: string })[];
@@ -27,7 +18,6 @@ interface FakeQuickPick {
 }
 
 describe("Bynk dev server restart and cleanup (#44)", function () {
-  this.timeout(60_000);
   let fake: Awaited<ReturnType<typeof useFakeBynk>>;
   const window = vscode.window as unknown as { createQuickPick: unknown };
   const realCreateQuickPick = window.createQuickPick;
@@ -37,8 +27,9 @@ describe("Bynk dev server restart and cleanup (#44)", function () {
   let seen = 0;
   const devRuns = () => fake.read().slice(seen).filter((e) => e.argv?.[0] === "dev");
   const devPids = () => [...new Set(devRuns().map((e) => e.pid!))];
-  const running = () => devPids().filter(alive);
-  const allGone = () => waitFor(running, (l) => l.length === 0, "every `bynk dev` process to exit", 20_000);
+  const grandchildren = () => fake.read().slice(seen).flatMap((e) => (e.grandchild ? [e.grandchild] : []));
+  const running = () => [...devPids(), ...grandchildren()].filter(alive);
+  const allGone = () => waitFor(running, (l) => l.length === 0, "every `bynk dev` process and its child to exit", 20_000);
   const stop = () => vscode.commands.executeCommand("bynk.stopDevServer");
 
   /** Open the menu and return what it offered; its pick is made with `choose`. */
@@ -91,14 +82,17 @@ describe("Bynk dev server restart and cleanup (#44)", function () {
 
   it("restartDevServer replaces the session and leaves no process behind", async function () {
     if (process.platform === "win32") this.skip();
+    this.timeout(150_000);
     await vscode.commands.executeCommand("bynk.startDevServer");
     await waitFor(devPids, (l) => l.length === 1, "the first `bynk dev`", 20_000);
     const [first] = devPids();
+    const [firstChild] = await waitFor(grandchildren, (l) => l.length === 1, "its child", 20_000);
 
     await vscode.commands.executeCommand("bynk.restartDevServer");
     await waitFor(devPids, (l) => l.length === 2, "the restarted `bynk dev`", 20_000);
     const second = devPids().find((p) => p !== first)!;
     await waitFor(() => alive(first), (a) => !a, "the first `bynk dev` to exit", 20_000);
+    await waitFor(() => alive(firstChild), (a) => !a, "the first session's child to exit", 20_000);
     assert.ok(alive(second), "the restarted `bynk dev` is running");
     const [a, b] = devRuns();
     assert.deepStrictEqual(b.argv, a.argv, "a restart runs the same command");
@@ -109,6 +103,7 @@ describe("Bynk dev server restart and cleanup (#44)", function () {
 
   it("devServerMenu starts a session, copies a context's URL, restarts and stops", async function () {
     if (process.platform === "win32") this.skip();
+    this.timeout(240_000);
     const idle = await openMenu();
     assert.deepStrictEqual(
       idle.items.map((i) => i.label),

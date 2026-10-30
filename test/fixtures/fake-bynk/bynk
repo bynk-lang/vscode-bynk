@@ -39,6 +39,11 @@ if (args[0] === "book") {
   // `bynk dev --format json`: listen on a free port (so the controller's
   // readiness probe succeeds), report it in a `serving` event, then serve until
   // stopped, as the real driver does.
+  // A child that outlives its parent unless the whole process group is stopped,
+  // as wrangler's workers do; its pid is logged so a test can check it is gone.
+  const sleeper = require("child_process").spawn("sleep", ["300"], { stdio: "ignore" });
+  sleeper.unref();
+  record({ grandchild: sleeper.pid });
   const server = net.createServer((socket) => socket.end());
   server.listen(0, "127.0.0.1", () => {
     const port = server.address().port;
@@ -81,7 +86,12 @@ if (args[0] === "book") {
   process.on("SIGINT", () => stop("SIGINT", 130));
 } else if (args[0] === "openapi") {
   // `bynk openapi <root> --out <file>`: writes a stub document to `--out`.
-  fs.writeFileSync(args[args.indexOf("--out") + 1], '{"openapi":"3.1.0","info":{"title":"fake","version":"0"}}\n');
+  const out = args.indexOf("--out");
+  if (out < 0 || !args[out + 1]) {
+    process.stderr.write("fake bynk: openapi needs --out <file>\n");
+    process.exit(2);
+  }
+  fs.writeFileSync(args[out + 1], '{"openapi":"3.1.0","info":{"title":"fake","version":"0"}}\n');
   process.exit(0);
 } else if (args[0] === "deploy") {
   if (args.includes("--dry-run") && args.includes("json")) {
@@ -240,12 +250,18 @@ if (args[0] === "book") {
   // (about 64 KB) to stdout and stderr before it exits. It blocks on the write
   // until the extension reads, so it only gets to exit 0 if its output is drained.
   if (process.env.BYNK_FAKE_CHATTY) {
+    // Half before the ready line, which the reader is waiting on, and half after
+    // it, when that wait is over and only the session's drain is left to read.
     const line = "x".repeat(1023) + "\n";
-    for (let i = 0; i < 256; i++) {
-      process.stdout.write(line);
-      process.stderr.write(line);
-    }
+    const burst = () => {
+      for (let i = 0; i < 128; i++) {
+        process.stdout.write(line);
+        process.stderr.write(line);
+      }
+    };
+    burst();
     process.stderr.write("Debugger listening on ws://127.0.0.1:9229/fake\n");
+    burst();
     // Not `process.exit`: that would drop writes still queued behind a full pipe,
     // and the point is that they are not dropped but waited on.
     process.exitCode = 0;
