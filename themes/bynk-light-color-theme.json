@@ -476,8 +476,6 @@
     "decorator": "#6b4aa0",
     "asset": "#a3410f",
     "embed": "#a3410f",
-    "constant": "#a3410f",
-    "escape": "#a3410f",
     "comment.documentation": {
       "foreground": "#4f6b5e",
       "italic": true

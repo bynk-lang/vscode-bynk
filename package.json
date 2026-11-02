@@ -123,16 +123,6 @@
         "id": "embed",
         "superType": "variable",
         "description": "A Bynk embed (a project file's text as a `String` constant, `embed name = \"path\"`)."
-      },
-      {
-        "id": "constant",
-        "superType": "variable",
-        "description": "A Bynk constant (`const NAME: T = expr`)."
-      },
-      {
-        "id": "escape",
-        "superType": "string",
-        "description": "An escape sequence inside a string literal (`\\n`, `\\u{...}`)."
       }
     ],
     "semanticTokenModifiers": [
@@ -176,12 +166,6 @@
           ],
           "embed": [
             "variable.other.constant"
-          ],
-          "constant": [
-            "variable.other.constant"
-          ],
-          "escape": [
-            "constant.character.escape"
           ],
           "type.refined": [
             "support.type"

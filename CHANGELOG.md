@@ -14,11 +14,7 @@ version).
 
 ### Fixed
 
-- Keeps the extension in step with `bynk` main's editor contract: `const` is
-  highlighted as a declaration keyword, the server's `constant` and `escape`
-  semantic token types are declared, mapped to theme scopes and coloured by both
-  themes, and the
-  `bynk doctor` fixture follows the compiler's golden. (#72)
+- Highlights `const` as a declaration keyword, which `bynk` main reserves. (#72)
 
 ## [0.447.0] - 2026-10-30
 
