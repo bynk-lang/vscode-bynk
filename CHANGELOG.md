@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Fixed
+
+- Highlights `const` as a declaration keyword, which `bynk` main reserves. (#72)
+
 ## [0.447.0] - 2026-10-30
 
 Built against `bynk` v0.447.0.
