@@ -20,6 +20,7 @@ version).
   themes, and the
   `bynk doctor` fixture follows the compiler's golden. (#72)
 - Highlights `Decimal` as a built-in type.
+- Highlights decimal literals (`1.20d`, `5d`, `0.005d`) as numbers. (#73)
 
 ## [0.447.0] - 2026-10-30
 
