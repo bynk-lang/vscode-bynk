@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+## [0.492.1] - 2026-11-03
+
+Built against `bynk` v0.492.1.
+
 ### Fixed
 
 - Keeps the extension in step with `bynk` main's editor contract: `const` is
