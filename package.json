@@ -14,7 +14,7 @@
   "//bynkServerMinVersion": "The oldest bynkc-lsp this extension works against: older servers lack requests it calls. Unlike bynkServerVersion it is moved by hand, when the extension starts to need something newer (src/server.ts).",
   "bynkServerMinVersion": "v0.434.0",
   "engines": {
-    "vscode": "^1.140.0"
+    "vscode": "^1.144.0"
   },
   "categories": [
     "Programming Languages",
