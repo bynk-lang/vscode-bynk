@@ -19,13 +19,9 @@ service cache {
   on call(key: String, e: Entry) -> Effect[Option[Entry]] given Kv {
     let _ <- Kv.putTtl(key, Json.encode(e), 60)
     let stored <- Kv.get(key)
-    match stored {
-      Some(s) => match Json.decode[Entry](s) {
-        Ok(decoded) => Some(decoded)
-        Err(_) => None
-      }
-      None => None
-    }
+    let Some(s) = stored else { None }
+    let Ok(decoded) = Json.decode[Entry](s) else { None }
+    Some(decoded)
   }
 }
 
