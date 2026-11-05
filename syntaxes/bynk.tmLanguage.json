@@ -8,6 +8,8 @@
     { "include": "#doc-line" },
     { "include": "#line-comment" },
     { "include": "#annotations" },
+    { "include": "#keyword-members" },
+    { "include": "#keyword-labels" },
     { "include": "#keywords" },
     { "include": "#builtins" },
     { "include": "#types" },
@@ -178,6 +180,32 @@
         "1": { "name": "punctuation.definition.annotation.bynk" },
         "2": { "name": "entity.name.function.decorator.bynk" }
       }
+    },
+    "keyword-labels": {
+      "comment": "#79 (bynk#2837): a reserved word names a field where it is a label, followed by `:` (`{ type: String }`, `Account { type: t, .. }`, `Push(from: …)`). The words are those #keywords and #constants colour unconditionally; a guarded contextual word (`key`, `store`, `trace`, …) is already an identifier before `:`. `::` and `:=` are not a label's colon.",
+      "name": "variable.other.property.bynk",
+      "match": "\\b(commons|context|adapter|binding|suite|case|property|type|event|asset|embed|const|fn|capability|provides|stub|service|agent|actor|invariant|transition|requires|ensures|exports|uses|consumes|protocol|messages|if|else|let|do|match|is|on|given|call|by|as|expect|from|http|cron|queue|websocket|schedule|message|self|opaque|transparent|where|implies|enum|record|called|never|once|times|before|returns|each|fails|true|false)\\b(?=\\s*:(?![:=]))"
+    },
+    "keyword-members": {
+      "comment": "#79 (bynk#2837): a reserved word after `.` on the same line is a member: a method when a call or type arguments follow (`Sorted.from(xs)`, `fn Sorted.from(…)`), a field otherwise (`a.type`). A one-line match keeps the compiler's same-line rule; `(?<!\\.)` leaves `..` and `...` alone. The words are #keyword-labels' plus `trace` and `faults`, whose guards a member can trip.",
+      "patterns": [
+        {
+          "match": "(?<!\\.)(\\.)[ \\t]*\\b(commons|context|adapter|binding|suite|case|property|type|event|asset|embed|const|fn|capability|provides|stub|service|agent|actor|invariant|transition|requires|ensures|exports|uses|consumes|protocol|messages|if|else|let|do|match|is|on|given|call|by|as|expect|from|http|cron|queue|websocket|schedule|message|self|opaque|transparent|where|implies|enum|record|called|never|once|times|before|returns|each|fails|true|false|trace|faults)\\b(?=\\s*[(\\[])",
+          "captures": {
+            "2": {
+              "name": "entity.name.function.member.bynk"
+            }
+          }
+        },
+        {
+          "match": "(?<!\\.)(\\.)[ \\t]*\\b(commons|context|adapter|binding|suite|case|property|type|event|asset|embed|const|fn|capability|provides|stub|service|agent|actor|invariant|transition|requires|ensures|exports|uses|consumes|protocol|messages|if|else|let|do|match|is|on|given|call|by|as|expect|from|http|cron|queue|websocket|schedule|message|self|opaque|transparent|where|implies|enum|record|called|never|once|times|before|returns|each|fails|true|false|trace|faults)\\b",
+          "captures": {
+            "2": {
+              "name": "variable.other.property.bynk"
+            }
+          }
+        }
+      ]
     },
     "keywords": {
       "patterns": [

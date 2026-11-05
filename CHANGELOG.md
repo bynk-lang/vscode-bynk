@@ -12,6 +12,13 @@ version).
 
 ## [Unreleased]
 
+### Fixed
+
+- Highlights a reserved word that names a field or member (bynk#2837) as a
+  property or method before semantic highlighting loads, or where it is off: a
+  field label before `:` (`{ type: String }`, `Push(from: …)`) and a member on
+  the `.`'s line (`a.type`, `fn Sorted.from(…)`, `r.message`). (#79)
+
 ## [0.492.1] - 2026-11-03
 
 Built against `bynk` v0.492.1.

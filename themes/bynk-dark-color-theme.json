@@ -373,6 +373,16 @@
       }
     },
     {
+      "name": "Properties (fields and members, as the server's property tokens)",
+      "scope": [
+        "variable.other.property.bynk",
+        "variable.other.property"
+      ],
+      "settings": {
+        "foreground": "#d5e3dc"
+      }
+    },
+    {
       "name": "Markdown headings in doc comments",
       "scope": [
         "markup.heading",
