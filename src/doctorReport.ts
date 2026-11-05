@@ -102,7 +102,8 @@ export function remedyActions(row: DoctorRow): RemedyActions {
   for (const m of remedy.matchAll(/`([^`]+)`/g)) add(m[1]);
   const urls = [...new Set([...remedy.matchAll(/https?:\/\/[^\s),]+/g)].map((m) => m[0]))];
   let setting: string | undefined;
-  if (row.label === "bynkc-lsp") setting = "bynk.executablePath";
+  // bynk v0.510.2 renamed the server row `bynkc-lsp` → `bynk-lsp`; older toolchains still send the old label.
+  if (row.label === "bynk-lsp" || row.label === "bynkc-lsp") setting = "bynk.executablePath";
   else if (row.label === "compiler" || row.label === "bynkc" || /BYNK_BYNKC/.test(remedy)) {
     setting = "bynk.compilerPath";
   }

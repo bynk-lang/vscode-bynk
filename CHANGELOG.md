@@ -25,6 +25,12 @@ version).
   refinement, and the full escape set (`\r`, `\0`, `\u{…}`). This brings the
   grammar in line with the site copy, which changes with it. (#90)
 
+### Fixed
+
+- The doctor report's "set path" action works again with bynk v0.510.2, which
+  renamed the language-server row `bynkc-lsp` → `bynk-lsp`; the old label is
+  still recognised. (#92)
+
 ## [0.508.4] - 2026-11-05
 
 Built against `bynk` v0.508.4.
