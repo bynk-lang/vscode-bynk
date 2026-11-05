@@ -2,13 +2,14 @@
 //
 // Resolution order, most explicit first:
 //   1. `bynk.executablePath` setting (absolute path the user pinned)
-//   2. `bynkc-lsp` on PATH (a dev/global install)
+//   2. `bynk-lsp` on PATH (a dev/global install), or the pre-v0.510 name
+//      `bynkc-lsp` when there is no `bynk-lsp`
 //   3. a previously-downloaded binary cached in the extension's global storage
-//   4. download-on-activate: fetch the matching per-platform `bynkc-lsp` from
+//   4. download-on-activate: fetch the matching per-platform `bynk-lsp` from
 //      this version's GitHub Release, verify it against the release's
 //      SHA256SUMS, cache it, and use it.
 //
-// The download fetches the *raw* binary asset (`bynkc-lsp-<target>[.exe]`), not
+// The download fetches the *raw* binary asset (`bynk-lsp-<target>[.exe]`), not
 // an archive, so the extension needs no tar/zip handling — just fetch + verify
 // + chmod.
 //
@@ -78,7 +79,7 @@ export function targetTriple(
  *  download fetches, so a downloaded or cached server is held to it. A server
  *  the user supplies (`PATH`, or the `bynk.executablePath` setting) is held to
  *  this extension build's own version instead. That is the compiler the build
- *  came from, so a contributor running a `bynkc-lsp` built from the same tree
+ *  came from, so a contributor running a `bynk-lsp` built from the same tree
  *  matches by construction, though it is newer than the pin. */
 export function expectedServerVersion(
   source: ResolvedServer["source"],
@@ -127,14 +128,23 @@ export function tooOldServerPrompt(
     case "setting":
       return { message: `${head} Update the one \`bynk.executablePath\` points to.`, action: "Open Settings" };
     case "path":
-      return { message: `${head} Update or remove that \`bynkc-lsp\` (${serverPath}); it takes precedence over a downloaded one.` };
+      return { message: `${head} Update or remove that \`${path.basename(serverPath)}\` (${serverPath}); it takes precedence over a downloaded one.` };
     default:
       return { message: head, action: "Download Matching Server" };
   }
 }
 
 /** A binary the extension can provision from a release. */
-export type Tool = "bynkc-lsp" | "bynk" | "bynkc";
+export type Tool = "bynk-lsp" | "bynk" | "bynkc";
+
+/** The language server's binary. bynk v0.510 renamed it from `bynkc-lsp`
+ *  (bynk-lang/bynk#2946), and that release still ships a `bynkc-lsp` copy as
+ *  well. The pin is v0.510.2 or later, so the download always uses the new
+ *  name. The old name is still looked for on PATH and in the cache. */
+export const SERVER = "bynk-lsp" satisfies Tool;
+/** The server's name before v0.510: an older install on PATH, or a cache filled
+ *  by an extension version from before the rename. */
+export const LEGACY_SERVER = "bynkc-lsp";
 
 /** The toolchain the extension manages beside the server: the driver and the
  *  compiler it runs. */
@@ -148,7 +158,7 @@ export function toolAssetName(tool: Tool, target: string): string {
 
 /** The release asset basename for the raw server binary on `target`. */
 export function serverAssetName(target: string): string {
-  return toolAssetName("bynkc-lsp", target);
+  return toolAssetName(SERVER, target);
 }
 
 export function cachedToolPath(
@@ -166,12 +176,17 @@ export function cachedToolPath(
   );
 }
 
+/** The cached server for `version`, under its current name or, from an
+ *  extension version before the rename, its old one. */
 function cachedServerPath(
   context: vscode.ExtensionContext,
   version: string,
   target: string,
-): string {
-  return cachedToolPath(context, version, target, "bynkc-lsp");
+): string | undefined {
+  const current = cachedToolPath(context, version, target, SERVER);
+  if (fs.existsSync(current)) return current;
+  const legacy = path.join(path.dirname(current), path.basename(current).replace(SERVER, LEGACY_SERVER));
+  return fs.existsSync(legacy) ? legacy : undefined;
 }
 
 function findOnPath(bin: string): string | undefined {
@@ -208,13 +223,13 @@ export function resolveExistingServer(
     return undefined;
   }
 
-  const onPath = findOnPath("bynkc-lsp");
+  const onPath = findOnPath(SERVER) ?? findOnPath(LEGACY_SERVER);
   if (onPath) return { path: onPath, source: "path" };
 
   const target = targetTriple();
   if (target) {
     const cached = cachedServerPath(context, serverVersion(context), target);
-    if (fs.existsSync(cached)) return { path: cached, source: "cached" };
+    if (cached) return { path: cached, source: "cached" };
   }
   return undefined;
 }
@@ -298,7 +313,7 @@ async function downloadTools(
   }
   const version = serverVersion(context);
   const base = `https://github.com/${COMPILER_REPO}/releases/download/${version}`;
-  const log = tools.includes("bynkc-lsp") ? "[server]" : "[toolchain]";
+  const log = tools.includes(SERVER) ? "[server]" : "[toolchain]";
 
   return vscode.window.withProgress(
     {
@@ -364,8 +379,8 @@ export async function downloadServer(
   output: vscode.OutputChannel,
   cancel?: AbortSignal,
 ): Promise<string> {
-  const paths = await downloadTools(context, output, ["bynkc-lsp"], "language server", cancel);
-  return paths.get("bynkc-lsp")!;
+  const paths = await downloadTools(context, output, [SERVER], "language server", cancel);
+  return paths.get(SERVER)!;
 }
 
 /** Download, verify and cache the `bynk` driver and `bynkc` compiler beside the
@@ -415,11 +430,11 @@ export function readServerVersion(serverPath: string): Promise<string | undefine
 }
 
 /** Pull a bare `MAJOR.MINOR.PATCH` out of a version string, tolerating a
- *  leading name and/or `v` (`"bynkc-lsp 0.129.0"`, `"v0.132.1"`,
+ *  leading name and/or `v` (`"bynk-lsp 0.129.0"`, `"v0.132.1"`,
  *  `"0.132.1"`). Undefined if no such pattern is present.
  *
  * Deliberately not an unanchored `/(\d+)\.(\d+)\.(\d+)/` match: `s` is the
- * stdout of an external `bynkc-lsp --version` process (untrusted input), and
+ * stdout of an external `bynk-lsp --version` process (untrusted input), and
  * that shape backtracks polynomially on adversarial input (CodeQL
  * js/polynomial-redos) — the same hazard the old `repoSlug` avoided. Splitting
  * on a lone `\d+` has no such ambiguity (a digit run matches only one way),

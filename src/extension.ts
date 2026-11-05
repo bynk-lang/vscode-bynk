@@ -1,11 +1,12 @@
 // Bynk VS Code extension entry point.
 //
 // Activates on .bynk files or workspaces containing bynk.toml. Provisions the
-// bynkc-lsp language server (see server.ts: setting → PATH → cached → download)
+// bynk-lsp language server (see server.ts: setting → PATH → cached → download)
 // and connects to it as an LSP client. If no server can be provisioned the
 // failure is loud and actionable (error toast + a status-bar item + commands to
 // retry), rather than silently degrading to grammar-only highlighting.
 
+import * as path from "node:path";
 import * as vscode from "vscode";
 import {
   LanguageClient,
@@ -419,7 +420,7 @@ function reportNoServer(
 /** Warn if the running server's version disagrees with the one this extension
  *  build expects ({@link expectedServerVersion}: the pin for a downloaded server,
  *  the extension's own version for one from PATH or the setting, #1673). A
- *  server *older* than expected (most likely a stale `bynkc-lsp` on PATH —
+ *  server *older* than expected (most likely a stale `bynk-lsp` or `bynkc-lsp` on PATH —
  *  `resolveExistingServer` prefers PATH over the pinned/downloaded copy without
  *  comparing versions, #484) gets an actionable prompt, since it can silently
  *  mis-diagnose syntax the checker already accepts. A newer or
@@ -429,7 +430,7 @@ async function checkVersionMatch(
   context: vscode.ExtensionContext,
   resolved: ResolvedServer,
 ): Promise<void> {
-  const reported = await readServerVersion(resolved.path); // "bynkc-lsp 0.23.0"
+  const reported = await readServerVersion(resolved.path); // "bynk-lsp 0.23.0"
   const expected = expectedServerVersion(
     resolved.source,
     serverVersion(context),
@@ -495,7 +496,7 @@ async function checkVersionMatch(
     // only go further back. Point at the PATH install instead.
     void vscode.window.showWarningMessage(
       `Bynk: language server is "${reported}" (${resolved.source}), older than the ` +
-        `${expected} this extension expects. Rebuild or reinstall that \`bynkc-lsp\`; ` +
+        `${expected} this extension expects. Rebuild or reinstall that \`${path.basename(resolved.path)}\`; ` +
         "the downloadable server is older still.",
     );
   } else if (isStale) {

@@ -5,7 +5,7 @@
 Language support for the **[Bynk](https://github.com/bynk-lang/bynk) language**
 (`.bynk` files) in Visual Studio Code: syntax highlighting plus full language
 features backed by the
-[`bynkc-lsp`](https://github.com/bynk-lang/bynk/tree/main/bynk-lsp) language
+[`bynk-lsp`](https://github.com/bynk-lang/bynk/tree/main/bynk-lsp) language
 server, which the extension finds or downloads for you.
 
 The extension activates on any `.bynk` file, or on any workspace containing a
@@ -260,14 +260,14 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   the project changed): the answer says whether the fix checked clean, and a fix
   that could not be checked is offered as **Apply unchecked fix**.
 
-All `.bynk` language features come from `bynkc-lsp`; the extension is the
+All `.bynk` language features come from `bynk-lsp`; the extension is the
 client that provisions and launches it.
 
 ## In the browser (vscode.dev, github.dev)
 
 The extension also runs as a web extension, so opening a Bynk repository in
 [vscode.dev](https://vscode.dev) or [github.dev](https://github.dev) (press
-<kbd>.</kbd> on a GitHub repository) needs no install. There is no `bynkc-lsp`
+<kbd>.</kbd> on a GitHub repository) needs no install. There is no `bynk-lsp`
 in a browser: a web worker runs the Bynk compiler built to WebAssembly
 (`bynk-wasm`, the engine behind the playground) and provides:
 
@@ -295,18 +295,19 @@ in desktop VS Code for the full language server.
 
 ## The language server
 
-The extension needs the `bynkc-lsp` binary and resolves it in this order, most
+The extension needs the `bynk-lsp` binary and resolves it in this order, most
 explicit first:
 
 1. the `bynk.executablePath` setting, when set;
-2. `bynkc-lsp` on your `PATH` (a dev or global install);
+2. `bynk-lsp` on your `PATH` (a dev or global install), or `bynkc-lsp`, its name
+   before bynk v0.510, if there is no `bynk-lsp`;
 3. a copy previously downloaded by the extension;
 4. otherwise it **downloads** the release matching this build for your platform
    from GitHub, verifies it against the release `SHA256SUMS`, and caches it.
 
 So in the common case the extension just works — no manual server install. The
 version it downloads is pinned per extension build (`bynkServerVersion` in
-`package.json`); if a `bynkc-lsp` already on your `PATH` reports a different
+`package.json`); if a `bynk-lsp` already on your `PATH` reports a different
 version, the extension warns but still uses it.
 
 If no server can be provisioned — an `executablePath` that doesn't resolve, an
@@ -318,7 +319,7 @@ On a platform with no prebuilt server, build it from a checkout of the
 [`bynk` repository](https://github.com/bynk-lang/bynk) and point the setting at it:
 
 ```sh
-cargo build --release -p bynk-lsp   # → target/release/bynkc-lsp
+cargo build --release -p bynk-lsp   # → target/release/bynk-lsp
 ```
 
 ## The toolchain (`bynk`, `bynkc`)
@@ -396,7 +397,7 @@ its own, and is restored after **Developer: Reload Window**.
 
 | Setting | Default | Purpose |
 | ------- | ------- | ------- |
-| `bynk.executablePath` | `""` (auto-resolve) | Absolute path to a `bynkc-lsp` binary to use. When empty, the extension resolves the server automatically (see above). |
+| `bynk.executablePath` | `""` (auto-resolve) | Absolute path to a `bynk-lsp` binary to use. When empty, the extension resolves the server automatically (see above). |
 | `bynk.bynkPath` | `""` (`bynk` on `PATH`) | Path to the `bynk` driver used by the `bynkc: check` task, the Test Explorer, debugging, and the dev server. When empty, `bynk` is taken from `PATH`, then from the toolchain the extension downloaded. |
 | `bynk.toolchain.autoInstall` | `true` | Download `bynk` and `bynkc` when neither `bynk.bynkPath` nor `PATH` has a `bynk`. |
 | `bynk.compilerPath` | `""` (driver resolves `bynkc`) | Pin an exact `bynkc`, passed through as `BYNK_BYNKC` to `bynk`. When empty, `bynk` resolves `bynkc` itself (`PATH`, then a sibling of `bynk`) — richer than a bare `PATH` lookup, so a driver-first install (`bynkc` reachable only via `BYNK_BYNKC` or as a `bynk` sibling) still works. |
@@ -467,7 +468,7 @@ tests in a headless Chromium with
 
 See also
 [Set up editor support](https://bynk-lang.org/docs/editor-and-tooling/editor-support/)
-for using `bynkc-lsp` with other editors.
+for using `bynk-lsp` with other editors.
 
 ## License
 

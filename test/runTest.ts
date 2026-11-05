@@ -28,7 +28,7 @@ async function main() {
       "../../test/fixtures/workspace",
     );
 
-    // The extension resolves `bynkc-lsp` from the `bynk.executablePath`
+    // The extension resolves `bynk-lsp` from the `bynk.executablePath`
     // setting, then PATH, then a cached download. Prepend a directory holding
     // the server so activation connects to it deterministically — tests must
     // never hit the download-on-activate path. By default that is the repo's
@@ -98,20 +98,25 @@ async function main() {
 }
 
 // #2179: prepending a server dir only helps if a server is there. Without one,
-// PATH lookup fell through to whatever `bynkc-lsp` the machine had (a stale
+// PATH lookup fell through to whatever `bynk-lsp` the machine had (a stale
 // `~/.cargo/bin` install predating `bynk/explain`), and the suite failed on
 // requests that server did not know. Refuse to start instead, and refuse a
 // server whose version is not `want` (the workspace's for a build from this
 // tree, the pin's for a downloaded release). `want` undefined skips the version
 // check (a version that can't be read is not a failure).
+// The server is `bynk-lsp` from bynk v0.510 on (bynk-lang/bynk#2946). A build of
+// bynk@main has only that name, which is what the nightly compatibility run
+// tests (#89). `bynkc-lsp` is the name before the rename.
 function assertServer(serverDir: string, want: string | undefined, fix: string): void {
-  const exe = process.platform === "win32" ? "bynkc-lsp.exe" : "bynkc-lsp";
-  const server = path.join(serverDir, exe);
-  if (!fs.existsSync(server)) {
-    throw new Error(`no language server at ${server}; build it first with \`${fix}\``);
+  const exe = process.platform === "win32" ? ".exe" : "";
+  const [server] = ["bynk-lsp", "bynkc-lsp"]
+    .map((name) => path.join(serverDir, name + exe))
+    .filter((p) => fs.existsSync(p));
+  if (!server) {
+    throw new Error(`no language server (bynk-lsp) in ${serverDir}; build it first with \`${fix}\``);
   }
   const run = spawnSync(server, ["--version"], { encoding: "utf8", timeout: 10_000 });
-  // `bynkc-lsp 0.377.1`. A token comparison rather than a version regex: this
+  // `bynk-lsp 0.377.1`. A token comparison rather than a version regex: this
   // is an external process's output (see `parseVersion` in src/server.ts for
   // why an unanchored digit pattern is avoided on such input).
   const reported = (run.stdout ?? "").split(/\s+/).map((t) => t.replace(/^v/, ""));

@@ -1,7 +1,7 @@
 // Bynk VS Code extension — the web entry point (#2102), loaded by
 // `package.json`'s `"browser"` field in vscode.dev / github.dev.
 //
-// The desktop entry (src/extension.ts) provisions a native `bynkc-lsp`, which a
+// The desktop entry (src/extension.ts) provisions a native `bynk-lsp`, which a
 // browser can't run. Here the language server is a web worker
 // (src/web/server.ts) over `bynk-wasm`, the compiler the playground already
 // runs: diagnostics, hover and completion. Each workspace folder with a
