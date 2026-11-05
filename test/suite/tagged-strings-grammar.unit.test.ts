@@ -2,7 +2,10 @@
 // A known tag embeds that language's grammar in the body; `\(…)` stays Bynk
 // in the non-raw form; an unknown tag is a plain string. As with
 // keyword-names-grammar.unit.test.ts there is no tokenizer harness, so this
-// pins the rules' regexes, scopes, order and the package.json mapping.
+// pins the rules' regexes, scopes, order and the package.json mapping. Inside
+// the embedded language's own constructs (a JSON "…", a SQL '…') the body's
+// top-level includes are out of reach, so a `meta.interpolated.bynk` injection
+// carries the hole there, in the non-raw form only.
 
 import * as assert from "assert";
 import * as fs from "fs";
@@ -13,6 +16,7 @@ const ROOT = path.resolve(__dirname, "../../..");
 
 interface Rule {
   begin?: string;
+  end?: string;
   comment?: string;
   name?: string;
   include?: string;
@@ -23,7 +27,7 @@ interface Rule {
 
 const grammar = JSON.parse(
   fs.readFileSync(path.join(ROOT, "syntaxes/bynk.tmLanguage.json"), "utf8"),
-) as { repository: Record<string, Rule> };
+) as { repository: Record<string, Rule>; injections?: Record<string, Rule> };
 const strings = grammar.repository["strings"]?.patterns ?? [];
 
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as {
@@ -38,10 +42,13 @@ const TAGS: Record<string, { grammar: string; language: string }> = {
   js: { grammar: "source.js", language: "javascript" },
 };
 const TAG_SCOPE = "entity.other.attribute-name.language-tag.bynk";
+const INTERPOLATED = "meta.interpolated.bynk";
+
+const contentScopes = (r: Rule) => (r.contentName ?? "").split(" ");
 
 function tagged(tag: string, raw: boolean): Rule | undefined {
   return strings.find(
-    (r) => r.contentName === `meta.embedded.block.${tag}` && (r.begin ?? "").startsWith("\\br") === raw,
+    (r) => contentScopes(r).includes(`meta.embedded.block.${tag}`) && (r.begin ?? "").startsWith("\\br") === raw,
   );
 }
 
@@ -61,15 +68,58 @@ describe("tagged multi-line strings", () => {
         assert.ok(!begin.test(`${form}x`), "a longer tag does not");
         assert.strictEqual(rule.beginCaptures?.["2"]?.name, TAG_SCOPE);
         const includes = (rule.patterns ?? []).map((p) => p.include);
+        const own = tag === "sql" ? ["#sql-strings"] : [];
         assert.deepStrictEqual(
           includes,
-          raw ? [embedded] : ["#string-escape", "#interpolation", embedded],
+          raw ? [embedded] : ["#string-escape", "#interpolation", ...own, embedded],
           "the non-raw form keeps escapes and \\(…) as Bynk, ahead of the embedded grammar",
+        );
+        assert.strictEqual(
+          contentScopes(rule).includes(INTERPOLATED),
+          !raw,
+          raw ? "a raw body is not marked, so it stays literal" : "a non-raw body is marked for the hole injection",
         );
         assert.ok(strings.indexOf(rule) < Math.min(untaggedRaw, untagged), "tried before the untagged rules");
       });
     }
   }
+
+  it("injects \\(…) everywhere in a marked body, ahead of the embedded grammar, but not inside a hole", () => {
+    const entries = Object.entries(grammar.injections ?? {});
+    assert.strictEqual(entries.length, 1, "one injection");
+    const [selector, rule] = entries[0];
+    assert.match(selector, /^L:/, "L: so the hole beats an embedded rule at the same position (JSON's invalid escape)");
+    const [include, exclude] = selector.slice(2).split(" - ").map((s) => s.trim());
+    assert.strictEqual(include, INTERPOLATED, "the whole marked body, not only its strings: a JSON value can be a hole");
+    assert.strictEqual(exclude, "meta.embedded.interpolation.bynk", "a raw string inside a hole grows no hole");
+    assert.deepStrictEqual(
+      (rule.patterns ?? []).map((p) => p.include),
+      ["#interpolation"],
+    );
+    for (const r of strings) {
+      if (contentScopes(r).includes(INTERPOLATED)) {
+        assert.ok(!(r.begin ?? "").startsWith("\\br"), "only non-raw rules are marked");
+      }
+    }
+  });
+
+  it("takes SQL strings as begin/end rules, since SQL's one-line match cannot be injected into", () => {
+    const sql = grammar.repository["sql-strings"]?.patterns ?? [];
+    const quotes: Record<string, string> = {
+      "string.quoted.single.sql": "'",
+      "string.quoted.double.sql": '"',
+      "string.quoted.other.backtick.sql": "`",
+    };
+    assert.deepStrictEqual(sql.map((r) => r.name), Object.keys(quotes));
+    for (const r of sql) {
+      const q = quotes[r.name!];
+      const begin = new RegExp(r.begin!);
+      assert.ok(begin.test(`${q}abc`), `${r.name} opens on ${q}`);
+      assert.strictEqual(r.end, q);
+      assert.ok(!r.patterns?.length, "holes come from the injection, not the rule");
+    }
+    assert.ok(new RegExp(sql[0].begin!).test("N'abc'"), "a national-character N'…' literal is a string");
+  });
 
   it("scopes an unknown tag as a tag on a plain string", () => {
     for (const i of [untaggedRaw, untagged]) {

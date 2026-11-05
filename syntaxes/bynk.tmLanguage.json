@@ -3,6 +3,14 @@
   "name": "Bynk",
   "scopeName": "source.bynk",
   "fileTypes": ["bynk"],
+  "injections": {
+    "L:meta.interpolated.bynk - meta.embedded.interpolation.bynk": {
+      "comment": "#90: a non-raw tagged multi-line string (\"\"\"sql) is still a Bynk string, so `\\(…)` is a hole anywhere in its body — inside the embedded language's own strings and comments, and in value position (`\"n\": \\(x)`), where that grammar's rules, not the body's top-level includes, are active. The `L:` makes the hole win over the embedded rule at the same position (JSON's invalid-escape rule). Raw r\"\"\"sql bodies carry no meta.interpolated.bynk, so they stay literal; inside a hole the exclusion stops a raw Bynk string from growing a hole.",
+      "patterns": [
+        { "include": "#interpolation" }
+      ]
+    }
+  },
   "patterns": [
     { "include": "#doc-block" },
     { "include": "#doc-line" },
@@ -413,10 +421,11 @@
           "beginCaptures": { "0": { "name": "string.quoted.triple.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
           "end": "\"\"\"",
           "endCaptures": { "0": { "name": "string.quoted.triple.bynk" } },
-          "contentName": "meta.embedded.block.sql",
+          "contentName": "meta.embedded.block.sql meta.interpolated.bynk",
           "patterns": [
             { "include": "#string-escape" },
             { "include": "#interpolation" },
+            { "include": "#sql-strings" },
             { "include": "source.sql" }
           ]
         },
@@ -425,7 +434,7 @@
           "beginCaptures": { "0": { "name": "string.quoted.triple.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
           "end": "\"\"\"",
           "endCaptures": { "0": { "name": "string.quoted.triple.bynk" } },
-          "contentName": "meta.embedded.block.json",
+          "contentName": "meta.embedded.block.json meta.interpolated.bynk",
           "patterns": [
             { "include": "#string-escape" },
             { "include": "#interpolation" },
@@ -437,7 +446,7 @@
           "beginCaptures": { "0": { "name": "string.quoted.triple.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
           "end": "\"\"\"",
           "endCaptures": { "0": { "name": "string.quoted.triple.bynk" } },
-          "contentName": "meta.embedded.block.html",
+          "contentName": "meta.embedded.block.html meta.interpolated.bynk",
           "patterns": [
             { "include": "#string-escape" },
             { "include": "#interpolation" },
@@ -449,7 +458,7 @@
           "beginCaptures": { "0": { "name": "string.quoted.triple.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
           "end": "\"\"\"",
           "endCaptures": { "0": { "name": "string.quoted.triple.bynk" } },
-          "contentName": "meta.embedded.block.css",
+          "contentName": "meta.embedded.block.css meta.interpolated.bynk",
           "patterns": [
             { "include": "#string-escape" },
             { "include": "#interpolation" },
@@ -461,7 +470,7 @@
           "beginCaptures": { "0": { "name": "string.quoted.triple.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
           "end": "\"\"\"",
           "endCaptures": { "0": { "name": "string.quoted.triple.bynk" } },
-          "contentName": "meta.embedded.block.js",
+          "contentName": "meta.embedded.block.js meta.interpolated.bynk",
           "patterns": [
             { "include": "#string-escape" },
             { "include": "#interpolation" },
@@ -497,6 +506,32 @@
             { "include": "#string-escape" },
             { "include": "#interpolation" }
           ]
+        }
+      ]
+    },
+    "sql-strings": {
+      "comment": "#90: SQL's own grammar matches a one-line '…', \"…\" or `…` literal with a single regex, which an injection cannot break into, so a non-raw \"\"\"sql body takes its strings as begin/end rules under SQL's scope names. The meta.interpolated.bynk injection then finds `\\(…)` holes inside them. A doubled '' is two adjacent strings, scoped the same as one.",
+      "patterns": [
+        {
+          "name": "string.quoted.single.sql",
+          "begin": "(?:(?<![a-zA-Z0-9_])(N))?(')",
+          "beginCaptures": { "2": { "name": "punctuation.definition.string.begin.sql" } },
+          "end": "'",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.sql" } }
+        },
+        {
+          "name": "string.quoted.double.sql",
+          "begin": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.sql" } },
+          "end": "\"",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.sql" } }
+        },
+        {
+          "name": "string.quoted.other.backtick.sql",
+          "begin": "`",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.sql" } },
+          "end": "`",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.sql" } }
         }
       ]
     },
