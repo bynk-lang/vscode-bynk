@@ -12,6 +12,19 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- Highlights a multi-line string with a language tag (bynk#2958) in that
+  language: `"""sql`, `"""json`, `"""html`, `"""css` and `"""js`, and their
+  `r"""` raw forms. `\(…)` interpolation in the non-raw form stays Bynk, and
+  comment toggling in the body uses the embedded language (`--` for SQL). An
+  unknown tag such as `"""graphql` is coloured as a tag on a plain string. (#90)
+- Highlights raw strings (`r"…"`, `r#"…"#`) and multi-line strings (`"""…"""`,
+  `r"""…"""`) (bynk#2619). It also highlights the contextual keywords `private`, `par`,
+  `json {` and the `stub … after`/`never` latency words, the `IsoDate`
+  refinement, and the full escape set (`\r`, `\0`, `\u{…}`). This brings the
+  grammar in line with the site copy, which changes with it. (#90)
+
 ## [0.508.4] - 2026-11-05
 
 Built against `bynk` v0.508.4.

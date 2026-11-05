@@ -229,9 +229,19 @@
           "match": "\\bmigrate\\b(?=\\s+from\\b)|^\\s*\\bdrop\\b(?=\\s+[A-Za-z][A-Za-z0-9_]*\\s*$)"
         },
         {
+          "comment": "#2618: `private` is a CONTEXTUAL modifier on a `fn`, `type`, `messages`, `asset`, `embed` or `const` declaration — highlighted only immediately before one of those words, so `@cache(scope: private)` and a binding named `private` stay ordinary identifiers.",
+          "name": "storage.modifier.bynk",
+          "match": "\\bprivate\\b(?=\\s+(?:fn|type|messages|asset|embed|const)\\b)"
+        },
+        {
           "comment": "#2137: `advance` is a CONTEXTUAL keyword opening a test case's `advance Clock by <Duration>` statement — highlighted only before `<Cap> by`, so it stays an ordinary identifier elsewhere.",
           "name": "keyword.control.bynk",
           "match": "\\badvance\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s+by\\b)"
+        },
+        {
+          "comment": "#2640: `par` is a CONTEXTUAL keyword opening a `par { … }` binding block — highlighted only before `{`, so it stays an ordinary identifier elsewhere.",
+          "name": "keyword.control.bynk",
+          "match": "\\bpar\\b(?=\\s*\\{)"
         },
         {
           "comment": "v0.131: `cors` is a CONTEXTUAL keyword introducing a `from http` service's CORS policy — highlighted only in `cors {` position, so it stays an ordinary identifier elsewhere.",
@@ -247,6 +257,11 @@
           "comment": "v0.142: `limits` is a CONTEXTUAL keyword introducing a `from http` service's request-limits policy — highlighted only in `limits {` position, so it stays an ordinary identifier elsewhere.",
           "name": "keyword.declaration.bynk",
           "match": "\\blimits\\b(?=\\s*\\{)"
+        },
+        {
+          "comment": "#2858: `json` is a CONTEXTUAL keyword introducing a `from http` service's response-JSON policy — highlighted only in `json {` position, so it stays an ordinary identifier elsewhere.",
+          "name": "keyword.declaration.bynk",
+          "match": "\\bjson\\b(?=\\s*\\{)"
         },
         {
           "comment": "v0.154: `embeds` is a CONTEXTUAL keyword introducing a sum type's declared error embeddings (`embeds E as V`) — highlighted only before a type name (uppercase), so it stays an ordinary identifier elsewhere.",
@@ -305,6 +320,19 @@
           "match": "\\b(returns|each|fails)\\b"
         },
         {
+          "comment": "#2683: the stub latency words — `stub Cap.op(…) returns v after d` and `stub Cap.op(…) never` — contextual, so only on a `stub` line (an `after` or `never` identifier elsewhere is left untouched).",
+          "match": "^\\s*stub\\b[^\\n]*?\\breturns\\b[^\\n]*?\\s(after)\\s",
+          "captures": {
+            "1": { "name": "keyword.operator.bynk" }
+          }
+        },
+        {
+          "match": "^\\s*stub\\b[^\\n]*\\)\\s+(never)\\b",
+          "captures": {
+            "1": { "name": "keyword.operator.bynk" }
+          }
+        },
+        {
           "comment": "v0.117: the `trace(Cap.op)` escape hatch — a test-only builtin, matched only in call position.",
           "name": "keyword.control.bynk",
           "match": "\\btrace\\b(?=\\s*\\()"
@@ -319,7 +347,7 @@
         },
         {
           "name": "support.function.predicate.bynk",
-          "match": "\\b(Matches|InRange|MinLength|MaxLength|Length|NonNegative|Positive|NonEmpty)\\b"
+          "match": "\\b(Matches|InRange|MinLength|MaxLength|Length|NonNegative|Positive|NonEmpty|IsoDate)\\b"
         },
         {
           "name": "entity.name.type.bynk",
@@ -328,16 +356,156 @@
       ]
     },
     "strings": {
-      "name": "string.quoted.double.bynk",
-      "begin": "\"",
-      "end": "\"",
+      "comment": "String literals (#2619): raw multi-line, multi-line, raw (any number of `#`), and ordinary. A raw literal has no escapes and no interpolation. Order matters: `r\"\"\"` and `\"\"\"` before `\"`. #2958: a multi-line literal may carry a language tag (`\"\"\"sql`). A known tag embeds that language's grammar in the body: one rule per tag, ahead of the untagged rules, since a TextMate include cannot be chosen by a capture. Any other tag is a plain string. The bynk site's grammar (bynk-lang/bynk site/src/grammars/bynk.tmLanguage.json) is a copy of this file: change both together.",
       "patterns": [
-        { "name": "constant.character.escape.bynk", "match": "\\\\[nt\"\\\\]" },
-        { "include": "#interpolation" }
+        {
+          "begin": "\\br(\"\"\")(sql)[ \\t]*$",
+          "beginCaptures": { "0": { "name": "string.quoted.triple.raw.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "string.quoted.triple.raw.bynk" } },
+          "contentName": "meta.embedded.block.sql",
+          "patterns": [
+            { "include": "source.sql" }
+          ]
+        },
+        {
+          "begin": "\\br(\"\"\")(json)[ \\t]*$",
+          "beginCaptures": { "0": { "name": "string.quoted.triple.raw.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "string.quoted.triple.raw.bynk" } },
+          "contentName": "meta.embedded.block.json",
+          "patterns": [
+            { "include": "source.json" }
+          ]
+        },
+        {
+          "begin": "\\br(\"\"\")(html)[ \\t]*$",
+          "beginCaptures": { "0": { "name": "string.quoted.triple.raw.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "string.quoted.triple.raw.bynk" } },
+          "contentName": "meta.embedded.block.html",
+          "patterns": [
+            { "include": "text.html.basic" }
+          ]
+        },
+        {
+          "begin": "\\br(\"\"\")(css)[ \\t]*$",
+          "beginCaptures": { "0": { "name": "string.quoted.triple.raw.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "string.quoted.triple.raw.bynk" } },
+          "contentName": "meta.embedded.block.css",
+          "patterns": [
+            { "include": "source.css" }
+          ]
+        },
+        {
+          "begin": "\\br(\"\"\")(js)[ \\t]*$",
+          "beginCaptures": { "0": { "name": "string.quoted.triple.raw.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "string.quoted.triple.raw.bynk" } },
+          "contentName": "meta.embedded.block.js",
+          "patterns": [
+            { "include": "source.js" }
+          ]
+        },
+        {
+          "begin": "(\"\"\")(sql)[ \\t]*$",
+          "beginCaptures": { "0": { "name": "string.quoted.triple.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "string.quoted.triple.bynk" } },
+          "contentName": "meta.embedded.block.sql",
+          "patterns": [
+            { "include": "#string-escape" },
+            { "include": "#interpolation" },
+            { "include": "source.sql" }
+          ]
+        },
+        {
+          "begin": "(\"\"\")(json)[ \\t]*$",
+          "beginCaptures": { "0": { "name": "string.quoted.triple.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "string.quoted.triple.bynk" } },
+          "contentName": "meta.embedded.block.json",
+          "patterns": [
+            { "include": "#string-escape" },
+            { "include": "#interpolation" },
+            { "include": "source.json" }
+          ]
+        },
+        {
+          "begin": "(\"\"\")(html)[ \\t]*$",
+          "beginCaptures": { "0": { "name": "string.quoted.triple.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "string.quoted.triple.bynk" } },
+          "contentName": "meta.embedded.block.html",
+          "patterns": [
+            { "include": "#string-escape" },
+            { "include": "#interpolation" },
+            { "include": "text.html.basic" }
+          ]
+        },
+        {
+          "begin": "(\"\"\")(css)[ \\t]*$",
+          "beginCaptures": { "0": { "name": "string.quoted.triple.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "string.quoted.triple.bynk" } },
+          "contentName": "meta.embedded.block.css",
+          "patterns": [
+            { "include": "#string-escape" },
+            { "include": "#interpolation" },
+            { "include": "source.css" }
+          ]
+        },
+        {
+          "begin": "(\"\"\")(js)[ \\t]*$",
+          "beginCaptures": { "0": { "name": "string.quoted.triple.bynk" }, "2": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "endCaptures": { "0": { "name": "string.quoted.triple.bynk" } },
+          "contentName": "meta.embedded.block.js",
+          "patterns": [
+            { "include": "#string-escape" },
+            { "include": "#interpolation" },
+            { "include": "source.js" }
+          ]
+        },
+        {
+          "name": "string.quoted.triple.raw.bynk",
+          "begin": "\\br\"\"\"([a-z][a-z0-9_-]*)?",
+          "beginCaptures": { "1": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\""
+        },
+        {
+          "name": "string.quoted.triple.bynk",
+          "begin": "\"\"\"([a-z][a-z0-9_-]*)?",
+          "beginCaptures": { "1": { "name": "entity.other.attribute-name.language-tag.bynk" } },
+          "end": "\"\"\"",
+          "patterns": [
+            { "include": "#string-escape" },
+            { "include": "#interpolation" }
+          ]
+        },
+        {
+          "name": "string.quoted.double.raw.bynk",
+          "begin": "\\br(#*)\"",
+          "end": "\"\\1"
+        },
+        {
+          "name": "string.quoted.double.bynk",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            { "include": "#string-escape" },
+            { "include": "#interpolation" }
+          ]
+        }
       ]
     },
+    "string-escape": {
+      "name": "constant.character.escape.bynk",
+      "match": "\\\\(?:[ntr0\"\\\\]|u\\{[0-9A-Fa-f]{1,6}\\})"
+    },
     "interpolation": {
-      "comment": "A `\\(expr)` interpolation hole (v0.43). The escape `\\\\[nt\"\\\\]` precedes this in #strings, so `\\\\(` (escaped backslash + paren) is a literal, not a hole.",
+      "comment": "A `\\(expr)` interpolation hole (v0.43). The escape `#string-escape` precedes this in #strings, so `\\\\(` (escaped backslash + paren) is a literal, not a hole.",
       "name": "meta.embedded.interpolation.bynk",
       "begin": "\\\\\\(",
       "end": "\\)",
