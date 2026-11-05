@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+## [0.510.2] - 2026-11-05
+
+Built against `bynk` v0.510.2.
+
 ### Added
 
 - Highlights a multi-line string with a language tag (bynk#2958) in that
