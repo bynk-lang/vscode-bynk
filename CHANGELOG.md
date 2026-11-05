@@ -12,6 +12,15 @@ version).
 
 ## [Unreleased]
 
+## [0.508.4] - 2026-11-05
+
+Built against `bynk` v0.508.4.
+
+### Changed
+
+- Requires VS Code 1.144.0 or later (was 1.140.0); the integration suite runs
+  on 1.144.0. (#83)
+
 ### Fixed
 
 - Highlights a reserved word that names a field or member (bynk#2837) as a
