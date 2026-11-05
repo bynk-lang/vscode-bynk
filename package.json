@@ -9,9 +9,9 @@
   "repository": {
     "url": "https://github.com/bynk-lang/vscode-bynk"
   },
-  "//bynkServerVersion": "The bynkc-lsp release this extension build provisions (see src/server.ts): the last shipped release, not the workspace version. release.yml's server-pin job moves it when a release is published (#1673).",
+  "//bynkServerVersion": "The bynk-lsp release this extension build provisions (see src/server.ts): the last shipped release, not the workspace version. release.yml's server-pin job moves it when a release is published (#1673).",
   "bynkServerVersion": "v0.510.2",
-  "//bynkServerMinVersion": "The oldest bynkc-lsp this extension works against: older servers lack requests it calls. Unlike bynkServerVersion it is moved by hand, when the extension starts to need something newer (src/server.ts).",
+  "//bynkServerMinVersion": "The oldest bynk-lsp (bynkc-lsp before v0.510) this extension works against: older servers lack requests it calls. Unlike bynkServerVersion it is moved by hand, when the extension starts to need something newer (src/server.ts).",
   "bynkServerMinVersion": "v0.434.0",
   "engines": {
     "vscode": "^1.144.0"
@@ -1372,7 +1372,7 @@
           "type": "string",
           "scope": "machine",
           "default": "",
-          "description": "Absolute path to a bynkc-lsp executable to use. When empty, the extension resolves the server automatically: `bynkc-lsp` on PATH, then a previously-downloaded copy, then it downloads the matching release."
+          "description": "Absolute path to a bynk-lsp executable to use. When empty, the extension resolves the server automatically: `bynk-lsp` (or the older `bynkc-lsp`) on PATH, then a previously-downloaded copy, then it downloads the matching release."
         },
         "bynk.trace.server": {
           "type": "string",

@@ -30,6 +30,12 @@ version).
 
 ### Fixed
 
+- Uses the language server's new name, `bynk-lsp` (bynk-lang/bynk#2946). It
+  downloads `bynk-lsp-<target>` and looks for `bynk-lsp` on `PATH`. If there is
+  no `bynk-lsp`, it falls back to `bynkc-lsp`, the name before bynk v0.510.
+  A copy cached under the old name is still used. The integration tests
+  accept either name, so the nightly run against bynk@main, which builds only
+  `bynk-lsp`, passes again. (#89)
 - The doctor report's "set path" action works again with bynk v0.510.2, which
   renamed the language-server row `bynkc-lsp` → `bynk-lsp`; the old label is
   still recognised. (#92)

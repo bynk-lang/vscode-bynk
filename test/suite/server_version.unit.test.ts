@@ -1,5 +1,5 @@
 // Unit coverage for the version-comparison helpers in src/server.ts (#484:
-// warn actionably when a stale `bynkc-lsp` resolved from PATH is older than
+// warn actionably when a stale `bynk-lsp` resolved from PATH is older than
 // the extension's pinned target).
 
 import * as assert from "assert";
@@ -18,6 +18,7 @@ import {
 
 describe("parseVersion", () => {
   it("extracts MAJOR.MINOR.PATCH from a `--version` line", () => {
+    assert.deepStrictEqual(parseVersion("bynk-lsp 0.510.2"), [0, 510, 2]);
     assert.deepStrictEqual(parseVersion("bynkc-lsp 0.129.0"), [0, 129, 0]);
   });
 
@@ -76,8 +77,8 @@ describe("toolAssetName", () => {
   });
 
   it("keeps the server's asset name unchanged", () => {
-    assert.strictEqual(serverAssetName("x86_64-unknown-linux-gnu"), "bynkc-lsp-x86_64-unknown-linux-gnu");
-    assert.strictEqual(serverAssetName("x86_64-pc-windows-msvc"), "bynkc-lsp-x86_64-pc-windows-msvc.exe");
+    assert.strictEqual(serverAssetName("x86_64-unknown-linux-gnu"), "bynk-lsp-x86_64-unknown-linux-gnu");
+    assert.strictEqual(serverAssetName("x86_64-pc-windows-msvc"), "bynk-lsp-x86_64-pc-windows-msvc.exe");
   });
 });
 
@@ -129,6 +130,8 @@ describe("tooOldServerPrompt", () => {
     const p = prompt("path");
     assert.strictEqual(p.action, undefined);
     assert.ok(p.message.includes("/usr/bin/bynkc-lsp"));
+    // An old server keeps its old name, so the message names the binary it found.
+    assert.ok(p.message.includes("that `bynkc-lsp`"), p.message);
   });
 
   it("offers a download for a provisioned server", () => {

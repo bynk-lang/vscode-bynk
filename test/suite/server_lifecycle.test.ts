@@ -1,9 +1,9 @@
 // #44: the language server's start/restart/download paths, driven through their
 // commands. The server is a shell wrapper that logs its pid and then `exec`s the
-// real `bynkc-lsp` from PATH, so a test can count the server processes alive (the
+// real `bynk-lsp` from PATH, so a test can count the server processes alive (the
 // status bar text cannot be read back) and tell which copy the extension ran. The
 // download is served by a stub `fetch`, so nothing leaves the machine. Needs a
-// `bynkc-lsp` on PATH, which the harness provides; skipped without one.
+// `bynk-lsp` (or the pre-v0.510 `bynkc-lsp`) on PATH, which the harness provides; skipped without one.
 
 import * as assert from "assert";
 import { createHash } from "crypto";
@@ -89,13 +89,15 @@ describe("Bynk server lifecycle (#44)", () => {
 
   before(async function () {
     if (process.platform === "win32") this.skip();
-    const real = findOnPath("bynkc-lsp");
+    // The harness puts bynk-lsp on PATH (bynkc-lsp for a pre-v0.510 build). The
+    // wrapper takes the current name, so the extension finds it first.
+    const real = findOnPath("bynk-lsp") ?? findOnPath("bynkc-lsp");
     if (!real) this.skip();
     this.timeout(120_000);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "bynk-lsp-"));
     log = path.join(dir, "spawned.log");
     wrapperBytes = Buffer.from(`#!/bin/sh\necho "$$ $0" >> "${log}"\nexec "${real}" "$@"\n`);
-    wrapper = path.join(dir, "bynkc-lsp");
+    wrapper = path.join(dir, "bynk-lsp");
     fs.writeFileSync(wrapper, wrapperBytes, { mode: 0o755 });
 
     const ext = vscode.extensions.getExtension(EXT_ID);
@@ -107,7 +109,7 @@ describe("Bynk server lifecycle (#44)", () => {
     pos = doc.positionAt(doc.getText().indexOf("shout(name)") + 1);
     // The start-up server answers before the tests swap it.
     await waitFor(answers, truthy, "the initial server to answer", 60_000);
-    harness = spawnSync("pgrep", ["-P", String(process.pid), "bynkc-lsp"], { encoding: "utf8" })
+    harness = spawnSync("pgrep", ["-P", String(process.pid), "^bynkc?-lsp$"], { encoding: "utf8" })
       .stdout.split("\n")
       .filter(Boolean)
       .map(Number);
@@ -223,7 +225,7 @@ describe("Bynk server lifecycle (#44)", () => {
     serveRelease();
     // A setting that names nothing: the start offers "Download Server" and the
     // stub picks it.
-    await setPath(path.join(dir, "missing", "bynkc-lsp"));
+    await setPath(path.join(dir, "missing", "bynk-lsp"));
     const downloaded = await waitFor(
       () => live().find((s) => s.path !== wrapper),
       present,

@@ -6,7 +6,7 @@ to TypeScript.
 
 This extension gives you live diagnostics, hover, go-to-definition, references,
 rename, completion, signature help, inlay hints, semantic highlighting, call
-hierarchy, folding, and an outline — all from the bundled `bynkc-lsp` language
+hierarchy, folding, and an outline — all from the bundled `bynk-lsp` language
 server.
 
 Open a `.bynk` file to activate the server, and work through the steps on the

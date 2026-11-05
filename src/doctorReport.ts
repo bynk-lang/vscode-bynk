@@ -85,7 +85,7 @@ export interface RemedyActions {
 }
 
 /** Programs a remedy's command may start with. A clause that starts with
- *  anything else is prose ("install bynkc-lsp (or download …)"), not a command. */
+ *  anything else is prose ("install bynk-lsp (or download …)"), not a command. */
 const COMMAND_STARTS = /^(npm|npx|pnpm|yarn|cargo|rustup|brew|winget|choco|apt|apt-get|dnf)\s/;
 
 /** The actions `row`'s remedy offers: commands it names (its leading clause,
