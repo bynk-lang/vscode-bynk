@@ -18,14 +18,21 @@ version).
   language: `"""sql`, `"""json`, `"""html`, `"""css` and `"""js`, and their
   `r"""` raw forms. `\(…)` interpolation in the non-raw form stays Bynk, even
   inside the embedded language's own strings and comments (`'\(n)'` in SQL,
-  `"\(x)"` in JSON), and comment toggling in the body uses the embedded
-  language (`--` for SQL). An unknown tag such as `"""graphql` is coloured as
-  a tag on a plain string. (#90)
+  `"\(x)"` in JSON). Comment toggling in the body uses the embedded language
+  (`--` for SQL), and the embedded colouring always stops at the closing
+  `"""`, even when a quote or bracket in the body is still open. An unknown tag
+  such as `"""graphql` is coloured as a tag on a plain string. (#90)
 - Highlights raw strings (`r"…"`, `r#"…"#`) and multi-line strings (`"""…"""`,
   `r"""…"""`) (bynk#2619). It also highlights the contextual keywords `private`, `par`,
   `json {` and the `stub … after`/`never` latency words, the `IsoDate`
   refinement, and the full escape set (`\r`, `\0`, `\u{…}`). This brings the
   grammar in line with the site copy, which changes with it. (#90)
+
+### Fixed
+
+- The doctor report's "set path" action works again with bynk v0.510.2, which
+  renamed the language-server row `bynkc-lsp` → `bynk-lsp`; the old label is
+  still recognised. (#92)
 
 ## [0.508.4] - 2026-11-05
 
