@@ -16,6 +16,7 @@ const ROOT = path.resolve(__dirname, "../../..");
 
 interface Rule {
   begin?: string;
+  match?: string;
   end?: string;
   comment?: string;
   name?: string;
@@ -94,8 +95,16 @@ describe("tagged multi-line strings", () => {
     assert.strictEqual(exclude, "meta.embedded.interpolation.bynk", "a raw string inside a hole grows no hole");
     assert.deepStrictEqual(
       (rule.patterns ?? []).map((p) => p.include),
-      ["#interpolation"],
+      ["#string-escape", "#interpolation"],
+      "escapes first, so `\\\\(` in a SQL '…' or a JS comment is an escaped backslash, not a hole",
     );
+    // What that order buys, on the regexes themselves: at the position of
+    // `\\(x)`, the escape matches the first two characters, so the hole's
+    // regex never sees the second backslash.
+    const escape = new RegExp(`^(?:${grammar.repository["string-escape"].match})`);
+    const hole = new RegExp(`^(?:${grammar.repository["interpolation"].begin})`);
+    assert.strictEqual(escape.exec("\\\\(x)")?.[0], "\\\\", "`\\\\` is an escape");
+    assert.ok(hole.test("\\(x)"), "`\\(` opens a hole");
     for (const r of strings) {
       if (contentScopes(r).includes(INTERPOLATED)) {
         assert.ok(!(r.begin ?? "").startsWith("\\br"), "only non-raw rules are marked");
