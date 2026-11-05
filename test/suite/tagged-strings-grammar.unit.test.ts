@@ -13,6 +13,8 @@ const ROOT = path.resolve(__dirname, "../../..");
 
 interface Rule {
   begin?: string;
+  end?: string;
+  while?: string;
   comment?: string;
   name?: string;
   include?: string;
@@ -39,11 +41,19 @@ const TAGS: Record<string, { grammar: string; language: string }> = {
 };
 const TAG_SCOPE = "entity.other.attribute-name.language-tag.bynk";
 
+/** The body: the begin/while rule inside a tagged string's begin/end rule. */
+const body = (r: Rule | undefined): Rule | undefined => r?.patterns?.[0];
+
 function tagged(tag: string, raw: boolean): Rule | undefined {
   return strings.find(
-    (r) => r.contentName === `meta.embedded.block.${tag}` && (r.begin ?? "").startsWith("\\br") === raw,
+    (r) => body(r)?.contentName === `meta.embedded.block.${tag}` && (r.begin ?? "").startsWith("\\br") === raw,
   );
 }
+
+// The lexer's closing line (bynk-syntax lex_multiline): indentation, then `"""`
+// not followed by an identifier character or a quote.
+const CLOSING = ['"""', '  """', '\t"""', '  """.trim()', '  """)'];
+const NOT_CLOSING = ["  SELECT 'it", "", '  x = """', '  """x', '  """"', "  ]"];
 
 const untaggedRaw = strings.findIndex((r) => r.name === "string.quoted.triple.raw.bynk");
 const untagged = strings.findIndex((r) => r.name === "string.quoted.triple.bynk");
@@ -60,13 +70,27 @@ describe("tagged multi-line strings", () => {
         assert.ok(begin.test(`${form}  \t`), "trailing blanks are allowed");
         assert.ok(!begin.test(`${form}x`), "a longer tag does not");
         assert.strictEqual(rule.beginCaptures?.["2"]?.name, TAG_SCOPE);
-        const includes = (rule.patterns ?? []).map((p) => p.include);
+        const includes = (body(rule)?.patterns ?? []).map((p) => p.include);
         assert.deepStrictEqual(
           includes,
           raw ? [embedded] : ["#string-escape", "#interpolation", embedded],
           "the non-raw form keeps escapes and \\(…) as Bynk, ahead of the embedded grammar",
         );
         assert.ok(strings.indexOf(rule) < Math.min(untaggedRaw, untagged), "tried before the untagged rules");
+      });
+
+      it(`ends a ${form} body at the closing line, whatever the embedded grammar left open`, () => {
+        const rule = tagged(tag, raw)!;
+        assert.strictEqual(rule.patterns?.length, 1, "the body rule is the only pattern");
+        const inner = body(rule)!;
+        // `while` is checked at every line start, even inside the embedded
+        // grammar's open rules, so it alone decides where the body ends.
+        for (const re of [inner.begin!, inner.while!].map((x) => new RegExp(x))) {
+          for (const line of CLOSING) assert.ok(!re.test(line), `${JSON.stringify(line)} ends the body`);
+          for (const line of NOT_CLOSING) assert.ok(re.test(line), `${JSON.stringify(line)} stays in the body`);
+        }
+        const end = new RegExp(rule.end!);
+        for (const line of CLOSING) assert.strictEqual(end.exec(line)?.[1], '"""', `${JSON.stringify(line)} closes it`);
       });
     }
   }
