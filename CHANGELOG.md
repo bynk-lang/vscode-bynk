@@ -16,15 +16,12 @@ version).
 
 - Highlights a multi-line string with a language tag (bynk#2958) in that
   language: `"""sql`, `"""json`, `"""html`, `"""css` and `"""js`, and their
-  `r"""` raw forms. Comment toggling in the body uses the embedded language
+  `r"""` raw forms. `\(…)` interpolation in the non-raw form stays Bynk, even
+  inside the embedded language's own strings and comments (`'\(n)'` in SQL,
+  `"\(x)"` in JSON). Comment toggling in the body uses the embedded language
   (`--` for SQL), and the embedded colouring always stops at the closing
   `"""`, even when a quote or bracket in the body is still open. An unknown tag
   such as `"""graphql` is coloured as a tag on a plain string. (#90)
-  - `\(…)` interpolation in the non-raw form is coloured as Bynk only where
-    the body is at its top level: bare SQL, or HTML text. Inside a construct the
-    embedded language opens (a JSON object or array, a CSS rule, a JS block, an
-    HTML tag, a SQL or JSON string), it takes that language's colour. In a JSON
-    body it can show as an error.
 - Highlights raw strings (`r"…"`, `r#"…"#`) and multi-line strings (`"""…"""`,
   `r"""…"""`) (bynk#2619). It also highlights the contextual keywords `private`, `par`,
   `json {` and the `stub … after`/`never` latency words, the `IsoDate`
