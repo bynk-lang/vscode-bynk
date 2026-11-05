@@ -86,11 +86,14 @@ describe("remedyActions", () => {
       commands: [],
       urls: ["https://nodejs.org"],
     });
-    assert.deepStrictEqual(remedyActions(row("bynkc-lsp", "install bynkc-lsp (or download from releases)")), {
-      commands: [],
-      urls: [],
-      setting: "bynk.executablePath",
-    });
+    // v0.510.2 renamed the row; an older toolchain still sends `bynkc-lsp`.
+    for (const label of ["bynk-lsp", "bynkc-lsp"]) {
+      assert.deepStrictEqual(remedyActions(row(label, `install ${label} (or download from releases)`)), {
+        commands: [],
+        urls: [],
+        setting: "bynk.executablePath",
+      });
+    }
     assert.strictEqual(
       remedyActions(row("compiler", "fix BYNK_BYNKC, or unset it to use the in-process compiler")).setting,
       "bynk.compilerPath",

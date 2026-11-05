@@ -192,9 +192,10 @@
       }
     },
     {
-      "name": "Declaration keywords (context, service, type, fn, …)",
+      "name": "Declaration keywords (context, service, type, fn, …) and the private modifier",
       "scope": [
-        "keyword.declaration.bynk"
+        "keyword.declaration.bynk",
+        "storage.modifier.bynk"
       ],
       "settings": {
         "foreground": "#7a4f00"
@@ -293,10 +294,11 @@
       }
     },
     {
-      "name": "Annotations",
+      "name": "Annotations, and a multi-line string's language tag (\"\"\"sql), which the server also sends as a decorator",
       "scope": [
         "entity.name.function.decorator.bynk",
-        "punctuation.definition.annotation.bynk"
+        "punctuation.definition.annotation.bynk",
+        "entity.other.attribute-name.language-tag.bynk"
       ],
       "settings": {
         "foreground": "#6b4aa0"
