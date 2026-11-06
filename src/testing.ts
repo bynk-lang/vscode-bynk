@@ -3,8 +3,8 @@
 // Runs a project's Bynk tests via `bynk test --format json` and reports
 // pass/fail through the VS Code Test API, with click-through from a failing
 // assertion to its `.bynk` source. The extension links no Rust — it shells the
-// `bynk` driver (v0.138+, #487/#486), inheriting its richer `bynkc` resolution
-// (`BYNK_BYNKC` → PATH → sibling-of-`bynk`) instead of reimplementing one here.
+// `bynk` driver (v0.138+, #487/#486), which compiles and runs the tests
+// in-process since v0.510.34 (no separate `bynkc`).
 //
 // Discovery (v0.67): `bynk test --no-run --format json` lists the project's
 // suites/cases without running them — a pure compile, no `tsc`/`node`. The
@@ -58,7 +58,7 @@ export function registerTesting(
   // so it is forgotten when the user points the extension at a different binary.
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("bynk.bynkPath") || e.affectsConfiguration("bynk.compilerPath")) {
+      if (e.affectsConfiguration("bynk.bynkPath")) {
         driverSupport.ndjson = true;
         driverSupport.sets = true;
       }

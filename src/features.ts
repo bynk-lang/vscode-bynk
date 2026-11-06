@@ -94,7 +94,7 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context }) => registerTasks(context),
   // #2096: suggest a TOML extension, once, if none is installed.
   ({ context }) => registerTomlRecommendation(context),
-  // The `bynk` driver + `bynkc` compiler, fetched beside the server so nothing needs `cargo install`.
+  // The `bynk` driver, fetched beside the server so nothing needs `cargo install`.
   ({ context, output }) => registerToolchain(context, output),
   // DECISION D: the opt-in `Wire contract` handler lens.
   ({ context, viewRefresh }) => registerViewsCodeLens(context, viewRefresh),

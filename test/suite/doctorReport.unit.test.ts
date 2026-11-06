@@ -17,8 +17,8 @@ import {
   renderDoctorHtml,
 } from "../../src/doctorReport";
 
-// A copy of the compiler repository's bynk/tests/golden/doctor.json at v0.434.0
-// (the driver's `bynk doctor --json` output). Refresh it when the pin moves to a
+// A copy of the compiler repository's bynk/tests/golden/doctor.json at v0.510.34
+// (the driver's `bynk doctor --json` output; the compiler is in-process). Refresh it when the pin moves to a
 // release that changes the report's shape.
 const GOLDEN = fs.readFileSync(
   path.resolve(__dirname, "../../../test/fixtures/doctor.golden.json"),
@@ -94,9 +94,10 @@ describe("remedyActions", () => {
         setting: "bynk.executablePath",
       });
     }
+    // `bynk.compilerPath` is deprecated (bynk ignores BYNK_BYNKC), so no row offers it.
     assert.strictEqual(
       remedyActions(row("compiler", "fix BYNK_BYNKC, or unset it to use the in-process compiler")).setting,
-      "bynk.compilerPath",
+      undefined,
     );
     assert.deepStrictEqual(remedyActions(row("cargo", "install Rust via https://rustup.rs")).urls, ["https://rustup.rs"]);
   });
@@ -139,5 +140,22 @@ describe("renderDoctorHtml", () => {
       assert.ok(out.includes(escaped), `${tag} is escaped`);
       assert.ok(!out.toLowerCase().includes(tag), `${tag} does not appear raw`);
     }
+  });
+  // bynk v0.510.34 (bynk-lang/bynk#2998) compiles in-process: the golden has
+  // `origin: "in-process"` and no `path` or `skew`.
+  it("says the compiler is in-process when bynk reports it so", () => {
+    assert.deepStrictEqual(report.compiler, { resolved: true, path: null, version: "9.9.9", origin: "in-process", skew: null });
+    assert.ok(html.includes("bynk 9.9.9, compiler in-process"), html);
+    assert.ok(!html.includes("bynkc"), "no bynkc version for an in-process compiler");
+    assert.ok(!html.includes("version skew"));
+  });
+
+  it("still names the bynkc an older bynk found, with its skew", () => {
+    const older = parseDoctorReport(
+      '{"driver":"0.510.25","compiler":{"resolved":true,"path":"/opt/bynk/bin/bynkc","version":"0.509.0","origin":"path","skew":"minor"},' +
+        '"all_ok":true,"capabilities":[]}',
+    );
+    const out = renderDoctorHtml(older);
+    assert.ok(out.includes("bynk 0.510.25, bynkc 0.509.0 (version skew: minor)"), out);
   });
 });

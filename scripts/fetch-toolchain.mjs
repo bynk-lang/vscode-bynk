@@ -1,4 +1,4 @@
-// Download the pinned release's `bynk-lsp`, `bynk` and `bynkc` into
+// Download the pinned release's `bynk-lsp` and `bynk` into
 // `.bynk-test-bin/` under their plain names, for the integration tests to put
 // on PATH (`BYNK_TEST_BIN_DIR=.bynk-test-bin npm test`) instead of binaries
 // built from the compiler's source in `target/release`.
@@ -12,7 +12,7 @@ import { asset, pin, root, target } from "./release-assets.mjs";
 const out = path.join(root, ".bynk-test-bin");
 fs.mkdirSync(out, { recursive: true });
 const exe = process.platform === "win32" ? ".exe" : "";
-for (const tool of ["bynk-lsp", "bynk", "bynkc"]) {
+for (const tool of ["bynk-lsp", "bynk"]) {
   const from = await asset(`${tool}-${target()}`);
   const to = path.join(out, `${tool}${exe}`);
   fs.copyFileSync(from, to);

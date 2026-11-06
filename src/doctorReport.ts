@@ -27,7 +27,9 @@ export interface DoctorCapability {
 
 export interface DoctorReport {
   driver: string;
-  compiler: { resolved: boolean; path: string | null; version: string | null; skew: string | null };
+  /** `origin` is `in-process` from bynk v0.510.34 on (no `path` or `skew`); an
+   *  older `bynk` reports the `bynkc` it found (`path`, `override`, …). */
+  compiler: { resolved: boolean; path: string | null; version: string | null; origin: string | null; skew: string | null };
   allOk: boolean;
   capabilities: DoctorCapability[];
 }
@@ -51,6 +53,7 @@ export function parseDoctorReport(text: string): DoctorReport {
       resolved: c.resolved === true,
       path: typeof c.path === "string" ? c.path : null,
       version: typeof c.version === "string" ? c.version : null,
+      origin: typeof c.origin === "string" ? c.origin : null,
       skew: typeof c.skew === "string" ? c.skew : null,
     },
     allOk: o.all_ok === true,
@@ -104,9 +107,6 @@ export function remedyActions(row: DoctorRow): RemedyActions {
   let setting: string | undefined;
   // bynk v0.510.2 renamed the server row `bynkc-lsp` → `bynk-lsp`; older toolchains still send the old label.
   if (row.label === "bynk-lsp" || row.label === "bynkc-lsp") setting = "bynk.executablePath";
-  else if (row.label === "compiler" || row.label === "bynkc" || /BYNK_BYNKC/.test(remedy)) {
-    setting = "bynk.compilerPath";
-  }
   return setting ? { commands, urls, setting } : { commands, urls };
 }
 
@@ -138,7 +138,11 @@ export function renderDoctorHtml(report: DoctorReport, opts: { only?: string } =
   const verdict = report.allOk ? "Ready" : "Some tools need attention";
   out.push(
     `<header><h1 class="${report.allOk ? "ok" : "warn"}">${e(verdict)}</h1><p class="meta">bynk ${e(report.driver)}` +
-      (report.compiler.version ? `, bynkc ${e(report.compiler.version)}` : "") +
+      (report.compiler.origin === "in-process"
+        ? ", compiler in-process"
+        : report.compiler.version
+          ? `, bynkc ${e(report.compiler.version)}`
+          : "") +
       (report.compiler.skew && report.compiler.skew !== "match" ? ` (version skew: ${e(report.compiler.skew)})` : "") +
       (opts.only ? `, checking <code>${e(opts.only)}</code> only` : "") +
       `</p></header>`,

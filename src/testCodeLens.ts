@@ -7,7 +7,7 @@
 // It places lenses from the Test Explorer's discovered case locations (testing.ts's
 // `testCases`), and each lens carries its case name to the per-case commands
 // `bynk.runTestCase` / `bynk.debugTestCase` (v0.127): `▷ Run Test` runs *that*
-// case (via `bynkc test --case`), not the whole project.
+// case (via `bynk test --case`), not the whole project.
 
 import * as vscode from "vscode";
 

@@ -13,11 +13,12 @@
 // an archive, so the extension needs no tar/zip handling — just fetch + verify
 // + chmod.
 //
-// The same mechanism provisions the rest of the toolchain (`bynk`, `bynkc`),
-// so a user needs no `cargo install` to check, test, run and deploy: the three
-// land side by side in one versioned directory (which is also how the `bynk`
-// driver finds its sibling `bynkc`), and `bynk` is resolved the way the server
-// is — `bynk.bynkPath`, then PATH, then that managed copy.
+// The same mechanism provisions the rest of the toolchain, the `bynk` driver,
+// so a user needs no `cargo install` to check, test, run and deploy. Since bynk
+// v0.510.34 the driver compiles in-process, so there is no separate `bynkc` to
+// fetch. `bynk` lands beside the server in one versioned directory and is
+// resolved the way the server is — `bynk.bynkPath`, then PATH, then that
+// managed copy.
 
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -135,7 +136,7 @@ export function tooOldServerPrompt(
 }
 
 /** A binary the extension can provision from a release. */
-export type Tool = "bynk-lsp" | "bynk" | "bynkc";
+export type Tool = "bynk-lsp" | "bynk";
 
 /** The language server's binary. bynk v0.510 renamed it from `bynkc-lsp`
  *  (bynk-lang/bynk#2946), and that release still ships a `bynkc-lsp` copy as
@@ -146,9 +147,10 @@ export const SERVER = "bynk-lsp" satisfies Tool;
  *  by an extension version from before the rename. */
 export const LEGACY_SERVER = "bynkc-lsp";
 
-/** The toolchain the extension manages beside the server: the driver and the
- *  compiler it runs. */
-export const TOOLCHAIN: readonly Tool[] = ["bynk", "bynkc"];
+/** The toolchain the extension manages beside the server: the `bynk` driver,
+ *  which compiles in-process since v0.510.34 (bynk-lang/bynk#2998), so no
+ *  `bynkc` is fetched. */
+export const TOOLCHAIN: readonly Tool[] = ["bynk"];
 
 /** The release asset basename for the raw `tool` binary on `target`. */
 export function toolAssetName(tool: Tool, target: string): string {
@@ -307,7 +309,7 @@ async function downloadTools(
   if (!target) {
     throw new Error(
       `No prebuilt Bynk binaries for ${process.platform}/${process.arch}. ` +
-        "Build them (`cargo build --release -p bynk -p bynkc -p bynk-lsp`) and set " +
+        "Build them (`cargo build --release -p bynk -p bynk-lsp`) and set " +
         "`bynk.executablePath` / `bynk.bynkPath`.",
     );
   }
@@ -383,8 +385,8 @@ export async function downloadServer(
   return paths.get(SERVER)!;
 }
 
-/** Download, verify and cache the `bynk` driver and `bynkc` compiler beside the
- *  server, returning the `bynk` path. Throws like {@link downloadServer}; a
+/** Download, verify and cache the `bynk` driver beside the server, returning
+ *  its path. Throws like {@link downloadServer}; a
  *  release cut before these were published has no such asset and fails with the
  *  missing-entry error. */
 export async function downloadToolchain(
@@ -395,18 +397,16 @@ export async function downloadToolchain(
   return paths.get("bynk")!;
 }
 
-/** Where the extension caches a downloaded toolchain, when both halves of it
- *  are present: the `bynk` driver, and the `bynkc` it finds as its sibling. */
+/** Where the extension caches a downloaded toolchain, when the `bynk` driver
+ *  is present. */
 export function cachedToolchain(
   context: vscode.ExtensionContext,
 ): { dir: string; bynk: string } | undefined {
   const target = targetTriple();
   if (!target) return undefined;
   const version = serverVersion(context);
-  const [bynk, bynkc] = TOOLCHAIN.map((t) =>
-    cachedToolPath(context, version, target, t),
-  );
-  if (!fs.existsSync(bynk) || !fs.existsSync(bynkc)) return undefined;
+  const bynk = cachedToolPath(context, version, target, "bynk");
+  if (!fs.existsSync(bynk)) return undefined;
   return { dir: path.dirname(bynk), bynk };
 }
 

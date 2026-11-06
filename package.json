@@ -10,7 +10,7 @@
     "url": "https://github.com/bynk-lang/vscode-bynk"
   },
   "//bynkServerVersion": "The bynk-lsp release this extension build provisions (see src/server.ts): the last shipped release, not the workspace version. release.yml's server-pin job moves it when a release is published (#1673).",
-  "bynkServerVersion": "v0.510.25",
+  "bynkServerVersion": "v0.510.34",
   "//bynkServerMinVersion": "The oldest bynk-lsp (bynkc-lsp before v0.510) this extension works against: older servers lack requests it calls. Unlike bynkServerVersion it is moved by hand, when the extension starts to need something newer (src/server.ts).",
   "bynkServerMinVersion": "v0.434.0",
   "engines": {
@@ -475,7 +475,7 @@
       },
       {
         "command": "bynk.installToolchain",
-        "title": "Install Toolchain (bynk, bynkc)",
+        "title": "Install Toolchain (bynk)",
         "category": "Bynk"
       },
       {
@@ -1417,7 +1417,8 @@
         "bynk.compilerPath": {
           "type": "string",
           "default": "",
-          "description": "Pin an exact `bynkc` compiler for the `bynkc: check` build task, the Test Explorer, and test debugging — passed through as `BYNK_BYNKC` to the `bynk` driver, which now runs these. When empty, `bynk` resolves `bynkc` itself (PATH, then a sibling of `bynk`)."
+          "description": "Deprecated and ignored. It pinned a `bynkc` compiler for the `bynk` driver (as `BYNK_BYNKC`); `bynk` compiles in-process since v0.510.34, so there is no `bynkc` to pin.",
+          "markdownDeprecationMessage": "Ignored: `bynk` compiles in-process since v0.510.34, so there is no `bynkc` to pin. Remove this setting."
         },
         "bynk.bynkPath": {
           "type": "string",
@@ -1428,7 +1429,7 @@
         "bynk.toolchain.autoInstall": {
           "type": "boolean",
           "default": true,
-          "description": "Download the `bynk` driver and `bynkc` compiler (checksum-verified, from the matching GitHub Release) when neither `bynk.bynkPath` nor PATH provides a `bynk`, and put them on the PATH of integrated terminals. Turn off to manage the toolchain yourself; `Bynk: Install Toolchain` still works on demand."
+          "description": "Download the `bynk` driver (checksum-verified, from the matching GitHub Release) when neither `bynk.bynkPath` nor PATH provides a `bynk`, and put it on the PATH of integrated terminals. Turn off to manage the toolchain yourself; `Bynk: Install Toolchain` still works on demand."
         },
         "bynk.debug.semanticValues": {
           "type": "boolean",

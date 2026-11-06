@@ -8,7 +8,7 @@
 // (so the extension's production tracker fires), and asserts the value now reads
 // `Some("hi")` over `wrangler`'s inspector.
 //
-// Skipped without `wrangler`/`bynkc`/`node` (CI has no Cloudflare runtime), or
+// Skipped without `wrangler`/`bynk`/`node` (CI has no Cloudflare runtime), or
 // when wrangler's workerd is too old for the emitted `compatibility_date`
 // (#2180); built inside the workspace folder like slice 4's workerd test.
 
@@ -45,7 +45,7 @@ describe("Bynk debug values (workerd)", () => {
   });
 
   it("renders a worker handler's Option local in Bynk syntax via the editor-side interposer", async function () {
-    if (!have("wrangler") || !have("bynkc") || !have("node")) this.skip();
+    if (!have("wrangler") || !have("bynk") || !have("node")) this.skip();
     this.timeout(90_000);
     const verbose = process.env.BYNK_DEBUG_SPIKE === "verbose";
 
@@ -77,11 +77,11 @@ describe("Bynk debug values (workerd)", () => {
 
     const build = path.join(dir, "build");
     const compile = spawnSync(
-      "bynkc",
+      "bynk",
       ["compile", path.join(dir, "src"), "--output", build, "--target", "workers"],
       { encoding: "utf8" },
     );
-    assert.strictEqual(compile.status, 0, `bynkc compile failed: ${compile.stderr}`);
+    assert.strictEqual(compile.status, 0, `bynk compile failed: ${compile.stderr}`);
     const workerDir = path.join(build, "workers", "svc");
 
     const base = 9500 + (process.pid % 200) * 2;

@@ -34,7 +34,7 @@ jobs:
       - name: Unit tests with coverage
         run: npm run test:unit:coverage
       - run: npm run test:contract
-      # The pinned release's contract + bynkc, kept per pin.
+      # The pinned release's contract + bynk, kept per pin.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .contract-cache

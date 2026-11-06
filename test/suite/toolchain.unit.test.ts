@@ -1,6 +1,6 @@
-// Unit coverage for the managed toolchain's cache (src/server.ts): a `bynk` is
-// only usable with its sibling `bynkc`, and a failed verification must leave
-// nothing behind.
+// Unit coverage for the managed toolchain's cache (src/server.ts): the toolchain
+// is the `bynk` driver alone (it compiles in-process, so there is no `bynkc`),
+// and a failed verification must leave nothing behind.
 
 import * as assert from "assert";
 import * as fs from "node:fs";
@@ -61,37 +61,36 @@ describe("managed toolchain cache", function () {
 
   const output = { appendLine() {} } as unknown as vscode.OutputChannel;
 
-  it("needs both bynk and bynkc cached", () => {
+  it("needs only bynk cached", () => {
     const ctx = fakeContext(dir);
     assert.strictEqual(cachedToolchain(ctx), undefined);
     const bynk = cachedToolPath(ctx, VERSION, target!, "bynk");
     fs.mkdirSync(path.dirname(bynk), { recursive: true });
     fs.writeFileSync(bynk, "x");
-    assert.strictEqual(cachedToolchain(ctx), undefined, "bynk alone is not a toolchain");
-    fs.writeFileSync(cachedToolPath(ctx, VERSION, target!, "bynkc"), "x");
     assert.strictEqual(cachedToolchain(ctx)?.bynk, bynk);
+    assert.strictEqual(cachedToolchain(ctx)?.dir, path.dirname(bynk));
   });
 
-  it("caches both tools side by side once verified", async () => {
+  it("downloads bynk alone, never bynkc", async () => {
     const ctx = fakeContext(dir);
-    const files = {
-      [toolAssetName("bynk", target!)]: "driver",
-      [toolAssetName("bynkc", target!)]: "compiler",
-    };
-    serve(files, Object.fromEntries(Object.entries(files).map(([n, b]) => [n, sha(b)])));
+    const driver = toolAssetName("bynk", target!);
+    const requested: string[] = [];
+    serve({ [driver]: "driver" }, { [driver]: sha("driver") });
+    const served = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      requested.push(path.basename(String(url)));
+      return served(url, init);
+    }) as typeof fetch;
     const bynk = await downloadToolchain(ctx, output);
     assert.strictEqual(fs.readFileSync(bynk, "utf8"), "driver");
     assert.ok(cachedToolchain(ctx));
+    assert.deepStrictEqual(requested.filter((n) => n !== "SHA256SUMS"), [driver]);
   });
 
-  it("caches nothing when a later tool fails verification", async () => {
+  it("caches nothing when bynk fails verification", async () => {
     const ctx = fakeContext(dir);
     const driver = toolAssetName("bynk", target!);
-    const compiler = toolAssetName("bynkc", target!);
-    serve(
-      { [driver]: "driver", [compiler]: "tampered" },
-      { [driver]: sha("driver"), [compiler]: sha("compiler") },
-    );
+    serve({ [driver]: "tampered" }, { [driver]: sha("driver") });
     await assert.rejects(downloadToolchain(ctx, output), /checksum mismatch/);
     assert.strictEqual(fs.existsSync(cachedToolPath(ctx, VERSION, target!, "bynk")), false);
     assert.strictEqual(cachedToolchain(ctx), undefined);

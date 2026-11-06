@@ -115,7 +115,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // new ones there, not here).
   registerFeatures({ context, output, viewRefresh, client: () => client, driverSupport, approvals });
 
-  // v0.59: the Test Explorer — runs `bynkc test --format json`. v0.78: also discovers
+  // v0.59: the Test Explorer — runs `bynk test --format json`. v0.78: also discovers
   // eagerly and exposes case locations for the Test CodeLens. #2269: its Watch toggle
   // reruns on the hub's change signal, so the hub is built first.
   const testApi = registerTesting(context, viewRefresh, driverSupport);

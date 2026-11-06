@@ -2,14 +2,14 @@
 // server release `bynkServerVersion` pins:
 //   - every reserved keyword is highlighted by the TextMate grammar;
 //   - the custom semantic-token types/modifiers match package.json;
-//   - every snippet still parses (`bynkc fmt -` as the parse oracle);
+//   - every snippet still parses (`bynk fmt -` as the parse oracle);
 //   - the fixture copies of `bynk doctor --json` and `bynk status --json` equal
 //     the compiler's goldens (a contract from before they were shipped skips this).
 // The checks live in contract-lib.mjs. This script fetches the inputs.
 //
-//   node scripts/check-contract.mjs [--contract FILE] [--bynkc FILE]
+//   node scripts/check-contract.mjs [--contract FILE] [--bynk FILE]
 //
-// --contract / --bynkc (or BYNK_EDITOR_CONTRACT / BYNKC) use local files instead
+// --contract / --bynk (or BYNK_EDITOR_CONTRACT / BYNK) use local files instead
 // of downloading the pinned release's, e.g. to check against a build from source.
 
 import { spawnSync } from "node:child_process";
@@ -65,16 +65,16 @@ if (golden === null)
   console.warn("warning: this contract predates `goldens`; the doctor/status fixtures were not checked");
 else failures.push(...golden);
 
-let bynkc = arg("--bynkc", "BYNKC");
-if (!bynkc) {
+let bynk = arg("--bynk", "BYNK");
+if (!bynk) {
   try {
-    bynkc = await asset(`bynkc-${target()}`);
+    bynk = await asset(`bynk-${target()}`);
   } catch (e) {
-    throw new Error(`${e.message}; pass --bynkc to use a local build`);
+    throw new Error(`${e.message}; pass --bynk to use a local build`);
   }
 }
 for (const [name, source] of snippetSkeletons(JSON.parse(read("snippets/bynk.json")))) {
-  const r = spawnSync(bynkc, ["fmt", "-"], { input: source, encoding: "utf8" });
+  const r = spawnSync(bynk, ["fmt", "-"], { input: source, encoding: "utf8" });
   if (r.error) throw r.error;
   if (r.status !== 0)
     failures.push(

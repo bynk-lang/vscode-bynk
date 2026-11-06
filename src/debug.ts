@@ -191,7 +191,7 @@ export function registerDebug(context: vscode.ExtensionContext, driverSupport: D
   );
 }
 
-/** Start a Bynk test-debug session at `root`: shells `bynkc test --inspect`,
+/** Start a Bynk test-debug session at `root`: shells `bynk test --inspect`,
  *  attaches, and a breakpoint in a test body or the code it exercises pauses.
  *  The Test Explorer's Debug profile (testing.ts) routes here via `startDebugging`.
  *  v0.127: an optional `caseName` filters the run to a single case (`--case`) —
@@ -403,8 +403,7 @@ let debugOutput: vscode.OutputChannel | undefined;
 /** Spawn `bynk` through the shared `spawnTree`, so killing it later takes the
  *  whole tree (bynkc→node, bynk→wrangler→workerd) with it and its output is
  *  drained for the life of the session (an unread pipe freezes the debuggee once
- *  it fills, #30). What it writes goes to the "Bynk Debug" output channel.
- *  `bynkEnv` passes `bynk.compilerPath` through as `BYNK_BYNKC`. */
+ *  it fills, #30). What it writes goes to the "Bynk Debug" output channel. */
 function spawnCli(args: string[], cwd: string): ChildProcess {
   debugOutput ??= vscode.window.createOutputChannel("Bynk Debug");
   return spawnTree(bynkPath(), args, { cwd, env: bynkEnv(), output: debugOutput });

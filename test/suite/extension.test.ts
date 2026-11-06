@@ -36,7 +36,7 @@ describe("Bynk extension", () => {
   it("registers the Test Explorer run command", async () => {
     // Proves `registerTesting` ran during activation (it creates the test
     // controller + run profile and registers this command). An actual run needs
-    // `bynkc` on PATH, which the integration harness doesn't provide, so the
+    // a project to test, which this suite doesn't write, so the
     // command registration is the activation-time smoke signal.
     const commands = await vscode.commands.getCommands(true);
     assert.ok(

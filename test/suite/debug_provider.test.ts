@@ -1,7 +1,7 @@
 // Slice 4 integration test: the *production* path. Drives the extension's own
 // `bynk` DebugConfigurationProvider end to end — `startDebugging({ type: "bynk",
-// mode: "test" })` shells `bynk test --inspect` (#486: through the driver, not
-// `bynkc` directly), parses the inspector port, attaches VS Code's JS debugger,
+// mode: "test" })` shells `bynk test --inspect` (#486: through the driver,
+// which compiles in-process), parses the inspector port, attaches VS Code's JS debugger,
 // and a breakpoint set in a `.bynk` test pauses.
 //
 // Unlike debug.test.ts (which hand-authors a `.ts`+map to isolate the attach
@@ -9,7 +9,7 @@
 // it also covers the v0.72 emitter fix: the map `sources` are the `.bynk` files'
 // absolute paths, so an editor breakpoint resolves to the loaded source.
 //
-// Guarded on `bynk` + `bynkc` + `node` (DECISION D) — the CI harness provisions
+// Guarded on `bynk` + `node` (DECISION D) — the CI harness provisions
 // them on PATH; elsewhere the test skips. The project is built *inside* the
 // workspace folder, as a real user's is (js-debug anchors source resolution to it).
 
@@ -29,7 +29,7 @@ function have(tool: string): boolean {
   }
 }
 
-/** True when `node` on PATH is ≥ 22.6 — the floor for `bynkc test --inspect`,
+/** True when `node` on PATH is ≥ 22.6 — the floor for `bynk test --inspect`,
  *  which runs the emitted `.ts` under `--experimental-strip-types`. */
 function nodeStripsTypes(): boolean {
   try {
@@ -57,7 +57,7 @@ describe("Bynk debug provider (test mode)", () => {
   });
 
   it("startDebugging({type:'bynk', mode:'test'}) pauses at a .bynk breakpoint", async function () {
-    if (!have("bynk") || !have("bynkc") || !have("node") || !nodeStripsTypes()) this.skip();
+    if (!have("bynk") || !have("node") || !nodeStripsTypes()) this.skip();
     this.timeout(90_000);
 
     const workspace = path.resolve(__dirname, "../../../test/fixtures/workspace");
@@ -129,7 +129,7 @@ describe("Bynk debug provider (test mode)", () => {
     );
     vscode.debug.addBreakpoints([bp]);
 
-    // The real provider: compiles, launches `bynkc test --inspect`, attaches.
+    // The real provider: compiles, launches `bynk test --inspect`, attaches.
     const started = await vscode.debug.startDebugging(undefined, {
       type: "bynk",
       request: "launch",
@@ -145,7 +145,7 @@ describe("Bynk debug provider (test mode)", () => {
       }
       assert.ok(
         hitBreakpoint,
-        "a breakpoint set in tests/calc.bynk bound (through the real bynkc output map) and paused",
+        "a breakpoint set in tests/calc.bynk bound (through the real compiler's output map) and paused",
       );
     } finally {
       tracker.dispose();

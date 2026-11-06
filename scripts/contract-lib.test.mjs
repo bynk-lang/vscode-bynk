@@ -45,8 +45,8 @@ test("a regex word boundary is not part of the word", () => {
 
 test("SHA256SUMS parses sha256sum output", () => {
   const h = "a".repeat(64);
-  assert.deepEqual(parseSums(`${h}  bynkc-x86_64-unknown-linux-gnu\nnot a line\n${"b".repeat(64)}  SHA256SUMS\n`), {
-    "bynkc-x86_64-unknown-linux-gnu": h,
+  assert.deepEqual(parseSums(`${h}  bynk-x86_64-unknown-linux-gnu\nnot a line\n${"b".repeat(64)}  SHA256SUMS\n`), {
+    "bynk-x86_64-unknown-linux-gnu": h,
     SHA256SUMS: "b".repeat(64),
   });
 });

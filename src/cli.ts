@@ -1,7 +1,7 @@
 // The shared `bynk` CLI runner (#2094): one place that spawns the driver with
 // the extension's settings applied, so every editor command that drives the CLI
 // (`bynk dev`, and the deploy, doctor and coverage commands built on it) resolves
-// `bynk` and `BYNK_BYNKC` the same way, finds the project the same way, and
+// `bynk` the same way, finds the project the same way, and
 // stops a process tree the same way.
 //
 // Two shapes: `runBynk` for a one-shot command whose output is read once it
@@ -15,7 +15,7 @@ import { contextNames } from "./devEvents";
 import { killTree, OutputSink, spawnTree } from "./proc";
 import { MISSING_CWD } from "./procCore";
 import { activeProjectRoot } from "./projectRoots";
-import { bynkPath, compilerOverride } from "./tasks";
+import { bynkPath } from "./tasks";
 
 /** The contexts the project's `.bynk` sources declare, sorted: what a
  *  `--context` picker offers. */
@@ -36,11 +36,11 @@ export async function projectContexts(root: vscode.Uri): Promise<string[]> {
   return [...names].sort();
 }
 
-/** The environment a `bynk` child runs with: the extension host's, plus
- *  `BYNK_BYNKC` when `bynk.compilerPath` pins a compiler. */
+/** The environment a `bynk` child runs with: the extension host's. The
+ *  deprecated `bynk.compilerPath` is not passed on as `BYNK_BYNKC`: `bynk`
+ *  compiles in-process since v0.510.34 and ignores it. */
 export function bynkEnv(): NodeJS.ProcessEnv {
-  const override = compilerOverride();
-  return override ? { ...process.env, BYNK_BYNKC: override } : { ...process.env };
+  return { ...process.env };
 }
 
 /** A finished one-shot `bynk` run. `code` is `null` when it died of a signal. */

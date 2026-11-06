@@ -17,10 +17,8 @@ const MAX_OUTPUT = 64 * 1024 * 1024;
  *  `{ noRun: true }` it adds `--no-run` — a pure discovery compile that lists
  *  suites/cases without running them. A non-zero exit is normal (test failures),
  *  so we parse stdout regardless and only reject when there is no parseable
- *  document at all. Goes through `bynk` rather than shelling `bynkc` directly
- *  (#486): the driver resolves its compiler as `BYNK_BYNKC` → PATH →
- *  sibling-of-`bynk`, so a driver-first install works here too; `bynk.compilerPath`
- *  is forwarded as `BYNK_BYNKC` to keep pinning an exact `bynkc` when set. */
+ *  document at all. Goes through the `bynk` driver, which compiles in-process
+ *  (no separate `bynkc`). */
 export function runBynkcTest(
   root: vscode.Uri,
   token?: vscode.CancellationToken,

@@ -51,7 +51,7 @@ async function main() {
           : override.replace(/^v/, "") || undefined;
       assertServer(serverDir, want, "npm run fetch:toolchain");
     } else {
-      const build = "cargo build --release -p bynk-lsp -p bynkc -p bynk";
+      const build = "cargo build --release -p bynk-lsp -p bynk";
       assertServer(
         serverDir,
         workspaceVersion(path.resolve(serverDir, "../../Cargo.toml")),

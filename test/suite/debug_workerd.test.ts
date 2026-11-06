@@ -5,7 +5,7 @@
 //
 // This is the one open question slice 3 flagged: `wrangler`'s inspector requires
 // an `Origin` header on the CDP WebSocket. If js-debug's attach binds the
-// breakpoint, it sends one. Skipped when `wrangler` / `bynkc` / `node` are
+// breakpoint, it sends one. Skipped when `wrangler` / `bynk` / `node` are
 // unavailable, so CI (no Cloudflare runtime) never depends on it, and when
 // wrangler's workerd is too old for the emitted `compatibility_date` (#2180).
 
@@ -42,7 +42,7 @@ describe("Bynk debug attach (workerd)", () => {
   });
 
   it("a breakpoint in a .bynk handler binds and pauses on a wrangler dev worker", async function () {
-    if (!have("wrangler") || !have("bynkc") || !have("node")) {
+    if (!have("wrangler") || !have("bynk") || !have("node")) {
       this.skip();
     }
     this.timeout(90_000);
@@ -60,14 +60,14 @@ describe("Bynk debug attach (workerd)", () => {
     const bynkLine = svc.split("\n").findIndex((l) => l.includes("Logger.info")) + 1;
     assertFixtureChecks(dir, "workerd debug");
 
-    // Build the worker (Workers target, with source maps) via the release bynkc.
+    // Build the worker (Workers target, with source maps) via the release bynk.
     const build = path.join(dir, "build");
     const compile = spawnSync(
-      "bynkc",
+      "bynk",
       ["compile", path.join(dir, "src"), "--output", build, "--target", "workers"],
       { encoding: "utf8" },
     );
-    assert.strictEqual(compile.status, 0, `bynkc compile failed: ${compile.stderr}`);
+    assert.strictEqual(compile.status, 0, `bynk compile failed: ${compile.stderr}`);
     const workerDir = path.join(build, "workers", "svc");
     assert.ok(fs.existsSync(path.join(workerDir, "handlers.ts.map")), "worker carries a map");
 
