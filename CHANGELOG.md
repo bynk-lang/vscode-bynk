@@ -12,6 +12,14 @@ version).
 
 ## [Unreleased]
 
+## [0.510.25] - 2026-11-06
+
+Built against `bynk` v0.510.25.
+
+### Changed
+
+- Provisions `bynk-lsp` v0.510.25 (was v0.510.2). (#96, #97, #98)
+
 ## [0.510.2] - 2026-11-05
 
 Built against `bynk` v0.510.2.
