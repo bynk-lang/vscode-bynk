@@ -12,6 +12,23 @@ version).
 
 ## [Unreleased]
 
+### Changed
+
+- The extension no longer downloads `bynkc` (#86). `bynk` compiles in-process
+  since bynk v0.510.34 (bynk-lang/bynk#2998), so the managed toolchain is
+  `bynk` alone, and the server pin is v0.510.34. The next bynk release removes
+  `bynkc` and the `bynkc-lsp` copy (bynk-lang/bynk#3013); this build no longer
+  needs either.
+- The contract check uses `bynk fmt -` as its parse oracle, not `bynkc fmt -`.
+  Its local-build flag is `--bynk` (or `BYNK`), replacing `--bynkc`.
+- The Doctor view says the compiler is in-process, rather than naming a
+  `bynkc` version, when `bynk` reports it so.
+
+### Deprecated
+
+- `bynk.compilerPath`. It is no longer passed on as `BYNK_BYNKC`, which `bynk`
+  ignores now. The Doctor view no longer offers it as a remedy.
+
 ## [0.510.25] - 2026-11-06
 
 Built against `bynk` v0.510.25.

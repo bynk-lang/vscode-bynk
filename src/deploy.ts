@@ -16,7 +16,7 @@
 import * as vscode from "vscode";
 
 import type { ApprovalState } from "./approveRequirements";
-import { BynkNotFoundError, bynkEnv, findProjectRoot, projectContexts, runBynk } from "./cli";
+import { BynkNotFoundError, findProjectRoot, projectContexts, runBynk } from "./cli";
 import { isActionMessage, renderActionHtml } from "./cliView";
 import {
   DeployTarget,
@@ -247,13 +247,11 @@ async function tail(preset?: Preset): Promise<void> {
 /** Run `bynk <args>` as a terminal's own process, so its prompts and streamed
  *  output are the user's to read. */
 function openBynkTerminal(name: string, root: vscode.Uri, args: string[]): void {
-  const override = bynkEnv().BYNK_BYNKC;
   const terminal = vscode.window.createTerminal({
     name,
     cwd: root,
     shellPath: bynkPath(),
     shellArgs: args,
-    env: override ? { BYNK_BYNKC: override } : undefined,
   });
   terminal.show();
 }

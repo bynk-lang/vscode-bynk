@@ -3,10 +3,9 @@
 // panel. The LSP already reports diagnostics for *open* files; this catches the
 // rest (unopened files, project-level errors) on demand.
 //
-// Goes through the `bynk` driver rather than shelling `bynkc` directly (#486):
-// the driver resolves its compiler as `$BYNK_BYNKC` → PATH → sibling-of-`bynk`,
-// richer than a bare PATH lookup — a driver-first install (`bynkc` reachable
-// only via `BYNK_BYNKC`, or sitting next to `bynk` off PATH) now works here too.
+// Goes through the `bynk` driver, which compiles in-process (bynk v0.510.34,
+// bynk-lang/bynk#2998): no separate `bynkc` is run or needed. The task type and
+// the `$bynkc` matcher keep their names; they are the extension's own.
 
 import * as os from "node:os";
 import * as path from "node:path";
@@ -31,29 +30,15 @@ export function bynkPath(): string {
   );
 }
 
-/** The `bynk.compilerPath` setting, or `undefined` when unset. Passed through as
- *  `BYNK_BYNKC` when shelling `bynk`, so the setting keeps pinning an exact
- *  `bynkc` now that `check`/`test` run through the driver instead of calling
- *  `bynkc` directly — `bynk` honours the same override. */
-export function compilerOverride(): string | undefined {
-  const p = vscode.workspace
-    .getConfiguration("bynk")
-    .get<string>("compilerPath", "")
-    .trim();
-  return p || undefined;
-}
-
 /** The `bynkc: check` build task for one project: `bynk check <project>
  *  --format short`, errors routed through `$bynkc`. `bynk` prints diagnostic
  *  paths relative to where it runs, and the matcher resolves them against the
  *  workspace folder (`${cwd}` there is not the task's `cwd`), so it runs *in*
  *  the workspace folder and names a nested project as its argument. */
 function checkTask(folder?: vscode.WorkspaceFolder, project?: string): vscode.Task {
-  const override = compilerOverride();
   const cwd = (folder ?? vscode.workspace.workspaceFolders?.[0])?.uri.fsPath;
   const exec = new vscode.ShellExecution(bynkPath(), ["check", project ?? ".", "--format", "short"], {
     ...(cwd ? { cwd } : {}),
-    ...(override ? { env: { BYNK_BYNKC: override } } : {}),
   });
   const definition: vscode.TaskDefinition = project ? { type: TASK_TYPE, project } : { type: TASK_TYPE };
   const task = new vscode.Task(

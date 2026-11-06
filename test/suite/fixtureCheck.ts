@@ -7,14 +7,14 @@
 import * as assert from "assert";
 import { spawnSync } from "child_process";
 
-/** Fail the test, with `bynkc`'s diagnostics, unless the project at
- *  `projectDir` passes `bynkc check`. Requires `bynkc` on PATH (callers
+/** Fail the test, with `bynk`'s diagnostics, unless the project at
+ *  `projectDir` passes `bynk check`. Requires `bynk` on PATH (callers
  *  already skip without it). */
 export function assertFixtureChecks(projectDir: string, what: string): void {
-  const r = spawnSync("bynkc", ["check", projectDir], { encoding: "utf8" });
+  const r = spawnSync("bynk", ["check", projectDir], { encoding: "utf8" });
   assert.strictEqual(
     r.status,
     0,
-    `the ${what} fixture no longer passes \`bynkc check\` — update it to the current syntax:\n${r.stderr}${r.stdout}`,
+    `the ${what} fixture no longer passes \`bynk check\` — update it to the current syntax:\n${r.stderr}${r.stdout}`,
   );
 }

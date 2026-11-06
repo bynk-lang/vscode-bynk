@@ -42,7 +42,7 @@ jobs:
           workspaces: bynk
       - name: Build the compiler, server and driver
         working-directory: bynk
-        run: cargo build --release -p bynk-lsp -p bynkc -p bynk
+        run: cargo build --release -p bynk-lsp -p bynk
       - name: Generate its editor contract
         working-directory: bynk
         run: cargo run -q -p xtask -- editor-contract --tag "$BYNK_REF" --out "$RUNNER_TEMP/editor-contract.json"
@@ -52,7 +52,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Contract check against main
-        run: npm run check:contract -- --contract "$RUNNER_TEMP/editor-contract.json" --bynkc "$GITHUB_WORKSPACE/bynk/target/release/bynkc"
+        run: npm run check:contract -- --contract "$RUNNER_TEMP/editor-contract.json" --bynk "$GITHUB_WORKSPACE/bynk/target/release/bynk"
       - name: Integration tests against main's server and toolchain
         env:
           BYNK_TEST_BIN_DIR: ${{ github.workspace }}/bynk/target/release

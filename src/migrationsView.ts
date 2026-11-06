@@ -13,7 +13,7 @@
 
 import * as vscode from "vscode";
 
-import { BynkNotFoundError, bynkEnv, findProjectRoot, runBynk } from "./cli";
+import { BynkNotFoundError, findProjectRoot, runBynk } from "./cli";
 import { isActionMessage, renderActionHtml } from "./cliView";
 import { PLAN_CSS, validContextName, validEnvironmentName } from "./deployPlan";
 import { reportBynkNotFound } from "./doctor";
@@ -316,13 +316,11 @@ class SweepView implements vscode.Disposable {
       go,
     );
     if (choice !== go) return;
-    const override = bynkEnv().BYNK_BYNKC;
     const terminal = vscode.window.createTerminal({
       name: `Bynk Sweep (${envs.join(", ") || "all"})`,
       cwd: current.root,
       shellPath: bynkPath(),
       shellArgs: args,
-      env: override ? { BYNK_BYNKC: override } : undefined,
     });
     terminal.show();
     // The lock may change when the run ends: refresh when the terminal closes.

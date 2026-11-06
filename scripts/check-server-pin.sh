@@ -45,7 +45,7 @@ wants="SHA256SUMS bynk-editor-contract-$pin.json bynk-web-$pin.tar.gz"
 for target in $targets; do
 	exe=""
 	case "$target" in *windows*) exe=".exe" ;; esac
-	for tool in bynk-lsp bynk bynkc; do
+	for tool in bynk-lsp bynk; do
 		wants="$wants $tool-$target$exe"
 	done
 done

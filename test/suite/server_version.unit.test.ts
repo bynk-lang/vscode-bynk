@@ -72,7 +72,7 @@ describe("expectedServerVersion (#1673)", () => {
 describe("toolAssetName", () => {
   it("names the raw per-platform binary assets release.yml publishes", () => {
     assert.strictEqual(toolAssetName("bynk", "x86_64-unknown-linux-gnu"), "bynk-x86_64-unknown-linux-gnu");
-    assert.strictEqual(toolAssetName("bynkc", "aarch64-apple-darwin"), "bynkc-aarch64-apple-darwin");
+    assert.strictEqual(toolAssetName("bynk-lsp", "aarch64-apple-darwin"), "bynk-lsp-aarch64-apple-darwin");
     assert.strictEqual(toolAssetName("bynk", "x86_64-pc-windows-msvc"), "bynk-x86_64-pc-windows-msvc.exe");
   });
 

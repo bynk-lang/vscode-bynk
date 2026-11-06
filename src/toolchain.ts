@@ -1,5 +1,5 @@
-// Provisioning for the `bynk` driver and `bynkc` compiler (the language server
-// is `server.ts`'s). Without this a user who installs the extension still needs
+// Provisioning for the `bynk` driver, which compiles in-process (the language
+// server is `server.ts`'s). Without this a user who installs the extension still needs
 // a Rust toolchain and `cargo install` before check, test, `bynk dev` or deploy
 // will run.
 //
@@ -74,7 +74,7 @@ async function install(
       ok: false,
       message:
         `no prebuilt Bynk toolchain for ${process.platform}/${process.arch}; ` +
-        "build it with `cargo install --path bynk --path bynkc` and set `bynk.bynkPath`",
+        "build it with `cargo install --path bynk` and set `bynk.bynkPath`",
     };
   }
   try {
@@ -103,7 +103,7 @@ export function registerToolchain(
       const result = await ensureToolchain(context, output);
       if (result.ok) {
         void vscode.window.showInformationMessage(
-          "Bynk: toolchain ready. New terminals have `bynk` and `bynkc` on PATH.",
+          "Bynk: toolchain ready. New terminals have `bynk` on PATH.",
         );
       } else {
         const pick = await vscode.window.showErrorMessage(

@@ -1,8 +1,8 @@
 // v0.78: the Test CodeLens + eager discovery, end to end. Opening a `.bynk` test file
 // (without opening the Testing view) should trigger discovery and surface a
-// `Run Test | Debug Test` CodeLens at the case declaration. Guarded on `bynk` +
-// `bynkc` (discovery is a `bynk test --no-run` compile, #486); the harness
-// provisions both.
+// `Run Test | Debug Test` CodeLens at the case declaration. Guarded on `bynk`
+// (discovery is a `bynk test --no-run` compile, in-process since v0.510.34);
+// the harness provisions it.
 
 import * as assert from "assert";
 import * as path from "path";
@@ -34,7 +34,7 @@ describe("Test CodeLens (eager discovery)", () => {
   });
 
   it("shows Run/Debug lenses at a test case after opening the file", async function () {
-    if (!have("bynk") || !have("bynkc")) this.skip();
+    if (!have("bynk")) this.skip();
     this.timeout(60_000);
 
     // A project inside the workspace folder with one test case.
