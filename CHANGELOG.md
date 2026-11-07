@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+## [0.510.34] - 2026-11-07
+
+Built against `bynk` v0.510.34.
+
 ### Changed
 
 - The extension no longer downloads `bynkc` (#86). `bynk` compiles in-process
