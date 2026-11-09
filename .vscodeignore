@@ -26,3 +26,5 @@ scripts/**
 .mocharc.json
 coverage/**
 .claude/**
+# The dual-licence notice; the VSIX ships LICENSE-APACHE and LICENSE-MIT.
+COPYRIGHT.md
