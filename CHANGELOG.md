@@ -12,6 +12,14 @@ version).
 
 ## [Unreleased]
 
+## [0.525.22] - 2026-11-10
+
+Built against `bynk` v0.525.22.
+
+### Changed
+
+- The server pin moves to v0.525.22 (from v0.512.10). No extension changes.
+
 ## [0.512.10] - 2026-11-08
 
 Built against `bynk` v0.512.10.
