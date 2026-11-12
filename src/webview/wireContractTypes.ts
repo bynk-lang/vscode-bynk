@@ -40,7 +40,8 @@ export type WcRevalidation = "ViaConstructor" | "Inline" | "StructuralOnly" | "B
 export type WcUncheckedReason =
   | "Effect"
   | "ValidationError"
-  | "JsonError"
+  | "DecodeError"
+  | "JsonError" // deprecated alias; sent by older language servers
   | "HttpResult"
   | "QueueResult";
 export type WcNoCrossContextReason = "NotACallHandler" | "SingleContext";

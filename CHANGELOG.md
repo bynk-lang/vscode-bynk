@@ -12,6 +12,11 @@ version).
 
 ## [Unreleased]
 
+### Fixed
+
+- Grammar: `by` is a contextual keyword (bynk#3240). It is coloured as a keyword only in its clause positions (`by Actor`, `by binder: Actor`, a call-site `f() by Actor(…)`, `advance Clock by …`) and is an ordinary name elsewhere, so `fn bump(by: Int)` and `let by = 2` are no longer mis-highlighted.
+- Grammar and wire contract: `DecodeError` (the renamed `JsonError`, bynk#3223) is a built-in type and a valid unchecked reason; `JsonError` is kept as a deprecated alias.
+
 ## [0.525.22] - 2026-11-10
 
 Built against `bynk` v0.525.22.
