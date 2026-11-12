@@ -12,6 +12,11 @@ version).
 
 ## [Unreleased]
 
+### Changed
+
+- Requires VS Code 1.145.0 or later (was 1.144.0); the integration suite runs
+  on 1.145.0. Supersedes #112.
+
 ## [0.525.22] - 2026-11-10
 
 Built against `bynk` v0.525.22.

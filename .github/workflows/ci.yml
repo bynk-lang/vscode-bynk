@@ -62,7 +62,7 @@ jobs:
     timeout-minutes: 30
     env:
       # The VS Code build the suite runs against; the cache keys on it.
-      VSCODE_TEST_VERSION: "1.144.0"
+      VSCODE_TEST_VERSION: "1.145.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
