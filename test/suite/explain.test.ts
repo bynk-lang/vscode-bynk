@@ -75,7 +75,7 @@ describe("Bynk explain (#2098)", () => {
   it("reports an uncurated code gracefully, without a panel", async () => {
     const shown = await vscode.commands.executeCommand<Explanation | null>(
       "bynk.explainDiagnostic",
-      "bynk.resolve.duplicate_type",
+      "bynk.test.no_such_code",
     );
     assert.strictEqual(shown, null);
   });
