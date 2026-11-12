@@ -12,8 +12,14 @@ version).
 
 ## [Unreleased]
 
+## [0.562.0] - 2026-11-12
+
+Built against `bynk` v0.562.0.
+
 ### Changed
 
+- The server pin moves to v0.562.0 (from v0.525.22). The web build's wasm size budget
+  rises to 20 MiB, as the v0.562.0 module is about 16 MiB.
 - Requires VS Code 1.145.0 or later (was 1.144.0); the integration suite runs
   on 1.145.0. Supersedes #112.
 
