@@ -12,6 +12,11 @@ version).
 
 ## [Unreleased]
 
+### Changed
+
+- Requires VS Code 1.145.0 or later (was 1.144.0); the integration suite runs
+  on 1.145.0. Supersedes #112.
+
 ### Fixed
 
 - Grammar: `by` is a contextual keyword (bynk#3240). It is coloured as a keyword only in its clause positions (`by Actor`, `by binder: Actor`, a call-site `f() by Actor(…)`, `advance Clock by …`) and is an ordinary name elsewhere, so `fn bump(by: Int)` and `let by = 2` are no longer mis-highlighted.
