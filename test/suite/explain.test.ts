@@ -73,9 +73,12 @@ describe("Bynk explain (#2098)", () => {
   });
 
   it("reports an uncurated code gracefully, without a panel", async () => {
+    // A syntactically valid code the compiler never emits, so it can never gain
+    // a curated explanation (a real code, like bynk.resolve.duplicate_type,
+    // does once the book documents it).
     const shown = await vscode.commands.executeCommand<Explanation | null>(
       "bynk.explainDiagnostic",
-      "bynk.resolve.duplicate_type",
+      "bynk.test.never_curated_code",
     );
     assert.strictEqual(shown, null);
   });
