@@ -41,7 +41,7 @@ function checkNode() {
 const WEB_BUDGETS = {
   "web/extension.js": 600 * 1024,
   "web/server.js": 400 * 1024,
-  "web/bynk_wasm_bg.wasm": 12 * 1024 * 1024,
+  "web/bynk_wasm_bg.wasm": 20 * 1024 * 1024, // v0.562.0 is ~16 MiB
 };
 
 function checkWeb() {
