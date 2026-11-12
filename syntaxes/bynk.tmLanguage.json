@@ -16,6 +16,7 @@
     { "include": "#doc-block" },
     { "include": "#doc-line" },
     { "include": "#line-comment" },
+    { "include": "#indexed-by" },
     { "include": "#annotations" },
     { "include": "#keyword-members" },
     { "include": "#keyword-labels" },
@@ -181,6 +182,16 @@
       "comment": "#2203: a `//` comment, anywhere on a line.",
       "name": "comment.line.double-slash.bynk",
       "match": "//.*$"
+    },
+    "indexed-by": {
+      "comment": "#118 (bynk#3240): the `by` label of `@indexed(by: …)` is a clause word, though `by` is otherwise an ordinary name. Matched only directly inside `@indexed(`, so a parameter, binding or field named `by` stays an identifier. Tried ahead of #annotations, which would otherwise take the position at `@`.",
+      "match": "(@)(indexed)(\\()\\s*(by)(?=\\s*:)",
+      "captures": {
+        "1": { "name": "punctuation.definition.annotation.bynk" },
+        "2": { "name": "entity.name.function.decorator.bynk" },
+        "3": { "name": "punctuation.section.parens.begin.bynk" },
+        "4": { "name": "keyword.control.bynk" }
+      }
     },
     "annotations": {
       "comment": "Storage-field annotations `@ttl(…)`/`@indexed(…)`/`@retain(…)`/`@bounded(…)` (ADR 0111). Highlights the `@name` marker; the argument list is left to the ordinary number/identifier patterns.",

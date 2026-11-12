@@ -41,7 +41,12 @@ const allMatches: string[] = [];
 
 describe("`by` as a contextual keyword", () => {
   it("is no longer in any unconditional word list", () => {
-    const listed = allMatches.filter((m) => m !== advanceRule?.match && /[(|]by[|)]/.test(m));
+    const listed = allMatches.filter(
+      (m) =>
+        m !== advanceRule?.match &&
+        m !== grammar.repository["indexed-by"]?.match &&
+        /[(|]by[|)]/.test(m),
+    );
     assert.deepStrictEqual(listed, []);
   });
 
@@ -88,6 +93,28 @@ describe("`by` as a contextual keyword", () => {
     });
     it("comes before the contextual `by` rule", () => {
       assert.ok(keywords.indexOf(advanceRule as Rule) < keywords.indexOf(byRule as Rule));
+    });
+  });
+
+  describe("@indexed(by:)", () => {
+    const rule = grammar.repository["indexed-by"];
+    const re = () => new RegExp(rule?.match ?? "(?!)");
+    it("colours the label as a keyword", () => {
+      const m = re().exec("@indexed(by: owner)");
+      assert.ok(m, "matches");
+      assert.strictEqual(m[4], "by");
+      assert.strictEqual(rule?.captures?.["4"]?.name, "keyword.control.bynk");
+    });
+    it("leaves names that are not the label alone", () => {
+      for (const line of ["fn bump(by: Int)", "let by = 2", "let r = { by: 2 }", "@indexed(owner)"])
+        assert.strictEqual(re().test(line), false, line);
+    });
+    it("is tried before #annotations", () => {
+      const order = (JSON.parse(
+        fs.readFileSync(path.join(ROOT, "syntaxes/bynk.tmLanguage.json"), "utf8"),
+      ) as { patterns: { include?: string }[] }).patterns.map((p) => p.include);
+      assert.ok(order.indexOf("#indexed-by") >= 0);
+      assert.ok(order.indexOf("#indexed-by") < order.indexOf("#annotations"));
     });
   });
 
