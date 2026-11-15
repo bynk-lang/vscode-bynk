@@ -15,6 +15,7 @@
 import * as vscode from "vscode";
 
 import { BynkNotFoundError, runBynk } from "./cli";
+import { clientOutput } from "./client";
 import {
   CHECK_ARGS,
   classifyCheck,
@@ -69,7 +70,6 @@ export function registerClientCheck(context: vscode.ExtensionContext, viewRefres
 class ClientCheck implements vscode.Disposable {
   private readonly projects = new Map<string, Project>();
   private readonly item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
-  private readonly output = vscode.window.createOutputChannel("Bynk Client");
   /** Roots the active editor has already led to a check. */
   private readonly seen = new Set<string>();
 
@@ -217,19 +217,19 @@ class ClientCheck implements vscode.Disposable {
   }
 
   private showDifference(drifted: { name: string; state: ClientOutcome }[]): void {
-    this.output.clear();
+    const output = clientOutput();
+    output.clear();
     for (const d of drifted) {
       const state = d.state as { detail: string };
-      this.output.appendLine(`${d.name}: the generated client is ${d.state.kind}`);
-      this.output.appendLine(state.detail || "(`bynk client --check` gave no detail)");
-      this.output.appendLine("");
+      output.appendLine(`${d.name}: the generated client is ${d.state.kind}`);
+      output.appendLine(state.detail || "(`bynk client --check` gave no detail)");
+      output.appendLine("");
     }
-    this.output.show(true);
+    output.show(true);
   }
 
   dispose(): void {
     this.item.dispose();
-    this.output.dispose();
   }
 }
 

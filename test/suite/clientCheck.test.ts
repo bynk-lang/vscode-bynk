@@ -24,7 +24,7 @@ describe("stale generated client (#132)", () => {
 
   after(async () => {
     fs.writeFileSync(MANIFEST, original);
-    delete process.env.BYNK_FAKE_CLIENT;
+    delete process.env.BYNK_FAKE_CLIENT_CHECK;
     await vscode.commands.executeCommand("notifications.clearAll");
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     await fake.restore();
@@ -45,7 +45,7 @@ describe("stale generated client (#132)", () => {
   it("runs `bynk client --check` for a project that has it", async function () {
     if (process.platform === "win32") this.skip();
     this.timeout(30_000);
-    process.env.BYNK_FAKE_CLIENT = "stale";
+    process.env.BYNK_FAKE_CLIENT_CHECK = "stale";
     fs.writeFileSync(MANIFEST, `${original}\n[build.client]\nout = "web/api.ts"\n`);
     const doc = await vscode.workspace.openTextDocument(path.join(WORKSPACE, "src", "text.bynk"));
     await vscode.window.showTextDocument(doc);
