@@ -156,6 +156,10 @@ function render(root: HTMLElement, payload: SrPayload | null): void {
   send.id = "sr-send";
   send.title = "Send (Ctrl+Enter)";
   send.addEventListener("click", sendNow);
+  const saveBtn = el("button", { className: "sr-secondary", text: "Save to scenario…" });
+  saveBtn.id = "sr-save";
+  saveBtn.title = "Append this request to a scenario file (.bynk-http)";
+  saveBtn.addEventListener("click", saveNow);
   const cancel = el("button", { className: "sr-secondary", text: "Cancel" });
   cancel.id = "sr-cancel";
   cancel.addEventListener("click", () => {
@@ -163,7 +167,7 @@ function render(root: HTMLElement, payload: SrPayload | null): void {
   });
   const url = el("span", { className: "sr-url" });
   url.id = "sr-url";
-  formEl.append(el("div", { className: "sr-actions" }, send, cancel, url));
+  formEl.append(el("div", { className: "sr-actions" }, send, saveBtn, cancel, url));
 
   const target = el("div");
   target.id = "sr-target";
@@ -239,6 +243,21 @@ function sendNow(): void {
   const d = draft(key);
   const body = (document.getElementById("sr-body") as HTMLTextAreaElement | null)?.value ?? "";
   api.postMessage({ type: "send", key, id, input: { path: { ...d.path }, headers: state.headers[unit] ?? "", body } });
+}
+
+/** Save the shown route's form as a scenario step; it needs no dev server. */
+function saveNow(): void {
+  if (!shown) return;
+  const { key, unit } = shown.payload;
+  const d = draft(key);
+  const body = (document.getElementById("sr-body") as HTMLTextAreaElement | null)?.value ?? "";
+  const last = results.get(key);
+  api.postMessage({
+    type: "saveScenario",
+    key,
+    input: { path: { ...d.path }, headers: state.headers[unit] ?? "", body },
+    status: last?.kind === "response" ? last.status : undefined,
+  });
 }
 
 function renderResult(): void {

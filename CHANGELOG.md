@@ -31,6 +31,7 @@ version).
   contract, agent-state and capability differences against the working tree, each
   linking to its working-tree source. The other revision is read from a temporary
   `git worktree` analysed by the language server.
+- Request scenarios: `.bynk-http` files, ordered HTTP requests you can rerun and share. **Save to scenario…** in **Bynk: Send Request** appends the form to one (under `<project>/scenarios/` by default; credential headers are saved as `{{env.NAME}}`). A step captures values from earlier responses (`{{create.body.id}}`), expects a status, body path or header (`? status == 201`), and is checked against the wire contract: an unknown or ambiguous route (name it with `@context`), a body that doesn't match the handler's type and a capture of a later step show as diagnostics, including after a contract change. `Run scenario` and `Run step` CodeLenses (and **Bynk: Run Scenario**) run it on the dev server with the results inline; a step that reads a failed or missing value is skipped and the run continues. Environment values never appear in results (#149).
 
 ## [0.614.1] - 2026-11-15
 

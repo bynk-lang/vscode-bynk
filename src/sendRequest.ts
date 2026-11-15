@@ -20,6 +20,7 @@ import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
 import {
   buildRequest,
   devTarget,
+  savedPath,
   formatBody,
   isHttpHandlerHeader,
   routeForm,
@@ -36,9 +37,9 @@ import { requestWireContract } from "./wireContract";
 
 /** How long a request may take before it is abandoned: before the response
  *  starts, an error; while its body is still arriving (a stream), what came. */
-const TIMEOUT_MS = 30_000;
+export const TIMEOUT_MS = 30_000;
 /** The most of a response body the panel shows. */
-const MAX_BODY_BYTES = 1024 * 1024;
+export const MAX_BODY_BYTES = 1024 * 1024;
 
 const SR_CSS = `
   h1 { display: flex; align-items: baseline; gap: 8px; cursor: pointer; font-family: var(--vscode-editor-font-family, monospace); font-size: 1.2em; }
@@ -105,6 +106,20 @@ export function registerSendRequest(context: vscode.ExtensionContext, hub: ViewR
             break;
           case "cancel":
             if (typeof m.key === "string") inflight.get(m.key)?.abort();
+            break;
+          case "saveScenario":
+            if (typeof m.key === "string" && shown?.key === m.key) {
+              const input = sanitize(m.input);
+              void vscode.commands.executeCommand("bynk._scenarioSave", {
+                handlerUri: shown.uri,
+                unit: shown.unit,
+                method: shown.form.method,
+                path: savedPath(shown.form.path, input.path),
+                headers: input.headers,
+                body: shown.form.body ? input.body : undefined,
+                status: typeof m.status === "number" ? m.status : undefined,
+              });
+            }
             break;
           case "startDev":
             void vscode.commands.executeCommand("bynk.startDevServer");
@@ -263,7 +278,7 @@ async function send(
 /** Read at most `MAX_BODY_BYTES` of the body, then stop (and cancel the
  *  stream): a large download is not held whole, and a stream that never ends
  *  yields what came before the request was aborted. */
-async function readBody(res: Response, aborted: () => boolean): Promise<{ bytes: Uint8Array; cut: boolean }> {
+export async function readBody(res: Response, aborted: () => boolean): Promise<{ bytes: Uint8Array; cut: boolean }> {
   const reader = res.body?.getReader();
   if (!reader) return { bytes: new Uint8Array(0), cut: false };
   const chunks: Uint8Array[] = [];
@@ -309,7 +324,7 @@ function sanitize(input: SendInput): SendInput {
   };
 }
 
-function targetProblem(unit: string, kind: "stopped" | "starting" | "notServed"): string {
+export function targetProblem(unit: string, kind: "stopped" | "starting" | "notServed"): string {
   switch (kind) {
     case "stopped":
       return "The dev server isn't running. Start it (Bynk: Start Dev Server) and send again.";
@@ -320,7 +335,7 @@ function targetProblem(unit: string, kind: "stopped" | "starting" | "notServed")
   }
 }
 
-function isTextual(contentType: string | null): boolean {
+export function isTextual(contentType: string | null): boolean {
   if (!contentType) return true;
   return /^text\/|json|xml|javascript|x-www-form-urlencoded/i.test(contentType);
 }
@@ -329,7 +344,7 @@ function isTextual(contentType: string | null): boolean {
  *  error (`ECONNREFUSED`) means the server was not reached, but undici's own
  *  codes (`UND_ERR_*`), or none, mean the request itself was refused before
  *  anything was sent. */
-function fetchFailure(url: string, e: unknown): string {
+export function fetchFailure(url: string, e: unknown): string {
   const cause = (e as { cause?: { code?: unknown; message?: unknown } } | undefined)?.cause;
   const code = typeof cause?.code === "string" ? cause.code : undefined;
   if (code && !code.startsWith("UND_ERR_")) return `Could not reach ${url}: ${code}`;

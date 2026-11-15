@@ -209,6 +209,47 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   what you typed per route, and offers to start the dev server when none is
   running. The request is sent by the extension, only ever to the URL the dev
   server reports for the handler's context.
+- **Request scenarios** — a `.bynk-http` file is an ordered list of requests you
+  can rerun after every change and share in the repository. **Save to
+  scenario…** in the Send Request panel appends the form to one (by default
+  under `<project>/scenarios/`; any `**/*.bynk-http` in a project is found),
+  with the last response's status as an expectation. Credential headers
+  (`Authorization`, `Cookie`, tokens) are saved as `{{env.NAME}}`, never as typed.
+  Each step is a `###` block, so a diff shows only what changed:
+
+  ```
+  @context shop            # the context serving the routes (or one per step)
+
+  ### create
+  POST /items
+  Content-Type: application/json
+
+  { "name": "widget", "qty": 2 }
+
+  ? status == 201
+  ? body.id exists
+
+  ### fetch
+  GET /items/{{create.body.id}}
+  Authorization: Bearer {{env.TOKEN}}
+  ? body.name == "widget"
+  ? header content-type contains "json"
+  ```
+
+  `{{step.status}}`, `{{step.body.a.b[0]}}` and `{{step.header.location}}` read
+  an earlier step's response; `{{env.NAME}}` reads an environment variable, and
+  its value never appears in the results (every occurrence of it is hidden, so a very short value such as `1` would also hide those characters elsewhere; prefer real secrets). An expectation is `? status == 201`,
+  `? body.path exists | absent | == | != | contains <json>` or `? header name
+  … <json>`; values are always JSON. The editor checks each step against the
+  wire contract, asking the language server for the project's HTTP handlers:
+  the route must exist (name the `@context` when several contexts serve it),
+  a JSON body must match the handler's `body` type, and captures must name an
+  earlier step. A contract change shows up as a diagnostic. A `Run scenario`
+  CodeLens runs every step on the dev server, `Run step` runs one with the
+  steps it reads, and the results appear inline (status, timing and each
+  expectation) and in the **Bynk Scenario** output channel. A step that reads a
+  failed or missing value is skipped, not sent, and the run carries on with the
+  steps that don't depend on it.
 - **Export OpenAPI** — **Bynk: Export OpenAPI…** writes an OpenAPI 3.1 document
   for the project's `from http` services with `bynk openapi`, as JSON or YAML by
   the file name you choose. It needs a `bynk` that has the command, and offers to
@@ -371,6 +412,7 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Architecture Map** | A whole-project map of contexts and adapters, their `consumes` edges, and what each one binds. |
 | **Bynk: Show Wire Contract** | The JSON wire shape of the service handler at the cursor. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Send Request** | Send the HTTP handler at the cursor a request on the dev server: path parameters, headers and a JSON body pre-filled from its type, then the response. Follows the cursor into other handlers unless pinned. |
+| **Bynk: Run Scenario** | Run the `.bynk-http` scenario in the active editor on the dev server, with the results inline. Also a `Run scenario` / `Run step` CodeLens in the file. |
 | **Bynk: Show Agent State** | The state machines of the agent at the cursor: for each `store` Cell of an enum or sum type, a state diagram generated from its handlers and a handler × state table of what each handler does from each state, with moves a `transition` would refuse at commit marked ⚠, and each handler's effects — what it writes, reads and calls on each path (shown instead for an agent with no state field). Follows the cursor from agent to agent, highlighting the handler under it. |
 | **Bynk: Show Contract Diff** | Boundary changes since `bynk.schema.lock` and service contracts that differ from `bynk.deploy.lock`'s live record, each marked compatible or breaking. Refreshes when either lock changes. |
 | **Bynk: Compare Model with…** | Pick a git ref (the first choice is the merge base with the default branch) and see what changed in the project's model against the working tree: contexts, adapters, `consumes` edges, services and agents added, removed or changed; boundary and service-contract changes, classified compatible or breaking where the language server classifies them; agent states, handlers and transitions; and capabilities and their providers. Each row opens its source in the working tree. Also on the Source Control view's title bar. |
@@ -422,6 +464,7 @@ its own, and is restored after **Developer: Reload Window**.
 | `bynk.views.refresh` | `onSave` | When open model views re-request their model: `onSave`, `onType` (about 500 ms after the last edit), or `manual` (the view's Refresh button). A hidden view catches up when shown. |
 | `bynk.client.check` | `true` | Warn in the status bar when the generated TypeScript client of a project with `[build.client]` in `bynk.toml` is stale or missing. Runs `bynk client --check` after a save that could change it (not under `bynk.views.refresh` = `manual`), and skips a project that has errors. The status item offers **Regenerate** (when the extension has that command) and **Show difference**; **Bynk: Check Generated Client** checks on demand. |
 | `bynk.viewsCodeLens` | `false` | Show a `Wire contract` CodeLens above each service and agent handler, beside the `Show Sequence` lens. |
+| `bynk.scenario.codeLens` | `true` | Show `Run scenario` and `Run step` CodeLenses, and each step's last result, in `.bynk-http` scenario files. |
 | `bynk.sendRequest.codeLens` | `true` | Show a `Send request` CodeLens above each `from http` handler, opening **Bynk: Send Request**. |
 | `bynk.fileDecorations.contextBadge` | `auto` | Two-letter Explorer badge naming each file's context (and each test file's), with the full name in the tooltip. Commons and adapters carry none. |
 | `bynk.fileDecorations.failedTests` | `true` | Tint a file red in the Explorer (and its folders) when a test in it failed in the last run. |

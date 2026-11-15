@@ -231,6 +231,16 @@ export function buildRequest(
   return { request };
 }
 
+/** The route with the path parameters that have a value filled in, for a
+ *  saved scenario step; one left empty stays as `:name`, which the scenario
+ *  flags until it is filled in. */
+export function savedPath(path: string, values: Readonly<Record<string, string>>): string {
+  return path.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, (whole, name: string) => {
+    const v = values[name] ?? "";
+    return v === "" ? whole : encodeURIComponent(v);
+  });
+}
+
 export function joinUrl(base: string, path: string): string {
   return base.replace(/\/+$/, "") + (path.startsWith("/") ? path : `/${path}`);
 }
@@ -309,6 +319,9 @@ export type SrHostMessage =
 export type SrPageMessage =
   | { type: "send"; key: string; id: number; input: SendInput }
   | { type: "cancel"; key: string }
+  /** #149: append the form, as typed, to a scenario file; `status` is the
+   *  latest response's, to expect. */
+  | { type: "saveScenario"; key: string; input: SendInput; status?: number }
   | { type: "startDev" };
 
 /** The response body as shown: pretty-printed when it is JSON (by its

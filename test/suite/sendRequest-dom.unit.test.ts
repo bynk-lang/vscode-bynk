@@ -46,6 +46,20 @@ describe("Send Request page (jsdom)", () => {
     assert.ok((dom.root.textContent ?? "").includes(HOSTILE));
   });
 
+  it("saves the form to a scenario, with the latest response's status, even with no dev server", async () => {
+    await open(payload({ target: { kind: "stopped" } }));
+    (dom.root.querySelector("input[data-param=id]") as HTMLInputElement).value = "7";
+    dom.root.querySelector("input[data-param=id]")!.dispatchEvent(new dom.window.Event("input"));
+    assert.ok(!button("sr-save").disabled);
+    button("sr-save").click();
+    const saves = (dom.posted as { type: string; key?: string; input?: { path: Record<string, string>; body: string }; status?: number }[]).filter((m) => m.type === "saveScenario");
+    assert.strictEqual(saves.length, 1);
+    assert.strictEqual(saves[0].key, "shop PUT /items/:id");
+    assert.deepStrictEqual(saves[0].input?.path, { id: "7" });
+    assert.strictEqual(saves[0].input?.body, "{}");
+    assert.strictEqual(saves[0].status, undefined);
+  });
+
   it("offers to start the dev server, and won't send without one", async () => {
     await open(payload({ target: { kind: "stopped" } }));
     assert.ok(button("sr-send").disabled);

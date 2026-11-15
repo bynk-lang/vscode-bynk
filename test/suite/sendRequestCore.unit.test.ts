@@ -10,6 +10,7 @@ import {
   formatBody,
   isHttpHandlerHeader,
   parseHeaders,
+  savedPath,
   routeForm,
   type RouteForm,
 } from "../../src/sendRequestCore";
@@ -226,5 +227,12 @@ describe("sendRequestCore", () => {
     assert.ok(!isHttpHandlerHeader(["  fn f() {", '  on GET("/") () {']));
     const commented = [...Array(12).fill("  // a long note"), "  @cache(maxAge: 60)", '  on GET("/x") () -> X {'];
     assert.ok(isHttpHandlerHeader(commented), "however many comment lines come first");
+  });
+});
+
+describe("savedPath (#149)", () => {
+  it("fills the parameters that have a value, encoded, and leaves the rest as :name", () => {
+    assert.strictEqual(savedPath("/items/:id/parts/:part", { id: "a b", part: "" }), "/items/a%20b/parts/:part");
+    assert.strictEqual(savedPath("/ping", {}), "/ping");
   });
 });

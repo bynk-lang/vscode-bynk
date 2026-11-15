@@ -1,0 +1,513 @@
+// #149: request scenarios, the editor side. `scenarioCore.ts` parses and runs
+// `.bynk-http` files; this wires them to VS Code: diagnostics against the wire
+// contract, CodeLenses to run a step or the scenario with the results inline,
+// and "Save to scenario…" from the Send Request panel.
+//
+// Routes are resolved through the language server, not by reading handler
+// headers: the handlers come from the server's document symbols, and each
+// HTTP handler's route, context and body shape from `bynk/wireContract`, the
+// answer Send Request already uses. The only text this module reads itself is
+// each handler's header line, to ask the server about HTTP handlers only (as
+// the Send request lens does).
+
+import * as vscode from "vscode";
+import type { LanguageClient } from "vscode-languageclient/node";
+
+import { devServerState } from "./devServer";
+import { handlerSymbols } from "./refreshScheduler";
+import { projectRootFor } from "./projectRoots";
+import {
+  appendStep,
+  parseScenario,
+  resolveRoute,
+  runSteps,
+  stepsNeededFor,
+  validateStep,
+  type Problem,
+  type Resolved,
+  type RouteInfo,
+  type RunHost,
+  type SaveSpec,
+  type Scenario,
+  type Sent,
+  type Step,
+  type StepResult,
+} from "./scenarioCore";
+import { devTarget } from "./sendRequestCore";
+import { fetchFailure, isHttpHandler, isTextual, readBody, targetProblem, TIMEOUT_MS } from "./sendRequest";
+import type { ViewRefresh } from "./viewRefresh";
+import { requestWireContract } from "./wireContract";
+
+export const SCENARIO_LANGUAGE = "bynk-http";
+const GLOB = "**/*.bynk-http";
+const EXCLUDE = "**/{node_modules,.bynk,.git}/**";
+
+/** Every HTTP route a project's handlers serve, as the language server
+ *  describes them; `complete` is false when the server could not answer (not
+ *  started, a request failed), so "no such route" would be a guess. */
+interface RouteSet {
+  routes: RouteInfo[];
+  complete: boolean;
+}
+
+class RouteIndex implements vscode.Disposable {
+  private generation = 0;
+  private readonly cache = new Map<string, { generation: number; set: Promise<RouteSet> }>();
+  private readonly emitter = new vscode.EventEmitter<void>();
+  /** Fires when a `.bynk` file changes, so the contract the scenarios are
+   *  checked against may have. */
+  readonly onDidChange = this.emitter.event;
+  private readonly subs: vscode.Disposable[] = [];
+
+  constructor(private readonly hub: ViewRefresh) {
+    const bump = (): void => {
+      this.generation++;
+      this.emitter.fire();
+    };
+    const watcher = vscode.workspace.createFileSystemWatcher("**/*.bynk");
+    this.subs.push(
+      watcher,
+      watcher.onDidCreate(bump),
+      watcher.onDidDelete(bump),
+      watcher.onDidChange(bump),
+      vscode.workspace.onDidChangeTextDocument((e) => {
+        if (e.document.languageId === "bynk" && e.contentChanges.length > 0) bump();
+      }),
+    );
+  }
+
+  routes(root: vscode.Uri): Promise<RouteSet> {
+    const key = root.toString();
+    const hit = this.cache.get(key);
+    if (hit && hit.generation === this.generation) return hit.set;
+    const generation = this.generation;
+    const set = this.build(root);
+    this.cache.set(key, { generation, set });
+    return set;
+  }
+
+  private async build(root: vscode.Uri): Promise<RouteSet> {
+    const client = await this.hub.whenClient(5_000);
+    if (!client) return { routes: [], complete: false };
+    const files = await vscode.workspace.findFiles(new vscode.RelativePattern(root, "**/*.bynk"), EXCLUDE);
+    let complete = true;
+    const routes: RouteInfo[] = [];
+    for (const file of files) {
+      try {
+        routes.push(...(await this.fileRoutes(client, file)));
+      } catch {
+        complete = false;
+      }
+    }
+    return { routes, complete };
+  }
+
+  private async fileRoutes(client: LanguageClient, file: vscode.Uri): Promise<RouteInfo[]> {
+    const doc = await vscode.workspace.openTextDocument(file);
+    const handlers = handlerSymbols(await this.hub.documentSymbols(doc)).filter((h) => isHttpHandler(doc, h.symbol.range));
+    const out: RouteInfo[] = [];
+    for (const h of handlers) {
+      const position = h.symbol.selectionRange.start;
+      const wc = await requestWireContract(client, { uri: doc.uri.toString(), position: { line: position.line, character: position.character } });
+      const kind = wc?.model.kind;
+      if (wc && kind?.kind === "Http") {
+        out.push({ unit: wc.model.unit, method: kind.method, path: kind.path, model: wc.model });
+      }
+    }
+    return out;
+  }
+
+  dispose(): void {
+    for (const s of this.subs) s.dispose();
+    this.emitter.dispose();
+  }
+}
+
+/** What the last run of a document showed. */
+interface RunView {
+  version: number;
+  results: Map<string, StepResult>;
+}
+
+export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefresh): void {
+  const index = new RouteIndex(hub);
+  const diagnostics = vscode.languages.createDiagnosticCollection("bynk-http");
+  const runDiagnostics = vscode.languages.createDiagnosticCollection("bynk-http-run");
+  const output = vscode.window.createOutputChannel("Bynk Scenario");
+  const lensChanged = new vscode.EventEmitter<void>();
+  const runs = new Map<string, RunView>();
+  const running = new Set<string>();
+  const passed = vscode.window.createTextEditorDecorationType({
+    after: { margin: "0 0 0 1.5em", color: new vscode.ThemeColor("testing.iconPassed") },
+  });
+  const failedDeco = vscode.window.createTextEditorDecorationType({
+    after: { margin: "0 0 0 1.5em", color: new vscode.ThemeColor("testing.iconFailed") },
+  });
+
+  /** The project a scenario belongs to: where its `bynk.toml` is. */
+  const rootOf = (doc: vscode.TextDocument): Promise<vscode.Uri | undefined> => projectRootFor(doc.uri);
+
+  /** The route for each step, or why it has none; `undefined` where the server
+   *  could not say, so the contract is not checked rather than wrongly failed. */
+  async function resolveAll(doc: vscode.TextDocument, scenario: Scenario): Promise<(Resolved | undefined)[]> {
+    const root = await rootOf(doc);
+    if (!root) return scenario.steps.map(() => undefined);
+    const set = await index.routes(root);
+    if (!set.complete) return scenario.steps.map(() => undefined);
+    return scenario.steps.map((s) => (s.requestLine < 0 ? undefined : resolveRoute(set.routes, s)));
+  }
+
+  function toDiagnostic(doc: vscode.TextDocument, p: Problem): vscode.Diagnostic {
+    const line = Math.min(p.line, doc.lineCount - 1);
+    const text = doc.lineAt(line).text;
+    const start = text.length - text.trimStart().length;
+    const range = new vscode.Range(line, Math.min(p.start || start, text.length), line, Math.min(p.end, text.length));
+    const d = new vscode.Diagnostic(range, p.message, p.severity === "error" ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
+    d.source = "bynk scenario";
+    return d;
+  }
+
+  const pending = new Map<string, ReturnType<typeof setTimeout>>();
+  async function validate(doc: vscode.TextDocument): Promise<void> {
+    if (doc.languageId !== SCENARIO_LANGUAGE) return;
+    const version = doc.version;
+    const scenario = parseScenario(doc.getText());
+    const problems = [...scenario.problems];
+    const resolved = await resolveAll(doc, scenario);
+    if (doc.isClosed || doc.version !== version) return;
+    const names = new Set(scenario.steps.map((s) => s.name));
+    const before = new Set<string>();
+    scenario.steps.forEach((step, i) => {
+      if (step.requestLine >= 0) problems.push(...validateStep(step, resolved[i], before, names));
+      before.add(step.name);
+    });
+    diagnostics.set(doc.uri, problems.map((p) => toDiagnostic(doc, p)));
+  }
+  const schedule = (doc: vscode.TextDocument, delay = 300): void => {
+    if (doc.languageId !== SCENARIO_LANGUAGE) return;
+    const key = doc.uri.toString();
+    clearTimeout(pending.get(key));
+    pending.set(
+      key,
+      setTimeout(() => {
+        pending.delete(key);
+        void validate(doc);
+      }, delay),
+    );
+  };
+  const revalidateOpen = (): void => {
+    for (const doc of vscode.workspace.textDocuments) schedule(doc, 1000);
+  };
+
+  // --- Running -------------------------------------------------------------
+
+  function decorate(editor: vscode.TextEditor): void {
+    const view = runs.get(editor.document.uri.toString());
+    const ok: vscode.DecorationOptions[] = [];
+    const bad: vscode.DecorationOptions[] = [];
+    if (view && view.version === editor.document.version) {
+      for (const result of view.results.values()) {
+        for (const c of result.checks) {
+          if (c.line >= editor.document.lineCount) continue;
+          const range = editor.document.lineAt(c.line).range;
+          (c.ok ? ok : bad).push({ range, renderOptions: { after: { contentText: c.ok ? "✔" : `✖ ${c.message.replace(/^.*?, but /, "")}` } } });
+        }
+      }
+    }
+    editor.setDecorations(passed, ok);
+    editor.setDecorations(failedDeco, bad);
+  }
+  const decorateAll = (): void => vscode.window.visibleTextEditors.forEach(decorate);
+
+  function show(doc: vscode.TextDocument, scenario: Scenario, results: StepResult[]): void {
+    const key = doc.uri.toString();
+    runs.set(key, { version: doc.version, results: new Map(results.map((r) => [r.step, r])) });
+    const byName = new Map(scenario.steps.map((s) => [s.name, s]));
+    const ds: vscode.Diagnostic[] = [];
+    for (const r of results) {
+      const step = byName.get(r.step);
+      if (!step) continue;
+      const add = (line: number, message: string, severity: vscode.DiagnosticSeverity): void => {
+        const range = doc.lineAt(Math.min(line, doc.lineCount - 1)).range;
+        const d = new vscode.Diagnostic(range, message, severity);
+        d.source = "bynk scenario run";
+        ds.push(d);
+      };
+      if (r.state === "failed") {
+        for (const c of r.checks) if (!c.ok) add(c.line, `Expected ${c.message}`, vscode.DiagnosticSeverity.Error);
+      } else if (r.state === "error") {
+        add(step.requestLine, r.message ?? "The request failed.", vscode.DiagnosticSeverity.Error);
+      } else if (r.state === "skipped") {
+        add(step.requestLine, r.message ?? "Skipped.", vscode.DiagnosticSeverity.Warning);
+      }
+    }
+    runDiagnostics.set(doc.uri, ds);
+    lensChanged.fire();
+    decorateAll();
+  }
+
+  function report(results: StepResult[]): void {
+    output.appendLine(`── ${new Date().toLocaleTimeString("en-GB")} ──`);
+    for (const r of results) {
+      const mark = r.state === "passed" ? "✔" : r.state === "skipped" ? "–" : "✖";
+      output.appendLine(`${mark} ${r.step}${r.request ? `  ${r.request}` : ""}${r.status !== undefined ? `  → ${r.status}` : ""}${r.ms !== undefined ? ` (${r.ms} ms)` : ""}`);
+      if (r.message) for (const l of r.message.split("\n")) output.appendLine(`    ${l}`);
+      if (r.state !== "passed" && r.body) output.appendLine(`    ${r.body.split("\n").join("\n    ")}`);
+    }
+    const count = (s: StepResult["state"]): number => results.filter((r) => r.state === s).length;
+    output.appendLine(`${count("passed")} passed, ${count("failed") + count("error")} failed, ${count("skipped")} skipped.`);
+  }
+
+  async function run(uriArg?: unknown, stepArg?: unknown): Promise<StepResult[] | undefined> {
+    const uri = uriArg instanceof vscode.Uri ? uriArg : typeof uriArg === "string" ? vscode.Uri.parse(uriArg) : vscode.window.activeTextEditor?.document.uri;
+    if (!uri) {
+      void vscode.window.showErrorMessage("Bynk: Run Scenario needs a .bynk-http file open.");
+      return undefined;
+    }
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const key = doc.uri.toString();
+    if (running.has(key)) {
+      void vscode.window.showInformationMessage("Bynk: this scenario is already running.");
+      return undefined;
+    }
+    const scenario = parseScenario(doc.getText());
+    const syntax = scenario.problems.filter((p) => p.severity === "error");
+    if (syntax.length > 0) {
+      void vscode.window.showErrorMessage(`Bynk: fix the scenario first (line ${syntax[0].line + 1}: ${syntax[0].message})`);
+      return undefined;
+    }
+    const only = typeof stepArg === "string" ? stepsNeededFor(scenario.steps, stepArg) : undefined;
+    const resolved = await resolveAll(doc, scenario);
+    const resolvedBy = new Map(scenario.steps.map((s, i) => [s.name, resolved[i]]));
+    const abort = new AbortController();
+    running.add(key);
+    lensChanged.fire();
+    try {
+      const results = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: only ? `Running ${stepArg}…` : "Running scenario…", cancellable: true },
+        async (_progress, token) => {
+          token.onCancellationRequested(() => abort.abort());
+          const host = makeHost(resolvedBy, abort);
+          return runSteps(scenario.steps, host, only);
+        },
+      );
+      show(doc, scenario, results);
+      report(results);
+      output.show(true);
+      const failed = results.filter((r) => r.state === "failed" || r.state === "error").length;
+      const skipped = results.filter((r) => r.state === "skipped").length;
+      const summary = `${results.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped`;
+      if (results.some((r) => r.state === "error" && /dev server isn't running/.test(r.message ?? ""))) {
+        void vscode.window.showWarningMessage("Bynk: the dev server isn't running.", "Start Dev Server").then((pick) => {
+          if (pick) void vscode.commands.executeCommand("bynk.startDevServer");
+        });
+      } else if (failed > 0) void vscode.window.showWarningMessage(`Bynk scenario: ${summary}.`);
+      else void vscode.window.setStatusBarMessage(`Bynk scenario: ${summary}.`, 5000);
+      return results;
+    } finally {
+      running.delete(key);
+      lensChanged.fire();
+    }
+  }
+
+  function makeHost(resolvedBy: Map<string, Resolved | undefined>, abort: AbortController): RunHost {
+    return {
+      env: process.env,
+      cancelled: () => abort.signal.aborted,
+      prepare(step: Step) {
+        const r = resolvedBy.get(step.name);
+        if (!r) return { error: "The language server couldn't say which handler serves this route. Wait for it to start and run again." };
+        if ("error" in r) return { error: r.error };
+        const target = devTarget(r.route.unit, devServerState());
+        if (target.kind !== "ready") return { error: targetProblem(r.route.unit, target.kind) };
+        const env = r.route.model.envelope;
+        const contentType = env.kind === "Raw" ? (env.contentType === "*/*" ? "application/octet-stream" : env.contentType) : "application/json";
+        return { base: target.url, contentType };
+      },
+      send: (req) => sendOne(req, abort),
+    };
+  }
+
+  const startupDecorations = vscode.window.onDidChangeVisibleTextEditors(decorateAll);
+
+  // --- CodeLens ------------------------------------------------------------
+
+  const lenses: vscode.CodeLensProvider = {
+    onDidChangeCodeLenses: lensChanged.event,
+    provideCodeLenses(doc) {
+      if (!vscode.workspace.getConfiguration("bynk").get<boolean>("scenario.codeLens", true)) return [];
+      const scenario = parseScenario(doc.getText());
+      if (scenario.steps.length === 0) return [];
+      const key = doc.uri.toString();
+      const uri = doc.uri.toString();
+      const busy = running.has(key);
+      const view = runs.get(key);
+      const fresh = view && view.version === doc.version ? view : undefined;
+      const out: vscode.CodeLens[] = [];
+      const at = (line: number): vscode.Range => new vscode.Range(line, 0, line, 0);
+      const first = scenario.steps[0].line;
+      out.push(new vscode.CodeLens(at(first), { title: busy ? "$(sync~spin) Running…" : "$(run-all) Run scenario", command: "bynk.scenario.run", arguments: [uri] }));
+      if (fresh) {
+        const rs = [...fresh.results.values()];
+        const bad = rs.filter((r) => r.state === "failed" || r.state === "error").length;
+        out.push(
+          new vscode.CodeLens(at(first), {
+            title: `${bad === 0 ? "$(pass)" : "$(error)"} ${rs.filter((r) => r.state === "passed").length}/${rs.length} passed`,
+            command: "bynk.scenario.showOutput",
+          }),
+        );
+      }
+      for (const step of scenario.steps) {
+        out.push(new vscode.CodeLens(at(step.line), { title: "$(play) Run step", tooltip: "Run this step, and the steps whose responses it reads", command: "bynk.scenario.run", arguments: [uri, step.name] }));
+        const r = fresh?.results.get(step.name);
+        if (r) {
+          const icon = r.state === "passed" ? "$(pass)" : r.state === "skipped" ? "$(circle-slash)" : "$(error)";
+          const text = r.state === "skipped" ? "skipped" : r.status !== undefined ? `${r.status}${r.ms !== undefined ? ` · ${r.ms} ms` : ""}` : "not sent";
+          out.push(new vscode.CodeLens(at(step.line), { title: `${icon} ${text}`, tooltip: r.message, command: "bynk.scenario.showOutput" }));
+        }
+      }
+      return out;
+    },
+  };
+
+  // --- Save ----------------------------------------------------------------
+
+  interface SaveArgs extends SaveSpec {
+    handlerUri: string;
+  }
+
+  async function save(args: SaveArgs): Promise<vscode.Uri | undefined> {
+    const handler = vscode.Uri.parse(args.handlerUri);
+    const root = (await projectRootFor(handler)) ?? vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!root) {
+      void vscode.window.showErrorMessage("Bynk: open the project's folder to save a scenario into it.");
+      return undefined;
+    }
+    const existing = await vscode.workspace.findFiles(new vscode.RelativePattern(root, GLOB), EXCLUDE);
+    const rel = (u: vscode.Uri): string => vscode.workspace.asRelativePath(u, false);
+    const NEW = "$(add) New scenario…";
+    const pick = await vscode.window.showQuickPick(
+      [NEW, ...existing.map(rel).sort()],
+      { title: `Save ${args.method} ${args.path} to a scenario`, placeHolder: "Append to a scenario file, or start a new one" },
+    );
+    if (!pick) return undefined;
+    let target: vscode.Uri;
+    if (pick === NEW) {
+      const name = await vscode.window.showInputBox({
+        title: "New scenario",
+        prompt: `Saved as ${vscode.workspace.asRelativePath(vscode.Uri.joinPath(root, "scenarios"), false)}/<name>.bynk-http`,
+        value: "items",
+        validateInput: (v) => (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v) ? undefined : "Letters, digits, `.`, `_` and `-`."),
+      });
+      if (!name) return undefined;
+      target = vscode.Uri.joinPath(root, "scenarios", `${name.replace(/\.bynk-http$/, "")}.bynk-http`);
+    } else {
+      target = existing.find((u) => rel(u) === pick)!;
+    }
+    let before = "";
+    let exists = true;
+    try {
+      before = new TextDecoder().decode(await vscode.workspace.fs.readFile(target));
+    } catch {
+      exists = false;
+    }
+    // Through the open buffer if there is one, so unsaved edits aren't lost.
+    const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === target.toString());
+    if (open) before = open.getText();
+    const added = appendStep(before, args);
+    if (open || exists) {
+      const doc = open ?? (await vscode.workspace.openTextDocument(target));
+      const edit = new vscode.WorkspaceEdit();
+      edit.replace(target, new vscode.Range(0, 0, doc.lineCount, 0), added.text);
+      await vscode.workspace.applyEdit(edit);
+      await doc.save();
+    } else {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(target, ".."));
+      await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(added.text));
+    }
+    const editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target));
+    const pos = new vscode.Position(added.line, 0);
+    editor.selection = new vscode.Selection(pos, pos);
+    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.AtTop);
+    if (added.env.length > 0) {
+      void vscode.window.showInformationMessage(
+        `Bynk: saved \`${added.name}\`. Credentials were not saved: ${added.env.map((e) => `{{env.${e}}}`).join(", ")} reads them from the environment, so set ${added.env.length === 1 ? "that variable" : "those variables"} before running.`,
+      );
+    } else {
+      void vscode.window.setStatusBarMessage(`Bynk: saved ${added.name} to ${rel(target)}.`, 5000);
+    }
+    return target;
+  }
+
+  context.subscriptions.push(
+    index,
+    diagnostics,
+    runDiagnostics,
+    output,
+    lensChanged,
+    passed,
+    failedDeco,
+    startupDecorations,
+    { dispose: () => pending.forEach((t) => clearTimeout(t)) },
+    vscode.languages.registerCodeLensProvider({ language: SCENARIO_LANGUAGE }, lenses),
+    vscode.workspace.onDidOpenTextDocument((d) => schedule(d, 0)),
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document.languageId !== SCENARIO_LANGUAGE) return;
+      // What a run showed is about the text it ran.
+      if (runs.delete(e.document.uri.toString())) {
+        runDiagnostics.delete(e.document.uri);
+        decorateAll();
+      }
+      schedule(e.document);
+    }),
+    vscode.workspace.onDidCloseTextDocument((d) => {
+      diagnostics.delete(d.uri);
+      runDiagnostics.delete(d.uri);
+      runs.delete(d.uri.toString());
+    }),
+    index.onDidChange(revalidateOpen),
+    vscode.commands.registerCommand("bynk.scenario.run", run),
+    vscode.commands.registerCommand("bynk.scenario.showOutput", () => output.show(true)),
+    // The Send Request panel's "Save to scenario…" (and the tests' seam).
+    vscode.commands.registerCommand("bynk._scenarioSave", save),
+  );
+  for (const doc of vscode.workspace.textDocuments) schedule(doc, 0);
+}
+
+/** Send one request, as Send Request does: not following redirects, with a
+ *  time limit, and the body read to a size limit. */
+async function sendOne(
+  req: { method: string; url: string; headers: [string, string][]; body?: string },
+  outer: AbortController,
+): Promise<Sent | { error: string }> {
+  const abort = new AbortController();
+  const stop = (): void => abort.abort();
+  outer.signal.addEventListener("abort", stop);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abort.abort();
+  }, TIMEOUT_MS);
+  const started = Date.now();
+  try {
+    let res: Response;
+    try {
+      res = await fetch(req.url, { method: req.method, headers: req.headers, body: req.body, redirect: "manual", signal: abort.signal });
+    } catch (e) {
+      if (abort.signal.aborted) return { error: timedOut ? `No response after ${TIMEOUT_MS / 1000} s.` : "Cancelled." };
+      return { error: fetchFailure(req.url, e) };
+    }
+    const read = await readBody(res, () => abort.signal.aborted);
+    if (abort.signal.aborted && !timedOut) return { error: "Cancelled." };
+    const contentType = res.headers.get("content-type");
+    const body = isTextual(contentType)
+      ? new TextDecoder().decode(read.bytes)
+      : `(${read.bytes.length} bytes of ${contentType}, not shown)`;
+    return { method: req.method, url: req.url, status: res.status, statusText: res.statusText, ms: Date.now() - started, headers: [...res.headers.entries()], body };
+  } catch (e) {
+    return { error: `The response broke off: ${e instanceof Error ? e.message : String(e)}` };
+  } finally {
+    clearTimeout(timer);
+    outer.signal.removeEventListener("abort", stop);
+  }
+}
