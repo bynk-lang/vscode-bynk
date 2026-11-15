@@ -44,6 +44,7 @@ import { refinedExplorerClientFeature, trustExplorerLink } from "./refinedExplor
 import { registerArchitectureMap } from "./architectureMap";
 import { registerAgentStateView } from "./agentStateView";
 import { registerContractDiff } from "./contractDiff";
+import { isModelDiffScratch } from "./modelDiffCore";
 import { registerSendRequest } from "./sendRequest";
 import { registerWireContract } from "./wireContract";
 import { registerFeatures } from "./features";
@@ -299,6 +300,10 @@ async function startServerNow(
       // the model requests (served from that round) can see an edit. The
       // live views re-pull on it while a save/edit has them armed.
       handleDiagnostics: (uri, diagnostics, next) => {
+        // #147: the server analyses a model-diff checkout in a scratch
+        // directory and publishes diagnostics for it; they are not the
+        // user's, and must not reach the Problems panel or what reads it.
+        if (isModelDiffScratch(uri.path)) return;
         next(uri, diagnostics);
         viewRefresh?.roundCommitted();
       },
