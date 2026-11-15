@@ -29,6 +29,8 @@ export async function pickTarget(
   roots: vscode.Uri[],
   /** What the run is, for the prompts: "system tests" by default. */
   what = "the system tests",
+  /** Targets to leave out, by name, with why: a caller that refuses some. */
+  refuse: ReadonlyMap<string, string> = new Map(),
 ): Promise<{ target: string; declaring: vscode.Uri[] } | undefined> {
   if (roots.length === 0) {
     void vscode.window.showErrorMessage("Bynk: no bynk.toml found in the workspace.");
@@ -37,7 +39,7 @@ export async function pickTarget(
   const last = context.workspaceState.get<string>(LAST_TARGET_KEY);
   const MANUAL = "Enter a target name…";
   const declared = await Promise.all(roots.map(async (root) => ({ root, targets: await manifestTargets(root) })));
-  const choices = targetChoices([...new Set(declared.flatMap((d) => d.targets))], last);
+  const choices = targetChoices([...new Set(declared.flatMap((d) => d.targets))], last).filter((n) => !refuse.has(n));
   const picked = await vscode.window.showQuickPick(
     [
       ...choices.map((name) => ({
@@ -56,7 +58,9 @@ export async function pickTarget(
       title: `Run ${what} against…`,
       prompt: "A target name from [test.targets] in bynk.toml, or dev",
       validateInput: (v) =>
-        /:\/\//.test(v)
+        refuse.has(v.trim())
+          ? refuse.get(v.trim())
+          : /:\/\//.test(v)
           ? "Enter a target name, not a URL: the driver runs only against a named target."
           : /^[A-Za-z0-9_-]+$/.test(v.trim())
             ? undefined

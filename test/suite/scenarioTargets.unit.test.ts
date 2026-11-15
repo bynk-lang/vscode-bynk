@@ -10,6 +10,7 @@ import {
   isLocalUrl,
   isNonIdempotent,
   isProductionLike,
+  refusedReason,
   literalCredential,
   parseTargets,
   targetBase,
@@ -118,36 +119,41 @@ DELETE /items/1
       assert.deepStrictEqual(writeSteps(steps).map((s) => s.name), ["add", "drop"]);
       assert.deepStrictEqual(writeSteps(steps, new Set(["list", "add"])).map((s) => s.name), ["add"]);
     });
-    it("reads production by the flag or the name", () => {
-      assert.ok(isProductionLike(target({ production: true })));
+    it("refuses a target marked production, quoting the flag", () => {
+      assert.match(refusedReason(target({ name: "live", production: true })) ?? "", /marked `production = true`/);
+      assert.strictEqual(refusedReason(target()), undefined);
+      // Named like production but not marked: asked about, not refused.
+      assert.strictEqual(refusedReason(target({ name: "prod" })), undefined);
+    });
+    it("reads production by the name, for the extra guard", () => {
       for (const name of ["prod", "production", "live", "Prod"]) assert.ok(isProductionLike(target({ name })), name);
       assert.ok(!isProductionLike(target({ name: "preview" })));
     });
-    it("asks to type the target's name when a production-like target would be written to", () => {
-      const live = target({ name: "live", production: true });
-      const ask = confirmationFor(live, steps, writeSteps(steps), ["https://o.example"]);
+    it("asks to type the target's name when a production-named target would be written to", () => {
+      const prod = target({ name: "prod" });
+      const ask = confirmationFor(prod, steps, writeSteps(steps), ["https://o.example"]);
       assert.strictEqual(ask?.kind, "typed");
-      assert.strictEqual(ask?.phrase, "live");
+      assert.strictEqual(ask?.phrase, "prod");
       assert.match(ask?.message ?? "", /POST \/items, DELETE \/items\/1/);
     });
-    it("only confirms a read-only run of a production-like target, and a run of any other target", () => {
-      const live = target({ name: "live", production: true });
-      assert.strictEqual(confirmationFor(live, [steps[0]], [], ["https://o.example"])?.kind, "confirm");
-      assert.match(confirmationFor(live, [steps[0]], [], ["https://o.example"])?.message ?? "", /reads as production/);
+    it("only confirms a read-only run of a production-named target, and a run of any other target", () => {
+      const prod = target({ name: "prod" });
+      assert.strictEqual(confirmationFor(prod, [steps[0]], [], ["https://o.example"])?.kind, "confirm");
+      assert.match(confirmationFor(prod, [steps[0]], [], ["https://o.example"])?.message ?? "", /reads as production/);
       const preview = confirmationFor(target(), steps, writeSteps(steps), ["https://o.example"]);
       assert.strictEqual(preview?.kind, "confirm");
       assert.ok(!/production/.test(preview?.message ?? ""));
     });
     it("asks nothing when no step has a URL to send to", () => {
-      assert.strictEqual(confirmationFor(target({ production: true }), steps, writeSteps(steps), []), undefined);
+      assert.strictEqual(confirmationFor(target({ name: "prod" }), steps, writeSteps(steps), []), undefined);
     });
     it("asks nothing of a target that is the local machine", () => {
       assert.ok(isLocalUrl("http://127.0.0.1:9"));
       assert.ok(isLocalUrl("http://localhost:8787"));
       assert.ok(!isLocalUrl("https://o.example"));
       assert.strictEqual(confirmationFor(target(), steps, writeSteps(steps), ["http://127.0.0.1:9"]), undefined);
-      // Unless it is marked production, wherever it is.
-      assert.strictEqual(confirmationFor(target({ production: true }), steps, writeSteps(steps), ["http://127.0.0.1:9"])?.kind, "typed");
+      // Unless it is named like production, wherever it is.
+      assert.strictEqual(confirmationFor(target({ name: "prod" }), steps, writeSteps(steps), ["http://127.0.0.1:9"])?.kind, "typed");
     });
   });
 

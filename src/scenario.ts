@@ -22,6 +22,7 @@ import {
   literalCredential,
   literalCredentialMessage,
   parseTargets,
+  refusedReason,
   targetBase,
   writeSteps,
   type TestTarget,
@@ -143,16 +144,21 @@ interface RunView {
 }
 
 /** The manifest's target named `name`, or why there is none. */
-async function readTarget(root: vscode.Uri, name: string): Promise<TestTarget | { error: string }> {
-  let toml: string;
+async function manifestTargetTables(root: vscode.Uri): Promise<TestTarget[] | undefined> {
   try {
-    toml = new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(root, "bynk.toml")));
+    return parseTargets(new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(root, "bynk.toml"))));
   } catch {
-    return { error: "no bynk.toml was found in the scenario's project." };
+    return undefined;
   }
-  const found = parseTargets(toml).find((t) => t.name === name);
+}
+
+/** The manifest's target named `name`, or why there is none (or why it is refused). */
+async function readTarget(root: vscode.Uri, name: string): Promise<TestTarget | { error: string }> {
+  const tables = await manifestTargetTables(root);
+  if (!tables) return { error: "no bynk.toml was found in the scenario's project." };
+  const found = tables.find((t) => t.name === name);
   if (!found) return { error: `\`${name}\` isn't a [test.targets.${name}] table in bynk.toml, so there is no URL to send to.` };
-  return found;
+  return refusedReason(found) ? { error: refusedReason(found)! } : found;
 }
 
 export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefresh): void {
@@ -379,7 +385,13 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
       void vscode.window.showErrorMessage("Bynk: this scenario isn't inside a project (no bynk.toml found).");
       return undefined;
     }
-    const picked = await pickTarget(context, [root], "the scenario");
+    // A target marked `production = true` is not offered: the driver refuses it too.
+    const refuse = new Map<string, string>();
+    for (const t of (await manifestTargetTables(root)) ?? []) {
+      const why = refusedReason(t);
+      if (why) refuse.set(t.name, why);
+    }
+    const picked = await pickTarget(context, [root], "the scenario", refuse);
     if (!picked) return undefined;
     if (picked.target === DEV_TARGET) return run(uri, stepArg);
     const target = await readTarget(root, picked.target);

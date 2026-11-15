@@ -199,6 +199,7 @@ describe("Request scenarios (#149)", () => {
         path.join(dir, "bynk.toml"),
         `[project]\nname = "sc"\n\n[paths]\ninclude = ["src"]\n\n` +
           `[test.targets.preview]\nurl.shop = "http://127.0.0.1:${port}"\nsecrets = ["AGAINST_SIGNING"]\n\n` +
+          `[test.targets.prod]\nurl.shop = "http://127.0.0.1:${port}"\n\n` +
           `[test.targets.live]\nurl.shop = "http://127.0.0.1:${port}"\nproduction = true\n\n` +
           `[test.targets.elsewhere]\nurl.other = "http://127.0.0.1:${port}"\n`,
       );
@@ -237,17 +238,40 @@ describe("Request scenarios (#149)", () => {
       assert.ok(!JSON.stringify(results).includes("against-token-value"));
     });
 
-    it("asks for the target's name before a write to a production target, and sends nothing without it", async function () {
+    it("asks for the target's name before a write to a target named like production, and sends nothing without it", async function () {
       this.timeout(60_000);
       received.length = 0;
       let prompt = "";
-      assert.strictEqual(await runAgainst("live", (o) => ((prompt = o.prompt ?? ""), "nope")), undefined);
+      assert.strictEqual(await runAgainst("prod", (o) => ((prompt = o.prompt ?? ""), "nope")), undefined);
       assert.match(prompt, /reads as production/);
       assert.match(prompt, /PUT \/items\/abc/);
       assert.deepStrictEqual(received, []);
-      const results = await runAgainst("live", () => "live");
+      const results = await runAgainst("prod", () => "prod");
       assert.deepStrictEqual(results?.map((r) => r.state), ["passed", "passed"]);
       assert.strictEqual(received.length, 2);
+    });
+
+    it("refuses a target marked production = true, and does not offer it", async function () {
+      this.timeout(60_000);
+      received.length = 0;
+      let offered: string[] = [];
+      const pick = vscode.window.showQuickPick;
+      (vscode.window as { showQuickPick: unknown }).showQuickPick = async (items: readonly { label: string }[]) => {
+        offered = items.map((i) => i.label);
+        return undefined;
+      };
+      try {
+        const uri = vscode.Uri.file(path.join(dir, "scenarios", "against.bynk-http"));
+        await vscode.commands.executeCommand("bynk.scenario.runAgainst", uri.toString());
+      } finally {
+        (vscode.window as { showQuickPick: unknown }).showQuickPick = pick;
+      }
+      assert.ok(offered.includes("preview") && offered.includes("prod"), offered.join());
+      assert.ok(!offered.includes("live"), "a production = true target is not offered");
+      // Typed by hand, it is still refused, and nothing is sent.
+      const results = await runAgainst("Enter a target name…", () => "live");
+      assert.strictEqual(results, undefined);
+      assert.deepStrictEqual(received, []);
     });
 
     it("reports a context the target does not serve, per step", async function () {

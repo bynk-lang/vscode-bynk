@@ -186,11 +186,22 @@ export function isNonIdempotent(method: string): boolean {
   return /^(POST|PUT|PATCH|DELETE)$/i.test(method);
 }
 
-/** Whether a target reads as production: marked so, or named like a production
- *  environment (`prod`, `production`, `live`, the same names the migration
- *  sweep treats as production). */
-export function isProductionLike(target: TestTarget): boolean {
-  return target.production || isProductionEnvironment(target.name);
+/** Why a target is refused outright, or `undefined`. A target marked
+ *  `production = true` is one the project author declared test traffic must not
+ *  reach: the driver refuses it for `bynk test --against`, and a scenario sends
+ *  real writes, so it is refused here with the same reason. No confirmation
+ *  overrides it; allowing production is a change to the shared policy. */
+export function refusedReason(target: Pick<TestTarget, "name" | "production">): string | undefined {
+  return target.production
+    ? `\`${target.name}\` is marked \`production = true\` in [test.targets], and a target marked production is refused: test traffic must not reach it. Scenarios send real requests, so they follow the same rule as \`bynk test --against\`.`
+    : undefined;
+}
+
+/** Whether a target is only *named* like production (`prod`, `production`,
+ *  `live`, `default`: the names the migration sweep treats as production). A
+ *  heuristic on top of the flag, so it asks rather than refuses. */
+export function isProductionLike(target: Pick<TestTarget, "name">): boolean {
+  return isProductionEnvironment(target.name);
 }
 
 /** Whether a target is somewhere other than the local dev server. Every
@@ -231,7 +242,7 @@ export function confirmationFor(
 ): RunConfirmation | undefined {
   // Nothing is sent when no step has a URL: each is reported instead.
   if (hosts.length === 0) return undefined;
-  // A target on this machine that does not read as production asks nothing.
+  // A target on this machine that is not named like production asks nothing.
   if (hosts.length > 0 && hosts.every(isLocalUrl) && !isProductionLike(target)) return undefined;
   const where = hosts.length > 0 ? ` (${hosts.join(", ")})` : "";
   if (isProductionLike(target) && writes.length > 0) {
