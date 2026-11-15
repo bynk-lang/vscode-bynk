@@ -131,14 +131,22 @@ export function parseDeployLock(text: string): LedgerEnvironment[] {
 // ---------------------------------------------------------------------------
 // Names
 
-/** A context's dotted name from the ledger's Worker-directory form. */
+/** The ledger's Worker key for a dotted context name: the driver's own
+ *  direction (`context.replace('.', "-")`, `bynk/src/deploy/plan.rs`). Matching
+ *  goes this way, so it stays correct if a context segment ever contains `-`. */
+export function workerKey(context: string): string {
+  return context.replace(/\./g, "-");
+}
+
+/** A context's dotted name from the ledger's Worker key. For display only:
+ *  it is not the inverse of `workerKey` if a segment contains `-`. */
 export function contextFromWorker(worker: string): string {
   return worker.replace(/-/g, ".");
 }
 
-/** Whether a dotted (or Worker-directory) `a` and `b` name one context. */
+/** Whether a dotted (or Worker-key) `a` and `b` name one context. */
 export function sameContext(a: string, b: string): boolean {
-  return contextFromWorker(a) === contextFromWorker(b);
+  return workerKey(a) === workerKey(b);
 }
 
 // ---------------------------------------------------------------------------
@@ -269,15 +277,15 @@ function buildEnvironment(env: LedgerEnvironment, input: EnvironmentsInput): Env
   const contexts: EnvTreeNode[] = [];
   const seen = new Set<string>();
   for (const w of env.workers) {
-    const context = contextFromWorker(w.worker);
-    seen.add(context);
-    contexts.push(buildContext(env.name, w, rows.filter((r) => sameContext(r.context, context)), input.drift !== null));
+    seen.add(w.worker);
+    contexts.push(buildContext(env.name, w, rows.filter((r) => workerKey(r.context) === w.worker), input.drift !== null));
   }
   // A context the working tree has, and the environment does not: undeployed.
-  const extra = [...new Set(rows.map((r) => contextFromWorker(r.context)).filter((c) => !seen.has(c)))].sort();
+  const extra = [...new Set(rows.map((r) => r.context).filter((c) => !seen.has(workerKey(c))))].sort();
   for (const context of extra) {
+    const worker = workerKey(context);
     contexts.push(
-      buildContext(env.name, { worker: context.replace(/\./g, "-"), deployed: false, contracts: undefined }, rows.filter((r) => sameContext(r.context, context)), true),
+      buildContext(env.name, { worker, deployed: false, contracts: undefined }, rows.filter((r) => workerKey(r.context) === worker), true, context),
     );
   }
   const states = contexts.map(contextState);
@@ -330,8 +338,14 @@ function contextState(n: EnvTreeNode): DriftState {
   return n.data.kind === "context" ? n.data.drift : "in-sync";
 }
 
-function buildContext(environment: string, w: WorkerRecord, rows: CdService[], driftKnown: boolean): EnvTreeNode {
-  const context = contextFromWorker(w.worker);
+function buildContext(
+  environment: string,
+  w: WorkerRecord,
+  rows: CdService[],
+  driftKnown: boolean,
+  dotted?: string,
+): EnvTreeNode {
+  const context = dotted ?? rows[0]?.context ?? contextFromWorker(w.worker);
   const state = worstDrift(rows.map(serviceDrift));
   const byService = new Map(rows.map((r) => [r.service, r]));
   const services: EnvTreeNode[] = [];

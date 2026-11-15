@@ -13,8 +13,10 @@ import {
   type EnvTreeNode,
   migrationWarnings,
   parseDeployLock,
+  sameContext,
   serviceDrift,
   splitDottedKey,
+  workerKey,
   worstDrift,
 } from "../../src/environmentsCore";
 import { parseMigrateStatus } from "../../src/migrationsCore";
@@ -187,5 +189,24 @@ describe("buildEnvironmentsTree", () => {
     assert.deepStrictEqual(tree[1].data, { kind: "environment", environment: "staging" });
     assert.strictEqual(tree[0].contextValue, "bynkEnvironment");
     assert.strictEqual(find(tree, "default/shop.payment").contextValue, "bynkEnvContext");
+  });
+});
+
+describe("context matching", () => {
+  it("maps the dotted name to the Worker key, the driver's direction", () => {
+    assert.strictEqual(workerKey("shop.payment"), "shop-payment");
+    assert.ok(sameContext("shop.payment", "shop-payment"));
+    assert.ok(!sameContext("shop.payment", "shop.pay-ment"));
+  });
+
+  it("keeps a hyphenated segment matched to its own Worker", () => {
+    const lock = 'version = 1\n[environments.default.workers.a-b-c]\ndeployed = true\n[environments.default.workers.a-b-c.contracts]\nx = "1111111111111111"\n';
+    const tree = buildEnvironmentsTree({
+      lock,
+      drift: [row({ context: "a.b-c", service: "x", compat: { verdict: "breaking", reasons: [] } })],
+      migrations: { kind: "status", classes: [] },
+    });
+    assert.strictEqual(tree[0].children.filter((c) => c.data.kind === "context").length, 1);
+    assert.match(tree[0].children[0].description ?? "", /breaking/);
   });
 });
