@@ -186,6 +186,13 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   creates or sets, required secrets, orphans), and only then runs `bynk deploy`
   in a terminal, where the driver asks you to confirm. The extension never passes
   `--yes` or `--prune`, and never handles a secret value.
+- **Environments** — the sidebar's **Environments** view has one node per
+  environment in `bynk.deploy.lock`: each context's deployed service contract
+  hashes, which contexts differ from the working tree (compatible or breaking),
+  and the agent classes whose state version lags (`bynk migrate status`). Inline
+  actions run Show Deploy Plan, Deploy…, Tail Logs and Sweep Migrations… for the
+  environment with their usual confirmations (never `--yes`), and Show Contract
+  Diff for a context. Everything is read locally; nothing contacts Cloudflare.
 - **State migrations** — the sidebar's **State Migrations** node shows
   `bynk migrate status` for each agent class (version, floor, live and
   retirable `migrate` steps, environments) and links to its agent state view.

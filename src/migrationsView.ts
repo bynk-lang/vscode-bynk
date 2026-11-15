@@ -107,6 +107,14 @@ export class MigrationsStore implements vscode.Disposable {
   }
 }
 
+let sharedStore: MigrationsStore | undefined;
+
+/** The one store the Project tree and the Environments view both read, so
+ *  `bynk migrate status` runs once for the two. */
+export function sharedMigrationsStore(): MigrationsStore {
+  return (sharedStore ??= new MigrationsStore());
+}
+
 /** Command arguments that skip a picker, e.g. from a keybinding's `args`:
  *  `{ "environment": "staging", "context": "" }` (`""` is the whole project;
  *  an omitted `environment` sweeps every recorded environment). */

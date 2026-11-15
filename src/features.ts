@@ -33,6 +33,7 @@ import { registerDeploy } from "./deploy";
 import { registerDevServer } from "./devServer";
 import { registerDoctor } from "./doctor";
 import { registerEmittedOutput } from "./emittedOutput";
+import { registerEnvironments } from "./environmentsView";
 import { registerExplainView } from "./explainView";
 import { registerFileDecorations } from "./fileDecorations";
 import { registerInlineDocRendering } from "./inlineDocRendering";
@@ -85,6 +86,8 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context }) => registerDoctor(context),
   // #2471: "Show Compiled Output", highlighted both ways through the source map.
   ({ context, viewRefresh }) => registerEmittedOutput(context, viewRefresh),
+  // #150: the Environments view: deployed, drift and migrations per environment.
+  ({ context, viewRefresh, client }) => registerEnvironments(context, viewRefresh, client),
   // #2098: "Explain Diagnostic Code…" and the server's "Explain …" quick fix.
   ({ context, client }) => registerExplainView(context, client),
   // #2478: Explorer badges for each file's context, tints for failed tests and breaks.

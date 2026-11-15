@@ -34,7 +34,7 @@ import {
   retirableSteps,
   type ClassStatus,
 } from "./migrationsCore";
-import { MigrationsStore, registerMigrations } from "./migrationsView";
+import { MigrationsStore, registerMigrations, sharedMigrationsStore } from "./migrationsView";
 import { clearProjectRoots, projectRootFor } from "./projectRoots";
 import type { SymbolLike } from "./refreshScheduler";
 import { isHttpHandler } from "./sendRequest";
@@ -606,7 +606,7 @@ export function registerProjectTree(
   approvals?: ApprovalState,
 ): ProjectTreeProvider {
   // #2468: the State Migrations node's store and commands.
-  const migrations = new MigrationsStore();
+  const migrations = sharedMigrationsStore();
   registerMigrations(context, migrations);
   const provider = new ProjectTreeProvider(hub, migrations);
   const view = vscode.window.createTreeView("bynk.project", {
