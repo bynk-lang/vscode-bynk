@@ -250,6 +250,34 @@
     ],
     "description": "A test suite at a tier (`unit`, `integration` or `system`) with a case."
   },
+  "suite consumes": {
+    "prefix": "suite consumes",
+    "body": [
+      "suite ${1:target}",
+      "",
+      "consumes ${2:bynk} { ${3:Name} }",
+      "",
+      "case \"${4:it works}\" {",
+      "\tlet ${5:actual} = ${6:0}",
+      "\texpect ${7:actual == 0}",
+      "}$0"
+    ],
+    "description": "A test suite that consumes names from another unit (its own `consumes` clause) with a case."
+  },
+  "suite as consumes": {
+    "prefix": "suite as consumes",
+    "body": [
+      "suite ${1:target} as ${2|unit,integration,system|}",
+      "",
+      "consumes ${3:bynk} { ${4:Name} }",
+      "",
+      "case \"${5:it works}\" {",
+      "\tlet ${6:actual} = ${7:0}",
+      "\texpect ${8:actual == 0}",
+      "}$0"
+    ],
+    "description": "A test suite at a tier that consumes names from another unit (its own `consumes` clause) with a case."
+  },
   "case as": {
     "prefix": "case as",
     "body": [
