@@ -107,6 +107,29 @@ describe("web singleFileDiagnostics (DECISION B)", () => {
   });
 });
 
+describe("web per-file consumes warnings (#135)", () => {
+  const codes = [
+    "bynk.consumes.type_not_selected",
+    "bynk.consumes.capability_not_selected",
+    "bynk.consumes.unit_not_consumed",
+  ];
+
+  it("keeps them in one file of a multi-file unit", () => {
+    const kept = singleFileDiagnostics(codes.map((c) => diag(c)), true);
+    assert.deepStrictEqual(kept.map((d) => d.category), codes);
+  });
+
+  it("keeps them beside a cross-unit root", () => {
+    const kept = singleFileDiagnostics([diag("bynk.suite.unknown_target"), ...codes.map((c) => diag(c))]);
+    assert.deepStrictEqual(kept.map((d) => d.category), codes);
+  });
+
+  it("still drops the other consumes diagnostics in those files", () => {
+    const kept = singleFileDiagnostics([diag("bynk.consumes.alias_conflict"), diag(codes[0])], true);
+    assert.deepStrictEqual(kept.map((d) => d.category), [codes[0]]);
+  });
+});
+
 describe("web isPartOfMultiFileUnit", () => {
   it("compares the unit's last segment with the file name", () => {
     const uri = (p: string) => `vscode-vfs://github/o/r/src/${p}`;
