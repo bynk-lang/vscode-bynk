@@ -23,6 +23,7 @@ version).
   it refuses or does not know a code (#130).
 - `suite consumes` and `suite as consumes` snippets: a suite with its own `consumes` clause, placed after the header and before the first `case`, as Bynk v0.614 requires (#133).
 - The Explorer marks the TypeScript client `bynk client` writes as generated: a `GN` badge and a tooltip on `[build.client] out` from each project's `bynk.toml` (the four modules of `layout = "dir"` too), including when `out` leaves the project. The first edit to one shows a one-time notice, with a Regenerate action when `bynk.generateClient` is registered. Switch it off with `bynk.fileDecorations.generatedClient` (#134).
+- **Bynk: Generate TypeScript Client (experimental)** (`bynk.generateClient`), over `bynk client`. It takes an optional project root (a `Uri`) so other features can regenerate a given project. With `[build.client]` in `bynk.toml` it runs with no flags and the CLI writes where the table says; otherwise it asks for a layout, a location and (when there are several) the `from http` services. Unsaved `.bynk` buffers are saved first, routes the client cannot represent are listed in the "Bynk Client" output channel and counted in the result message, and the CLI's refusals (a project that does not check, no matching service, a file it did not write) are shown in full (#131).
 
 ### Fixed
 

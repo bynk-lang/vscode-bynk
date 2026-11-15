@@ -25,6 +25,7 @@ import type { ApprovalState } from "./approveRequirements";
 import { registerApplyFixes } from "./applyFixes";
 import { registerCapabilityPath } from "./capabilityPath";
 import { registerChatParticipant } from "./chatParticipant";
+import { registerClient } from "./client";
 import { registerDebug } from "./debug";
 import { registerDependencies } from "./dependencies";
 import { registerDeploy } from "./deploy";
@@ -67,6 +68,8 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context }) => registerCapabilityPath(context),
   // #2465: `@bynk` in the Chat view, orchestrating the language-model tools.
   ({ context }) => registerChatParticipant(context),
+  // #131: "Bynk: Generate TypeScript Client", a wrapper over `bynk client`.
+  ({ context }) => registerClient(context),
   // v0.72: one-click debugging through the JavaScript debugger (ADR 0104).
   ({ context, driverSupport }) => registerDebug(context, driverSupport),
   // #2472: Add Dependency…, Fetch Dependencies, upgrade lenses, Publish….
