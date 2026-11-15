@@ -23,6 +23,14 @@ version).
   expandable boxes; a state diagram is drawn for each agent, present in both
   revisions, whose state machine differs.
 
+- **Contract Diff filter** (#157): **Show Contract Diff** on a context in the
+  Environments view now opens the panel scoped to that context and environment,
+  with a "Showing shop.payment in staging · Show all" chip that clears the
+  filter. A filtered view hides the project-wide event and agent changes (they
+  belong to no context or environment) and says how many it hid.
+  `bynk.showContractDiff` takes an optional second argument,
+  `{ context?, environment? }`; the existing `(uri)` form is unchanged.
+
 ## [0.614.2] - 2026-11-15
 
 Built against `bynk` v0.614.0. New views of where a project is deployed, how it
