@@ -12,6 +12,17 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Bynk: Compare Model with…** now draws the differences on the architecture map
+  and the agent state diagrams, not only in the tables (#153). Added contexts,
+  members, `consumes` edges, states and transitions are green, changed ones amber
+  and removed ones dashed ghosts (struck through on a transition) that do not
+  link anywhere, since their source is not in the working tree; every mark also
+  carries a `+`, `~` or `−` so it does not rely on colour. The map keeps its
+  expandable boxes; a state diagram is drawn for each agent, present in both
+  revisions, whose state machine differs.
+
 ## [0.614.2] - 2026-11-15
 
 Built against `bynk` v0.614.0. New views of where a project is deployed, how it

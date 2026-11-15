@@ -416,6 +416,12 @@ export function diffContracts(before: CdModel, after: CdModel): DiffEntry[] {
 const targetLabel = (t: AgentStateModel["machines"][number]["edges"][number]["to"]): string =>
   t.kind === "State" ? t.state : t.kind === "Unchanged" ? "(unchanged)" : "(unknown)";
 
+/** What identifies a transition across revisions: its handler, start states,
+ *  target and guards. */
+export function transitionKey(e: AgentStateModel["machines"][number]["edges"][number]): string {
+  return `${e.handler}: ${[...e.from].sort().join("|") || "*"} → ${targetLabel(e.to)}${e.guards.length ? ` when ${e.guards.join(" and ")}` : ""}`;
+}
+
 /** One agent's state machines: states, initial state, handlers and transitions. */
 export function diffAgentModel(
   key: string,
@@ -459,8 +465,7 @@ export function diffAgentModel(
   for (const [field, a] of am) {
     const b = bm.get(field);
     if (!b) continue;
-    const ek = (e: (typeof a.edges)[number]) =>
-      `${e.handler}: ${[...e.from].sort().join("|") || "*"} → ${targetLabel(e.to)}${e.guards.length ? ` when ${e.guards.join(" and ")}` : ""}`;
+    const ek = transitionKey;
     out.push(
       ...diffKeyed(
         byKey(b.edges, ek),

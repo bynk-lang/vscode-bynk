@@ -20,6 +20,7 @@
 //     elements by that number recovers this module's emission order whatever
 //     order the layout put them in the DOM (`state-map.ts`).
 
+import { type DiffMark, markClass, MARK_SIGN } from "./diffMarks";
 import type { StateEdge, StateMachine } from "./stateTypes";
 
 export interface StateMermaidOptions {
@@ -38,6 +39,10 @@ export interface TransitionGroup {
   flag: "Known" | "Possible" | null;
   /** The violated `transition`s' names. */
   violated: string[];
+  /** #153: how this transition differs from the other revision, when the
+   *  machine is the merged one of a model diff. A transition standing for
+   *  edges of different marks, or some marked and some not, is `changed`. */
+  diff?: DiffMark;
 }
 
 export interface StateMermaidResult {
@@ -83,6 +88,11 @@ export function toMermaidState(machine: StateMachine, opts: StateMermaidOptions)
     }
     if (!g.handlers.includes(edge.handler)) g.handlers.push(edge.handler);
     g.edges.push(edge);
+    if (edge.diff !== undefined || g.edges.length > 1) {
+      const first = g.edges[0].diff;
+      const mark = g.edges.every((x) => x.diff === first) ? first : "changed";
+      if (mark) g.diff = mark;
+    }
     for (const v of violationsFrom(edge, from)) {
       if (!g.violated.includes(v.transition)) g.violated.push(v.transition);
       if (g.flag !== "Known") g.flag = v.certainty;
@@ -110,7 +120,8 @@ export function toMermaidState(machine: StateMachine, opts: StateMermaidOptions)
   if (hasInitial && machine.initial !== null) lines.push(`    [*] --> ${idOf(machine.initial)}`);
   for (const g of groups) {
     const handlers = g.handlers.map((h) => `${h}()`).join(", ");
-    const label = esc(g.flag ? `⚠ ${handlers} (${g.violated.join(", ")})` : handlers);
+    const flagged = g.flag ? `⚠ ${handlers} (${g.violated.join(", ")})` : handlers;
+    const label = esc(g.diff ? `${MARK_SIGN[g.diff]} ${flagged}` : flagged);
     lines.push(`    ${idOf(g.from)} --> ${idOf(g.to)} : ${label}`);
   }
 
@@ -127,6 +138,14 @@ export function toMermaidState(machine: StateMachine, opts: StateMermaidOptions)
   lines.push("    classDef computed stroke-dasharray:4 3");
   if (dimmed.length > 0) lines.push(`    class ${dimmed.join(",")} unreachable`);
   if (stateIds.has(UNKNOWN_ID)) lines.push(`    class ${UNKNOWN_ID} computed`);
+  // #153: a diff's marked states. The webview appends the `diff*` classDefs.
+  for (const mark of ["added", "changed", "removed"] as const) {
+    const ids = machine.states
+      .map((s, i) => [s, i] as const)
+      .filter(([s]) => machine.diffStates?.[s] === mark)
+      .map(([, i]) => stateId(i));
+    if (ids.length > 0) lines.push(`    class ${ids.join(",")} ${markClass(mark)}`);
+  }
 
   return { text: lines.join("\n"), edgeOrder: groups, hasInitial, stateIds };
 }
