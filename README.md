@@ -416,6 +416,7 @@ its own, and is restored after **Developer: Reload Window**.
 | `bynk.sendRequest.codeLens` | `true` | Show a `Send request` CodeLens above each `from http` handler, opening **Bynk: Send Request**. |
 | `bynk.fileDecorations.contextBadge` | `auto` | Two-letter Explorer badge naming each file's context (and each test file's), with the full name in the tooltip. Commons and adapters carry none. |
 | `bynk.fileDecorations.failedTests` | `true` | Tint a file red in the Explorer (and its folders) when a test in it failed in the last run. |
+| `bynk.fileDecorations.generatedClient` | `true` | Mark the TypeScript client `bynk client` writes (`[build.client] out`, even outside the project) with a `GN` badge, and warn once on the first edit to it. |
 | `bynk.fileDecorations.contractBreaks` | `true` | Mark a file in the Explorer (and its folders) with a `!` badge and a warning tint when the language server reports a contract break in it against `bynk.schema.lock`. |
 | `bynk.dependencies.upgradeLenses` | `true` | Show an upgrade CodeLens above each registry dependency in `bynk.toml` when a newer version exists. Each package is looked up at most once per session. |
 | `bynk.dev.basePort` | empty (8787) | First port the dev server allocates (`bynk dev --base-port`): context *i* is served on this port + *i*. |

@@ -23,8 +23,14 @@ import * as vscode from "vscode";
 import {
   type BadgeMode,
   type ScannedFile,
+  CLIENT_BADGE,
   CONTRACT_DIFF_TITLE,
+  GENERATE_CLIENT_COMMAND,
+  clientFiles,
+  clientTooltip,
   contextBadge,
+  hasClientHeader,
+  parseClientConfig,
   hasContractBreak,
   testFailures,
 } from "./fileDecorationsCore";
@@ -36,6 +42,12 @@ const SECTION = "bynk.fileDecorations";
 
 /** Files read at once by a scan: bounded, so a large workspace does not open them all together. */
 const SCAN_CONCURRENCY = 32;
+
+/** The project that writes a generated client module: its name, and its root (what `bynk.generateClient` takes). */
+interface ClientOwner {
+  name: string;
+  root: vscode.Uri;
+}
 
 const decoder = new TextDecoder();
 
@@ -63,6 +75,15 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   private readonly broken = new Set<string>();
   /** Bumped by every full scan, so a slower earlier scan does not overwrite a newer one. */
   private scanGen = 0;
+  /** #134: generated client modules, by URI → the name of the project that writes them. */
+  private clients = new Map<string, ClientOwner>();
+  /** The client paths each manifest configures (header not yet checked), so one changing replaces only its own. */
+  private readonly candidates = new Map<string, Map<string, ClientOwner>>();
+  /** Bumped by every rebuild of `clients`, so a slower earlier one does not overwrite a newer one. */
+  private clientGen = 0;
+  private clientWatchers: vscode.Disposable[] = [];
+  /** Generated files already warned about on first edit (once per session). */
+  private readonly warned = new Set<string>();
 
   constructor() {
     const watcher = vscode.workspace.createFileSystemWatcher("**/{*.bynk,bynk.toml}");
@@ -77,11 +98,106 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
         if (e.affectsConfiguration(SECTION)) this.changed.fire(undefined);
       }),
       testFailures.onDidChange((uris) => this.changed.fire(uris.map((u) => vscode.Uri.parse(u)))),
+      vscode.workspace.onDidChangeTextDocument((e) => void this.editStarted(e)),
       vscode.languages.onDidChangeDiagnostics((e) => this.diagnosticsChanged(e.uris)),
     );
     // Diagnostics published before this provider existed.
     this.diagnosticsChanged(vscode.languages.getDiagnostics().map(([uri]) => uri), false);
     void this.scan();
+    void this.scanClients();
+  }
+
+  /** Read every `bynk.toml` in the workspace for its `[build.client]` table. */
+  private async scanClients(): Promise<void> {
+    const manifests = await vscode.workspace.findFiles("**/bynk.toml", "**/node_modules/**");
+    this.candidates.clear();
+    await mapLimit(manifests, SCAN_CONCURRENCY, async (m) => this.readManifest(m, false));
+    await this.rebuildClients();
+  }
+
+  private async readManifest(manifest: vscode.Uri, rebuild = true): Promise<void> {
+    const files = new Map<string, ClientOwner>();
+    try {
+      const config = parseClientConfig(await readText(manifest));
+      if (config) {
+        const root = vscode.Uri.joinPath(manifest, "..");
+        const name = root.path.split("/").filter(Boolean).pop() ?? root.path;
+        for (const path of clientFiles(root.path, config)) {
+          files.set(root.with({ path }).toString(), { name, root });
+        }
+      }
+    } catch {
+      // unreadable or gone: no client
+    }
+    if (files.size > 0) this.candidates.set(manifest.toString(), files);
+    else this.candidates.delete(manifest.toString());
+    if (rebuild) await this.rebuildClients();
+  }
+
+  /** Whether the file at `key` exists and starts with the generated header: a
+   *  hand-written file at a configured path is not ours to badge (the CLI
+   *  refuses to overwrite it too). */
+  private async isGenerated(key: string): Promise<boolean> {
+    try {
+      return hasClientHeader(await readText(vscode.Uri.parse(key)));
+    } catch {
+      return false;
+    }
+  }
+
+  /** Recompute the client set from the manifests' configured paths, keeping the
+   *  ones that carry the header, and refresh files whose state changed. */
+  private async rebuildClients(): Promise<void> {
+    const gen = ++this.clientGen;
+    const configured = new Map<string, ClientOwner>();
+    for (const files of this.candidates.values()) for (const [k, v] of files) configured.set(k, v);
+    const next = new Map<string, ClientOwner>();
+    await mapLimit([...configured], SCAN_CONCURRENCY, async ([k, owner]) => {
+      if (await this.isGenerated(k)) next.set(k, owner);
+    });
+    if (gen !== this.clientGen) return; // a newer rebuild supersedes this one
+    const changed = [...new Set([...this.clients.keys(), ...next.keys()])]
+      .filter((k) => this.clients.get(k)?.name !== next.get(k)?.name || this.clients.get(k)?.root.toString() !== next.get(k)?.root.toString())
+      .map((k) => vscode.Uri.parse(k));
+    this.clients = next;
+    this.watchClients(configured.keys());
+    if (changed.length > 0) this.changed.fire(changed);
+  }
+
+  /** Watch each configured client file (it may be outside the workspace and so
+   *  outside the `.bynk` watcher), so a generate, delete or hand edit of the
+   *  header re-checks it. */
+  private watchClients(keys: Iterable<string>): void {
+    for (const w of this.clientWatchers) w.dispose();
+    this.clientWatchers = [];
+    for (const key of keys) {
+      const uri = vscode.Uri.parse(key);
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(vscode.Uri.joinPath(uri, ".."), uri.path.split("/").pop() ?? ""),
+      );
+      const recheck = (): void => void this.rebuildClients();
+      this.clientWatchers.push(watcher, watcher.onDidCreate(recheck), watcher.onDidChange(recheck), watcher.onDidDelete(recheck));
+    }
+  }
+
+  /** #134: the first edit to a generated module offers a one-time notice. Only a
+   *  file that really starts with the header is warned about, so a hand-written
+   *  file at the same path is left alone. */
+  private async editStarted(e: vscode.TextDocumentChangeEvent): Promise<void> {
+    if (e.contentChanges.length === 0 || e.document.uri.scheme === "output") return;
+    const key = e.document.uri.toString();
+    const owner = this.clients.get(key);
+    if (owner === undefined || this.warned.has(key)) return;
+    // `clients` holds only files whose header was present on disk when last read,
+    // so a hand-written file at the same path, or one whose header is already
+    // gone, is not warned about; the buffer's own first line is not consulted.
+    this.warned.add(key);
+    const regenerate = (await vscode.commands.getCommands(true)).includes(GENERATE_CLIENT_COMMAND)
+      ? "Regenerate"
+      : undefined;
+    const message = `This file is generated by \`bynk client\` from ${owner.name}; an edit here is lost at the next regeneration.`;
+    const choice = await vscode.window.showWarningMessage(message, ...(regenerate ? [regenerate] : []));
+    if (choice === regenerate && regenerate) await vscode.commands.executeCommand(GENERATE_CLIENT_COMMAND, owner.root);
   }
 
   /** What a file is decorated with, before it is turned into a decoration. */
@@ -89,6 +205,7 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
     badge?: { badge: string; context: string };
     failed: boolean;
     contractBreak: boolean;
+    client?: string;
   } {
     const config = vscode.workspace.getConfiguration(SECTION);
     const key = uri.toString();
@@ -96,6 +213,7 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
       badge: contextBadge(this.files, key, config.get<BadgeMode>("contextBadge", "auto")),
       failed: config.get<boolean>("failedTests", true) && testFailures.hasFailures(key),
       contractBreak: config.get<boolean>("contractBreaks", true) && this.broken.has(key),
+      client: config.get<boolean>("generatedClient", true) ? this.clients.get(key)?.name : undefined,
     };
   }
 
@@ -107,9 +225,10 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
       this.probed.add(key);
       void this.fileChanged(uri);
     }
-    const { badge, failed, contractBreak } = this.stateOf(uri);
-    if (!badge && !failed && !contractBreak) return undefined;
+    const { badge, failed, contractBreak, client } = this.stateOf(uri);
+    if (!badge && !failed && !contractBreak && client === undefined) return undefined;
     const tooltip = [
+      client !== undefined && clientTooltip(client),
       badge && `Bynk context ${badge.context}`,
       failed && "Tests failed in the last run",
       contractBreak && `Contract break (${CONTRACT_DIFF_TITLE})`,
@@ -120,7 +239,7 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
     // it is not shown by colour alone. A failed test is the louder signal, so its
     // red wins the colour when both apply; the `!` and the tooltip still say so.
     const decoration = new vscode.FileDecoration(
-      badge?.badge ?? (contractBreak ? "!" : undefined),
+      badge?.badge ?? (client !== undefined ? CLIENT_BADGE : contractBreak ? "!" : undefined),
       tooltip,
       failed
         ? new vscode.ThemeColor("bynk.testFailedForeground")
@@ -135,6 +254,7 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
 
   dispose(): void {
     for (const d of this.disposables) d.dispose();
+    for (const w of this.clientWatchers) w.dispose();
   }
 
   /** The decoration state of a file, for the integration test. */
@@ -143,16 +263,18 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
     tooltip?: string;
     failed: boolean;
     contractBreak: boolean;
+    client?: string;
     tint?: "failed" | "contractBreak";
     propagate: boolean;
   } {
-    const { failed, contractBreak } = this.stateOf(uri);
+    const { failed, contractBreak, client } = this.stateOf(uri);
     const d = this.provideFileDecoration(uri);
     return {
       badge: d?.badge,
       tooltip: d?.tooltip,
       failed,
       contractBreak,
+      client,
       tint: failed ? "failed" : contractBreak ? "contractBreak" : undefined,
       propagate: d?.propagate ?? false,
     };
@@ -271,6 +393,7 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   private async fileChanged(uri: vscode.Uri): Promise<void> {
     if (uri.path.endsWith("/bynk.toml")) {
       clearProjectRoots();
+      void this.readManifest(uri);
       return this.scanUnder(vscode.Uri.joinPath(uri, ".."));
     }
     const before = this.files.get(uri.toString());
@@ -284,6 +407,8 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   private async fileDeleted(uri: vscode.Uri): Promise<void> {
     if (uri.path.endsWith("/bynk.toml")) {
       clearProjectRoots();
+      this.candidates.delete(uri.toString());
+      void this.rebuildClients();
       return this.scanUnder(vscode.Uri.joinPath(uri, ".."));
     }
     const before = this.files.get(uri.toString());

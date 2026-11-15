@@ -22,6 +22,7 @@ version).
   CLI changed and the problems that remain, and shows the CLI's own message when
   it refuses or does not know a code (#130).
 - `suite consumes` and `suite as consumes` snippets: a suite with its own `consumes` clause, placed after the header and before the first `case`, as Bynk v0.614 requires (#133).
+- The Explorer marks the TypeScript client `bynk client` writes as generated: a `GN` badge and a tooltip on `[build.client] out` from each project's `bynk.toml` (the four modules of `layout = "dir"` too), including when `out` leaves the project. The first edit to one shows a one-time notice, with a Regenerate action when `bynk.generateClient` is registered. Switch it off with `bynk.fileDecorations.generatedClient` (#134).
 
 ### Fixed
 
