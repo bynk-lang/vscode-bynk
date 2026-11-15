@@ -5,6 +5,7 @@
 
 import * as assert from "assert";
 import * as fs from "fs";
+import * as http from "http";
 import * as path from "path";
 
 import * as vscode from "vscode";
@@ -178,6 +179,97 @@ describe("Request scenarios (#149)", () => {
     const uri = vscode.Uri.file(path.join(dir, "scenarios", "run.bynk-http"));
     const results = await vscode.commands.executeCommand<StepResult[]>("bynk.scenario.run", uri.toString(), "ping");
     assert.deepStrictEqual(results.map((r) => r.step), ["create", "ping"]);
+  });
+
+  describe("against a [test.targets] target (#159)", () => {
+    let server: http.Server;
+    let port: number;
+    const received: { method?: string; url?: string; auth?: string }[] = [];
+    const AGAINST = "@context shop\n\n### list\nGET /ping\nAuthorization: {{env.AGAINST_TOKEN}}\n\n? status == 200\n\n### add\nPUT /items/abc\nContent-Type: application/json\n\n{ \"name\": \"x\", \"qty\": 1 }\n\n? status == 200\n";
+
+    before(async () => {
+      server = http.createServer((req, res) => {
+        received.push({ method: req.method, url: req.url, auth: String(req.headers.authorization) });
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ echoed: req.headers.authorization }));
+      });
+      await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+      port = (server.address() as { port: number }).port;
+      fs.writeFileSync(
+        path.join(dir, "bynk.toml"),
+        `[project]\nname = "sc"\n\n[paths]\ninclude = ["src"]\n\n` +
+          `[test.targets.preview]\nurl.shop = "http://127.0.0.1:${port}"\nsecrets = ["AGAINST_SIGNING"]\n\n` +
+          `[test.targets.live]\nurl.shop = "http://127.0.0.1:${port}"\nproduction = true\n\n` +
+          `[test.targets.elsewhere]\nurl.other = "http://127.0.0.1:${port}"\n`,
+      );
+      write("scenarios/against.bynk-http", AGAINST);
+      process.env.AGAINST_TOKEN = "against-token-value";
+    });
+
+    after(async () => {
+      delete process.env.AGAINST_TOKEN;
+      await new Promise((r) => server.close(r));
+    });
+
+    /** Run **Run Scenario Against…** with the picker and prompts answered. */
+    async function runAgainst(target: string, input?: (opts: vscode.InputBoxOptions) => string | undefined) {
+      const pick = vscode.window.showQuickPick;
+      const box = vscode.window.showInputBox;
+      (vscode.window as { showQuickPick: unknown }).showQuickPick = async (items: readonly { label: string }[]) => items.find((i) => i.label === target);
+      (vscode.window as { showInputBox: unknown }).showInputBox = async (o: vscode.InputBoxOptions) => (input ? input(o) : undefined);
+      try {
+        const uri = vscode.Uri.file(path.join(dir, "scenarios", "against.bynk-http"));
+        return await vscode.commands.executeCommand<StepResult[] | undefined>("bynk.scenario.runAgainst", uri.toString());
+      } finally {
+        (vscode.window as { showQuickPick: unknown }).showQuickPick = pick;
+        (vscode.window as { showInputBox: unknown }).showInputBox = box;
+      }
+    }
+
+    it("sends each step to the target's URL for its context, hiding the environment", async function () {
+      this.timeout(60_000);
+      received.length = 0;
+      const results = await runAgainst("preview");
+      assert.ok(results);
+      assert.deepStrictEqual(results.map((r) => [r.step, r.state]), [["list", "passed"], ["add", "passed"]]);
+      assert.deepStrictEqual(received.map((r) => `${r.method} ${r.url}`), ["GET /ping", "PUT /items/abc"]);
+      assert.strictEqual(received[0].auth, "against-token-value");
+      assert.ok(!JSON.stringify(results).includes("against-token-value"));
+    });
+
+    it("asks for the target's name before a write to a production target, and sends nothing without it", async function () {
+      this.timeout(60_000);
+      received.length = 0;
+      let prompt = "";
+      assert.strictEqual(await runAgainst("live", (o) => ((prompt = o.prompt ?? ""), "nope")), undefined);
+      assert.match(prompt, /reads as production/);
+      assert.match(prompt, /PUT \/items\/abc/);
+      assert.deepStrictEqual(received, []);
+      const results = await runAgainst("live", () => "live");
+      assert.deepStrictEqual(results?.map((r) => r.state), ["passed", "passed"]);
+      assert.strictEqual(received.length, 2);
+    });
+
+    it("reports a context the target does not serve, per step", async function () {
+      this.timeout(60_000);
+      received.length = 0;
+      const results = await runAgainst("elsewhere");
+      assert.deepStrictEqual(results?.map((r) => r.state), ["error", "error"]);
+      assert.match(results?.[0].message ?? "", /no URL for `shop`/);
+      assert.deepStrictEqual(received, []);
+    });
+
+    it("refuses a literal credential in the file against a target", async function () {
+      this.timeout(60_000);
+      received.length = 0;
+      write("scenarios/against.bynk-http", AGAINST.replace("{{env.AGAINST_TOKEN}}", "Bearer literal-secret"));
+      const results = await runAgainst("preview");
+      assert.strictEqual(results?.[0].state, "error");
+      assert.match(results?.[0].message ?? "", /literal credential/);
+      assert.ok(!JSON.stringify(results).includes("literal-secret"));
+      assert.deepStrictEqual(received.map((r) => r.url), ["/items/abc"]);
+      write("scenarios/against.bynk-http", AGAINST);
+    });
   });
 
   it("saves a request from Send Request to a scenario file, keeping credentials out", async function () {

@@ -27,6 +27,8 @@ export async function manifestTargets(root: vscode.Uri): Promise<string[]> {
 export async function pickTarget(
   context: vscode.ExtensionContext,
   roots: vscode.Uri[],
+  /** What the run is, for the prompts: "system tests" by default. */
+  what = "the system tests",
 ): Promise<{ target: string; declaring: vscode.Uri[] } | undefined> {
   if (roots.length === 0) {
     void vscode.window.showErrorMessage("Bynk: no bynk.toml found in the workspace.");
@@ -45,13 +47,13 @@ export async function pickTarget(
       })),
       { label: MANUAL, detail: "A target declared in a form the list does not show." },
     ],
-    { title: "Run the system tests against…", placeHolder: "Choose a target" },
+    { title: `Run ${what} against…`, placeHolder: "Choose a target" },
   );
   if (!picked) return undefined;
   let target = picked.label;
   if (target === MANUAL) {
     const typed = await vscode.window.showInputBox({
-      title: "Run the system tests against…",
+      title: `Run ${what} against…`,
       prompt: "A target name from [test.targets] in bynk.toml, or dev",
       validateInput: (v) =>
         /:\/\//.test(v)

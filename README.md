@@ -250,6 +250,20 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   expectation) and in the **Bynk Scenario** output channel. A step that reads a
   failed or missing value is skipped, not sent, and the run carries on with the
   steps that don't depend on it.
+
+  **Run against…** (the lens, or **Bynk: Run Scenario Against…**) runs the
+  scenario against a deployment instead: it offers `dev` and the targets under
+  `[test.targets]` in `bynk.toml`, as **Run System Tests Against…** does, and
+  sends each step to the target's `url.<worker>` for the step's context
+  (`shop.orders` is `shop-orders`). A context the target doesn't serve is
+  reported on its step and nothing is sent for it. A run against a deployed
+  target is confirmed first; against a target marked `production = true` (or
+  named `prod`, `production` or `live`), a run that sends a `POST`, `PUT`,
+  `PATCH` or `DELETE` asks you to type the target's name. Credentials come from
+  the environment only: against a target a literal `Authorization` or token
+  header in the file is refused (write `{{env.NAME}}`), a URL with credentials
+  in `bynk.toml` is refused, and the target's declared `secrets` are hidden from
+  the results like every `{{env.…}}` value.
 - **Export OpenAPI** — **Bynk: Export OpenAPI…** writes an OpenAPI 3.1 document
   for the project's `from http` services with `bynk openapi`, as JSON or YAML by
   the file name you choose. It needs a `bynk` that has the command, and offers to
@@ -413,6 +427,7 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Wire Contract** | The JSON wire shape of the service handler at the cursor. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Send Request** | Send the HTTP handler at the cursor a request on the dev server: path parameters, headers and a JSON body pre-filled from its type, then the response. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Run Scenario** | Run the `.bynk-http` scenario in the active editor on the dev server, with the results inline. Also a `Run scenario` / `Run step` CodeLens in the file. |
+| **Bynk: Run Scenario Against…** | Run the scenario against `dev` or a `[test.targets]` target from `bynk.toml`, confirming a deployed target first and asking for the target's name before a write to a production one. Also a `Run against…` CodeLens. |
 | **Bynk: Show Agent State** | The state machines of the agent at the cursor: for each `store` Cell of an enum or sum type, a state diagram generated from its handlers and a handler × state table of what each handler does from each state, with moves a `transition` would refuse at commit marked ⚠, and each handler's effects — what it writes, reads and calls on each path (shown instead for an agent with no state field). Follows the cursor from agent to agent, highlighting the handler under it. |
 | **Bynk: Show Contract Diff** | Boundary changes since `bynk.schema.lock` and service contracts that differ from `bynk.deploy.lock`'s live record, each marked compatible or breaking. Refreshes when either lock changes. |
 | **Bynk: Compare Model with…** | Pick a git ref (the first choice is the merge base with the default branch) and see what changed in the project's model against the working tree: contexts, adapters, `consumes` edges, services and agents added, removed or changed; boundary and service-contract changes, classified compatible or breaking where the language server classifies them; agent states, handlers and transitions; and capabilities and their providers. Each row opens its source in the working tree. Also on the Source Control view's title bar. |
