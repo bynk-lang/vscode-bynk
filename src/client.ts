@@ -34,8 +34,15 @@ async function httpServices(root: vscode.Uri): Promise<string[]> {
   return httpServiceChoices(sources);
 }
 
-async function generateClient(): Promise<void> {
-  const root = await findProjectRoot();
+/** `root` is the project to generate for, when another feature (a "Regenerate"
+ *  action) already knows it; anything that is not a Uri (a menu or palette
+ *  invocation passes none, or its own context) falls back to the active project. */
+async function generateClient(root?: unknown): Promise<void> {
+  const project = root instanceof vscode.Uri ? root : await findProjectRoot();
+  await generate(project);
+}
+
+async function generate(root: vscode.Uri | undefined): Promise<void> {
   if (!root) {
     void vscode.window.showInformationMessage("Open a Bynk project (a folder with a bynk.toml) to generate its TypeScript client.");
     return;
