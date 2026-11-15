@@ -26,6 +26,7 @@ import {
   mergeBaseChoice,
   parseRefs,
   projectSubpath,
+  SCRATCH_PREFIX,
   repoRoot,
   resolveRev,
   sharedAgents,
@@ -198,7 +199,7 @@ export function registerModelDiff(
           void vscode.window.showErrorMessage(`Bynk: git does not know the revision ${label}.`);
           return;
         }
-        const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "bynk-model-diff-"));
+        const scratch = fs.mkdtempSync(path.join(os.tmpdir(), SCRATCH_PREFIX));
         const dir = path.join(scratch, "tree");
         const diff = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: `Comparing the model with ${label}…` },
@@ -238,6 +239,8 @@ export function registerModelDiff(
         );
         const result = diffSnapshots(diff.before, diff.after);
         show((nonce, cspSource) => renderModelDiffHtml(result, { against: label, nonce, cspSource }));
+        // For tests; the palette ignores it.
+        return result;
       } catch (error) {
         void vscode.window.showErrorMessage(`Bynk: could not compare the model: ${error instanceof Error ? error.message : String(error)}`);
       }

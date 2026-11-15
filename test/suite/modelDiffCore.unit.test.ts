@@ -9,6 +9,8 @@ import {
   diffArchitecture,
   diffContracts,
   diffSnapshots,
+  isModelDiffScratch,
+  CONTRACTS_NOTE,
   mergeBaseChoice,
   parseRefs,
   projectSubpath,
@@ -118,6 +120,22 @@ describe("git side (#147)", () => {
     const got = await untilAnswered(async () => (++n < 3 ? null : "ok"), 5, async () => {});
     assert.strictEqual(got, "ok");
     assert.strictEqual(await untilAnswered(async () => null, 2, async () => {}), null);
+  });
+});
+
+describe("scratch checkouts (#147)", () => {
+  it("recognises paths under a scratch checkout, and only those", () => {
+    assert.ok(isModelDiffScratch("/tmp/bynk-model-diff-a1b2/tree/src/x.bynk"));
+    assert.ok(isModelDiffScratch("C:\\Temp\\bynk-model-diff-a1b2\\tree\\x.bynk"));
+    assert.ok(!isModelDiffScratch("/home/me/project/src/x.bynk"));
+    assert.ok(!isModelDiffScratch("/home/me/my-bynk-model-diff-notes/x.bynk"));
+  });
+
+  it("says in the contracts section how its entries are to be read", () => {
+    const snap: ModelSnapshot = { architecture: { nodes: [], edges: [] }, contracts: { lock: "read", ledger: "read", changes: [], services: [] }, agents: {} };
+    const contracts = diffSnapshots(snap, snap).sections.find((s) => s.id === "contracts")!;
+    assert.strictEqual(contracts.note, CONTRACTS_NOTE);
+    assert.match(renderModelDiffHtml(diffSnapshots(snap, snap), { against: "x", nonce: "N", cspSource: "c" }), /its own lock files/);
   });
 });
 

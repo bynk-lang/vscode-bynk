@@ -117,6 +117,18 @@ export function projectSubpath(repo: string, project: string): string | undefine
   return p.startsWith(`${r}/`) ? p.slice(r.length + 1) : undefined;
 }
 
+/** The name every scratch checkout's directory starts with. The language server
+ *  publishes diagnostics for the files of a project it analyses, and for this
+ *  one it is the checkout's, so the client drops anything under such a
+ *  directory (`isModelDiffScratch`) rather than let it reach the Problems panel
+ *  and what reads it. */
+export const SCRATCH_PREFIX = "bynk-model-diff-";
+
+/** Whether `path` (a file path or a URI's path) lies under a scratch checkout. */
+export function isModelDiffScratch(path: string): boolean {
+  return path.replace(/\\/g, "/").split("/").some((seg) => seg.startsWith(SCRATCH_PREFIX));
+}
+
 /** What a revision's tree makes available to analyse. */
 export interface RevisionTree {
   /** The directory the project lives in, inside the scratch checkout. */
@@ -203,7 +215,15 @@ export interface DiffSection {
   entries: DiffEntry[];
   /** Why the section could not be compared, when it could not. */
   unavailable?: string;
+  /** A caveat on how to read the entries. */
+  note?: string;
 }
+
+/** What the contracts section's boundary entries mean: each revision's
+ *  `bynk/contractDiff` is taken against *that revision's own* locks, so the
+ *  entries are not a pure source diff. */
+export const CONTRACTS_NOTE =
+  "Each revision is compared with its own lock files (bynk.schema.lock, bynk.deploy.lock), then the two results are compared. A boundary change that appears or disappears may come from a lock change between the revisions as well as from source. Service contract hashes are compared directly.";
 
 export interface ModelDiff {
   sections: DiffSection[];
@@ -465,18 +485,20 @@ export function diffSnapshots(before: ModelSnapshot, after: ModelSnapshot): Mode
   ): DiffSection => (ready ? { id, title, entries: entries() } : { id, title, entries: [], unavailable: reason });
   const arch = !!before.architecture && !!after.architecture;
   const archReason = "the architecture model of one of the revisions could not be read";
+  const contracts = section(
+    "contracts",
+    "Contracts",
+    !!before.contracts && !!after.contracts,
+    "the contract diff of one of the revisions could not be read",
+    () => diffContracts(before.contracts!, after.contracts!),
+  );
+  contracts.note = CONTRACTS_NOTE;
   return {
     sections: [
       section("architecture", "Architecture", arch, archReason, () =>
         diffArchitecture(before.architecture!, after.architecture!),
       ),
-      section(
-        "contracts",
-        "Contracts",
-        !!before.contracts && !!after.contracts,
-        "the contract diff of one of the revisions could not be read",
-        () => diffContracts(before.contracts!, after.contracts!),
-      ),
+      contracts,
       section("agents", "Agent states", arch, archReason, () => {
         const out: DiffEntry[] = [];
         const locs = new Map<string, ArchLoc>();

@@ -56,7 +56,8 @@ export function renderModelDiffHtml(diff: ModelDiff, page: ModelDiffPage): strin
         : s.entries.length === 0
           ? `<p class="muted">No differences.</p>`
           : `<table>${s.entries.map(row).join("")}</table>`;
-      return `<section id="${s.id}"><h2>${escapeHtml(s.title)} (${s.unavailable ? "n/a" : s.entries.length})</h2>${body}</section>`;
+      const note = s.note ? `<p class="muted note">${escapeHtml(s.note)}</p>` : "";
+      return `<section id="${s.id}"><h2>${escapeHtml(s.title)} (${s.unavailable ? "n/a" : s.entries.length})</h2>${note}${body}</section>`;
     })
     .join("\n");
   const summary = total === 0 ? "No model differences." : `${total} model difference${total === 1 ? "" : "s"}.`;
