@@ -680,6 +680,11 @@
         "category": "Bynk"
       },
       {
+        "command": "bynk.generateClient",
+        "title": "Generate TypeScript Client (experimental)…",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.approveRequirements",
         "title": "Review Pending npm Requirements…",
         "category": "Bynk"
@@ -782,6 +787,10 @@
         },
         {
           "command": "bynk.applyFixesAcrossProject",
+          "when": "!isWeb"
+        },
+        {
+          "command": "bynk.generateClient",
           "when": "!isWeb"
         },
         {
