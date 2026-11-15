@@ -32,8 +32,11 @@ export interface CheckRun {
 }
 
 const STALE_HEADER = /^bynk: client is stale\b/;
-const MISSING_ENTRY = /^\s+(.+): missing\s*$/;
-const DIFF_ENTRY = /^\s+(.+) differs at line (\d+)\b/;
+// Entry lines are indented two spaces; the `- found:` / `+ expected:` lines under
+// a differing file are indented four, so a found or expected line that happens to
+// end in `: missing` is not an entry.
+const MISSING_ENTRY = /^ {2}(?![ +-])(.+): missing\s*$/;
+const DIFF_ENTRY = /^ {2}(?![ +-])(.+) differs at line (\d+)\b/;
 
 /** Whether a `bynk.toml` has a `[build.client]` table (#132): the only projects
  *  the check runs for. A scan, not a TOML parse: a header on a line of its own

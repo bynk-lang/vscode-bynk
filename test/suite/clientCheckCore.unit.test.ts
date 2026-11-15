@@ -93,6 +93,19 @@ describe("classifyCheck (#132)", () => {
     assert.strictEqual(outcome.kind, "stale");
   });
 
+  it("does not mistake a differing line that ends in `: missing` for a missing file", () => {
+    const outcome = classifyCheck(
+      run(
+        1,
+        "bynk: client is stale: run `bynk client --out /p/api.ts`\n" +
+          "  /p/api.ts differs at line 4 (1 line in all):\n" +
+          "    - found:    status: missing\n" +
+          "    + expected: status: ready\n",
+      ),
+    );
+    assert.strictEqual(outcome.kind, "stale");
+  });
+
   it("cannot check a project with errors, or one the CLI refuses", () => {
     const errors = classifyCheck(run(1, "bynk: the project does not check: 2 errors\n"));
     assert.deepStrictEqual(errors, { kind: "unknown", reason: "the project does not check: 2 errors" });
