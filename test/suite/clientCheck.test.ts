@@ -49,9 +49,9 @@ describe("stale generated client (#132)", () => {
     fs.writeFileSync(MANIFEST, `${original}\n[build.client]\nout = "web/api.ts"\n`);
     const doc = await vscode.workspace.openTextDocument(path.join(WORKSPACE, "src", "text.bynk"));
     await vscode.window.showTextDocument(doc);
-    // Not awaited: a stale client raises a warning that waits for a choice.
-    void vscode.commands.executeCommand("bynk.checkClient");
-    await waitFor(() => checks().length > 0, truthy, "a `bynk client --check` run");
+    // The command answers once it has checked; the warning it raises is not waited for.
+    const summary = await vscode.commands.executeCommand("bynk.checkClient");
+    await waitFor(() => checks().length > 0, truthy, `a \`bynk client --check\` run (${JSON.stringify(summary)})`);
     assert.deepStrictEqual(checks()[0].argv, ["client", "--check"]);
     assert.strictEqual(checks()[0].cwd && fs.realpathSync(checks()[0].cwd!), fs.realpathSync(WORKSPACE));
   });

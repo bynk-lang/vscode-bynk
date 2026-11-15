@@ -40,6 +40,13 @@ interface Project {
   /** A check is running, and another was asked for meanwhile. */
   running: boolean;
   again: boolean;
+  /** What the latest check made of it (also what the command reports back). */
+  last?: ClientOutcome;
+}
+
+/** What `bynk.checkClient` returns, once it has checked: for tests and scripts. */
+export interface CheckSummary {
+  projects: { root: string; state: string; last?: string }[];
 }
 
 export function registerClientCheck(context: vscode.ExtensionContext, viewRefresh: ViewRefresh): void {
@@ -120,6 +127,7 @@ class ClientCheck implements vscode.Disposable {
       do {
         project.again = false;
         const outcome = await this.run(root);
+        project.last = outcome;
         project.state = nextState(project.state, outcome);
         this.render();
       } while (project.again && this.enabled());
@@ -163,7 +171,7 @@ class ClientCheck implements vscode.Disposable {
 
   /** The status item's action menu: Regenerate and Show difference. Also
    *  `Bynk: Check Generated Client`, which checks first. */
-  async showActions(): Promise<void> {
+  async showActions(): Promise<CheckSummary> {
     if (this.drifted().length === 0) {
       await this.checkActive();
       const root = vscode.window.activeTextEditor ? await projectRootFor(vscode.window.activeTextEditor.document.uri) : undefined;
@@ -173,10 +181,23 @@ class ClientCheck implements vscode.Disposable {
       }
     }
     const drifted = this.drifted();
+    const summary: CheckSummary = {
+      projects: [...this.projects.values()].map((p) => ({
+        root: p.root.toString(),
+        state: p.state.kind,
+        last: p.last && (p.last.kind === "unknown" ? `unknown: ${p.last.reason}` : p.last.kind),
+      })),
+    };
+    // The message waits for a choice, so the command does not wait for it.
     if (drifted.length === 0) {
       void vscode.window.showInformationMessage("Bynk: the generated client is up to date (or the project has no `[build.client]`).");
-      return;
+    } else {
+      void this.offer(drifted);
     }
+    return summary;
+  }
+
+  private async offer(drifted: { name: string; state: ClientOutcome; root: vscode.Uri }[]): Promise<void> {
     const regenerate = (await vscode.commands.getCommands(true)).includes(GENERATE_CLIENT_COMMAND);
     const buttons = regenerate ? ["Regenerate", "Show difference"] : ["Show difference"];
     const first = drifted[0];
