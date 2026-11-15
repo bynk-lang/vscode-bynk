@@ -665,6 +665,11 @@
         "category": "Bynk"
       },
       {
+        "command": "bynk.checkClient",
+        "title": "Check Generated Client",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.doctor",
         "title": "Doctor",
         "category": "Bynk"
@@ -775,6 +780,10 @@
         },
         {
           "command": "bynk.newProject",
+          "when": "!isWeb"
+        },
+        {
+          "command": "bynk.checkClient",
           "when": "!isWeb"
         },
         {
@@ -1482,6 +1491,11 @@
           },
           "default": [],
           "description": "Extra arguments forwarded to `wrangler dev` after `--` when the editor starts `bynk dev` (for example `[\"--var\", \"KEY:value\"]`). Ports are `bynk dev`'s to allocate: use `bynk.dev.basePort`, not `--port`."
+        },
+        "bynk.client.check": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Warn when the generated TypeScript client of a project with `[build.client]` in `bynk.toml` is stale or missing. Runs `bynk client --check` after a save that could change it (when `#bynk.views.refresh#` is not `manual`); it writes nothing, and skips a project that has errors."
         },
         "bynk.views.refresh": {
           "type": "string",
