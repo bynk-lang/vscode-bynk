@@ -9,8 +9,8 @@
 // The runs ride the shared refresh hub (`viewRefresh.ts`), so they follow
 // `bynk.views.refresh`, are scoped to the projects whose files changed
 // (`refreshScope.ts`), and wait for the language server's round like the views
-// do. The CLI needs a clean project: a project with errors is skipped, and what
-// was last known stays on show. `bynk.client.check` turns the whole thing off.
+// do. The CLI needs a clean project and refuses one with errors; that run is
+// "unknown" (`classifyCheck`), and what was last known stays on show. `bynk.client.check` turns the whole thing off.
 
 import * as vscode from "vscode";
 
@@ -142,7 +142,6 @@ class ClientCheck implements vscode.Disposable {
       // No `[build.client]`: no client to be stale (and no warning left over
       // from a table that has since been removed).
       if (!parseClientConfig(manifest)) return { kind: "fresh" };
-      if (hasErrors(root)) return { kind: "unknown", reason: "the project has errors" };
       return classifyCheck(await runBynk([...CHECK_ARGS], root.fsPath));
     } catch (e) {
       return { kind: "unknown", reason: e instanceof BynkNotFoundError ? e.message : String(e) };
@@ -231,13 +230,4 @@ class ClientCheck implements vscode.Disposable {
   dispose(): void {
     this.item.dispose();
   }
-}
-
-/** Whether the language server reports an error in a `.bynk` source of the
- *  project (a complaint about `bynk.toml` itself is the CLI's to make). */
-function hasErrors(root: vscode.Uri): boolean {
-  const prefix = root.toString().replace(/\/?$/, "/");
-  return vscode.languages
-    .getDiagnostics()
-    .some(([uri, diagnostics]) => uri.path.endsWith(".bynk") && uri.toString().startsWith(prefix) && diagnostics.some((d) => d.severity === vscode.DiagnosticSeverity.Error));
 }
