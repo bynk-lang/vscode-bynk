@@ -30,6 +30,16 @@ version).
   `bynk.showContractDiff` takes an optional second argument,
   `{ context?, environment? }`; the existing `(uri)` form is unchanged.
 - **Bynk: Run Scenario Against…** (`bynk.scenario.runAgainst`, and a `Run against…` CodeLens on a scenario) runs a `.bynk-http` scenario against a `[test.targets]` target from `bynk.toml`, using the same target picker as **Run System Tests Against…** (#159). Each step goes to the target's `url.<worker>` for its context; a context the target doesn't serve is reported on that step and nothing is sent for it. A run against a deployed target is confirmed first. A target marked `production = true` is refused (and not offered), as `bynk test --against` refuses it; against a target only *named* `prod`, `production` or `live`, a run that sends `POST`, `PUT`, `PATCH` or `DELETE` asks you to type the target's name instead. Credentials come from the environment only: a literal `Authorization`/token header in the file is refused against a target, a URL carrying credentials is refused, and the target's declared `secrets` are hidden from results along with every `{{env.…}}` value.
+- **Bynk: Compare Model with…** classifies each handler's wire contract
+  (`bynk/wireContract`) between the two revisions as compatible or breaking
+  (#154), in a new Wire contracts section: a handler added is compatible, one
+  removed or whose boundary changed breaking, and a changed contract is judged
+  as a caller built against the earlier revision would meet the later one — the
+  language server's rules for service contracts (a field added to a request must
+  be optional or defaulted, a response variant added is breaking, a refinement
+  tightened is breaking), applied by the extension to each revision's wire
+  contract, with each reason named. Where unsure it says breaking. Agent
+  invariants are not compared: `bynk/agentStateModel` does not expose them.
 
 ## [0.614.2] - 2026-11-15
 

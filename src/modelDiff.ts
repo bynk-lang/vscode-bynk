@@ -41,12 +41,15 @@ import {
 } from "./modelDiffCore";
 import { buildGraphs } from "./modelDiffGraphCore";
 import { renderModelDiffHtml } from "./modelDiffHtml";
+import { handlerSymbols, type SymbolLike } from "./refreshScheduler";
+import { wireHandlerKey, type WireHandler } from "./wireDiffCore";
 import { activeProjectRoot } from "./projectRoots";
 import type { ViewRefresh } from "./viewRefresh";
 import { getNonce, isRevealMessage, revealLocation } from "./webviewHost";
 import type { ArchModel } from "./webview/architectureTypes";
 import type { CdModel } from "./webview/contractDiffTypes";
 import type { AgentStateModel } from "./webview/stateTypes";
+import type { WcModel } from "./webview/wireContractTypes";
 
 const execGit: Git = {
   run: (args, cwd) =>
@@ -82,6 +85,51 @@ function firstBynkFile(dir: string): string | undefined {
   return undefined;
 }
 
+/** Every `.bynk` file under `dir`, skipping hidden and dependency directories. */
+function allBynkFiles(dir: string): string[] {
+  const out: string[] = [];
+  const queue = [dir];
+  while (queue.length > 0) {
+    const d = queue.shift()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isFile() && e.name.endsWith(".bynk")) out.push(p);
+      else if (e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules") queue.push(p);
+    }
+  }
+  return out;
+}
+
+/** Read each handler's wire contract (#154), given a way to list a file's
+ *  handlers. A handler the server has no wire contract for (an agent's, say)
+ *  is left out. */
+async function wireContracts(
+  client: LanguageClient,
+  files: string[],
+  symbolsOf: (file: string) => Promise<SymbolLike[]>,
+): Promise<Record<string, WireHandler>> {
+  const out: Record<string, WireHandler> = {};
+  for (const file of files) {
+    const uri = vscode.Uri.file(file).toString();
+    const handlers = handlerSymbols(await symbolsOf(file));
+    for (const h of handlers) {
+      const params = { textDocument: { uri }, position: h.symbol.selectionRange.start };
+      // The revision's first round is committed by now (its architecture model
+      // was answered), so a null is a handler with no wire contract.
+      const model = await client.sendRequest<WcModel | null>("bynk/wireContract", params);
+      if (model) out[wireHandlerKey(model, h.symbol.name)] = { model, uri };
+    }
+  }
+  return out;
+}
+
 /** Read the model of the project at `projectDir`, which is not a workspace
  *  folder, by opening one of its files in the language server. */
 async function snapshotOfTree(
@@ -91,6 +139,7 @@ async function snapshotOfTree(
 ): Promise<ModelSnapshot> {
   const file = firstBynkFile(projectDir);
   if (!file) return { architecture: null, contracts: null, agents: {} };
+  const files = allBynkFiles(projectDir);
   const uri = vscode.Uri.file(file).toString();
   await client.sendNotification("textDocument/didOpen", {
     textDocument: { uri, languageId: "bynk", version: 1, text: fs.readFileSync(file, "utf8") },
@@ -105,7 +154,26 @@ async function snapshotOfTree(
     // revision's file is still open in the server.
     const agents =
       architecture && live ? await agentModels(client, sharedAgents(architecture, live), "before") : {};
-    return { architecture, contracts, agents };
+    // Each file's handlers: opened in the server for the length of the read.
+    const opened: string[] = [];
+    let wire: Record<string, WireHandler> | undefined;
+    try {
+      if (architecture) {
+        wire = await wireContracts(client, files, async (f) => {
+          const fileUri = vscode.Uri.file(f).toString();
+          if (fileUri !== uri) {
+            await client.sendNotification("textDocument/didOpen", {
+              textDocument: { uri: fileUri, languageId: "bynk", version: 1, text: fs.readFileSync(f, "utf8") },
+            });
+            opened.push(fileUri);
+          }
+          return (await client.sendRequest<SymbolLike[] | null>("textDocument/documentSymbol", { textDocument: { uri: fileUri } })) ?? [];
+        });
+      }
+    } finally {
+      for (const u of opened) await client.sendNotification("textDocument/didClose", { textDocument: { uri: u } });
+    }
+    return { architecture, contracts, agents, wire };
   } finally {
     await client.sendNotification("textDocument/didClose", { textDocument: { uri } });
   }
@@ -221,6 +289,16 @@ export function registerModelDiff(
               requestContractDiff(client, hub, afterFile, true),
             ]);
             const after: ModelSnapshot = { architecture, contracts, agents: {} };
+            if (architecture) {
+              after.wire = await wireContracts(client, allBynkFiles(root.fsPath), async (f) => {
+                const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(f));
+                const syms = await vscode.commands.executeCommand<vscode.DocumentSymbol[] | undefined>(
+                  "vscode.executeDocumentSymbolProvider",
+                  doc.uri,
+                );
+                return (syms ?? []).filter((x) => "selectionRange" in x) as SymbolLike[];
+              });
+            }
             try {
               const before = await withRevisionTree(
                 execGit,
