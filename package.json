@@ -1514,6 +1514,11 @@
           "default": true,
           "description": "Mark a file in the Explorer (and the folders above it) when the language server reports a contract break in it against `bynk.schema.lock`: an event schema or agent state changed non-additively. The marker is a `!` badge, unless the file has a context badge, and a warning tint. `Bynk: Show Contract Diff` shows what changed."
         },
+        "bynk.fileDecorations.generatedClient": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mark the TypeScript client `bynk client` writes (`[build.client] out` in `bynk.toml`, or the four modules of `layout = \"dir\"`) with a `GN` badge in the Explorer, wherever it is in the workspace, and offer a one-time notice on the first edit to one. Regenerate rather than edit: a hand edit is lost at the next `bynk build`."
+        },
         "bynk.viewsCodeLens": {
           "type": "boolean",
           "default": false,
