@@ -61,6 +61,8 @@ export interface FeatureEnv {
 
 /** Keep this sorted by feature name. */
 export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
+  // #130: "Apply Fixes Across Project…", a wrapper over `bynk check --fix=<codes>`.
+  ({ context }) => registerApplyFixes(context),
   // #2469: the server's "Show capability path" action opens the references peek.
   ({ context }) => registerCapabilityPath(context),
   // #2465: `@bynk` in the Chat view, orchestrating the language-model tools.
@@ -87,7 +89,6 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context, client, viewRefresh }) => registerLmTools(context, client, viewRefresh),
   // #16: "Bynk: Export OpenAPI", a wrapper over `bynk openapi`.
   ({ context }) => registerOpenapi(context),
-  ({ context }) => registerApplyFixes(context),
   // #2480: share a selection or a single-file program as a playground link.
   ({ context }) => registerPlaygroundCommands(context),
   // #2470: the "Refined Type" explorer.
