@@ -130,6 +130,31 @@ if (args[0] === "book") {
   // also names a skipped route on stderr; `=refuse` refuses as the CLI does for a
   // file it did not write.
   // Without `--out` the target is `[build.client]` `out` in the project's bynk.toml.
+  //
+  // `--check` (#132) writes nothing and answers as bynk v0.614.0 words it.
+  // `BYNK_FAKE_CLIENT_CHECK` chooses the answer: `stale`, `missing`, `errors` (a
+  // project that does not check) or `fresh` (the default). When
+  // `BYNK_FAKE_CLIENT_FILE` names a file, a run that finds it present is fresh and
+  // one that does not is missing, so a test can regenerate by writing it.
+  if (args.includes("--check")) {
+    const file = process.env.BYNK_FAKE_CLIENT_FILE;
+    const mode = file ? (fs.existsSync(file) ? "fresh" : "missing") : process.env.BYNK_FAKE_CLIENT_CHECK || "fresh";
+    const where = file || "/work/web/api.ts";
+    if (mode === "errors") {
+      process.stderr.write("bynk: the project does not check: 1 error\n");
+      process.exit(1);
+    }
+    if (mode === "stale" || mode === "missing") {
+      process.stderr.write(`bynk: client is stale: run \`bynk client --out ${where}\`\n`);
+      process.stderr.write(
+        mode === "missing"
+          ? `  ${where}: missing\n`
+          : `  ${where} differs at line 7 (1 line in all):\n    - found:    old\n    + expected: new\n`,
+      );
+      process.exit(1);
+    }
+    process.exit(0);
+  }
   const out = args.indexOf("--out");
   let target = out >= 0 ? args[out + 1] : undefined;
   if (!target) {

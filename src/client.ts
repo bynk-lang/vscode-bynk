@@ -1,8 +1,8 @@
 // #131: "Bynk: Generate TypeScript Client (experimental)", a thin wrapper over
 // `bynk client`. With `[build.client]` in bynk.toml it runs with no flags and
 // the CLI writes where the table says; otherwise it asks where to save. The
-// id `bynk.generateClient` takes no arguments, so other features can offer it
-// as a "Regenerate" action.
+// id `bynk.generateClient` takes an optional project-root Uri, so other features
+// can offer it as a "Regenerate" action for the project they know.
 
 import * as vscode from "vscode";
 
@@ -11,6 +11,12 @@ import { clientArgs, clientOutcome, httpServiceChoices, type ClientLayout } from
 import { GENERATE_CLIENT_COMMAND, parseClientConfig } from "./fileDecorationsCore";
 
 let output: vscode.OutputChannel | undefined;
+
+/** The "Bynk Client" output channel, created on first use and shared with the
+ *  stale-client warning (`clientCheck.ts`) so the user sees one. */
+export function clientOutput(): vscode.OutputChannel {
+  return (output ??= vscode.window.createOutputChannel("Bynk Client"));
+}
 
 export function registerClient(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand(GENERATE_CLIENT_COMMAND, generateClient));
@@ -85,7 +91,7 @@ async function generate(root: vscode.Uri | undefined): Promise<void> {
     },
   );
   if (outcome.kind === "cancelled") return;
-  const channel = (output ??= vscode.window.createOutputChannel("Bynk Client"));
+  const channel = clientOutput();
   if (outcome.kind === "failed") {
     channel.appendLine(outcome.message);
     const show = await vscode.window.showErrorMessage(outcome.message, "Show Output");
