@@ -26,11 +26,6 @@ export function clientArgs(opts: ClientOptions): string[] {
   return args;
 }
 
-/** Whether `bynk.toml` has a `[build.client]` table. */
-export function hasBuildClient(toml: string): boolean {
-  return /^[ \t]*\[\s*build\s*\.\s*client\s*\][ \t]*(#.*)?$/m.test(toml);
-}
-
 /** The names of the `from http` services a Bynk source declares. */
 export function httpServiceNames(text: string): string[] {
   const names: string[] = [];

@@ -2,7 +2,7 @@
 
 import * as assert from "assert";
 
-import { clientArgs, clientFailure, clientOutcome, hasBuildClient, httpServiceChoices, httpServiceNames, skippedRoutes } from "../../src/clientCore";
+import { clientArgs, clientFailure, clientOutcome, httpServiceChoices, httpServiceNames, skippedRoutes } from "../../src/clientCore";
 
 describe("clientCore", () => {
   it("with only a root, the arguments leave everything to [build.client]", () => {
@@ -16,13 +16,6 @@ describe("clientCore", () => {
     );
     // `file` is the CLI's default, so it is not passed.
     assert.deepStrictEqual(clientArgs({ root: "/p", out: "/p/api.ts", layout: "file" }), ["client", "/p", "--out", "/p/api.ts"]);
-  });
-
-  it("detects a [build.client] table", () => {
-    assert.ok(hasBuildClient('name = "x"\n\n[build.client]\nout = "../web/api.ts"\n'));
-    assert.ok(hasBuildClient("[ build . client ] # comment\n"));
-    assert.ok(!hasBuildClient("[build]\nclient = 1\n# [build.client]\n"));
-    assert.ok(!hasBuildClient("[build.clients]\n"));
   });
 
   it("finds the from-http services of a source", () => {

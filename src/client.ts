@@ -7,12 +7,13 @@
 import * as vscode from "vscode";
 
 import { findProjectRoot, runBynk } from "./cli";
-import { clientArgs, clientOutcome, hasBuildClient, httpServiceChoices, type ClientLayout } from "./clientCore";
+import { clientArgs, clientOutcome, httpServiceChoices, type ClientLayout } from "./clientCore";
+import { GENERATE_CLIENT_COMMAND, parseClientConfig } from "./fileDecorationsCore";
 
 let output: vscode.OutputChannel | undefined;
 
 export function registerClient(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(vscode.commands.registerCommand("bynk.generateClient", generateClient));
+  context.subscriptions.push(vscode.commands.registerCommand(GENERATE_CLIENT_COMMAND, generateClient));
 }
 
 async function readText(uri: vscode.Uri): Promise<string | undefined> {
@@ -65,7 +66,7 @@ async function generate(root: vscode.Uri | undefined): Promise<void> {
   const toml = await readText(vscode.Uri.joinPath(root, "bynk.toml"));
   let opts: { out?: string; layout?: ClientLayout; services?: string[] } = {};
   let written: vscode.Uri | undefined;
-  if (toml === undefined || !hasBuildClient(toml)) {
+  if (toml === undefined || parseClientConfig(toml) === undefined) {
     const picked = await askTarget(root);
     if (!picked) return;
     opts = picked.opts;
