@@ -2,7 +2,7 @@
 
 import * as assert from "assert";
 
-import { clientArgs, clientFailure, clientOutcome, hasBuildClient, httpServiceNames, skippedRoutes } from "../../src/clientCore";
+import { clientArgs, clientFailure, clientOutcome, hasBuildClient, httpServiceChoices, httpServiceNames, skippedRoutes } from "../../src/clientCore";
 
 describe("clientCore", () => {
   it("with only a root, the arguments leave everything to [build.client]", () => {
@@ -32,6 +32,13 @@ describe("clientCore", () => {
     );
   });
 
+  it("offers unit.Name when two units declare the same service name", () => {
+    const a = "context shop\nservice api from http {\n}\nservice admin from http {\n}\n";
+    const b = "context billing\nservice api from http {\n}\n";
+    assert.deepStrictEqual(httpServiceChoices([a, b]), ["admin", "billing.api", "shop.api"]);
+    assert.deepStrictEqual(httpServiceChoices([a]), ["admin", "api"]);
+  });
+
   it("collects skipped routes from stderr", () => {
     const stderr = "bynk: skipped `POST /u` of `api`: a `@raw` body\nnoise\nbynk: skipped `GET /s` of `api`: streamed\n";
     assert.deepStrictEqual(skippedRoutes(stderr), ["`POST /u` of `api`: a `@raw` body", "`GET /s` of `api`: streamed"]);
@@ -44,7 +51,11 @@ describe("clientCore", () => {
     assert.match(clientFailure("bynk: the project has no `from http` service"), /no `from http` service/);
     assert.match(clientFailure("bynk: no `from http` service `x`; the project's are: api"), /No such service[\s\S]*the project's are: api/);
     assert.match(clientFailure("bynk: no route of the selected services is one this version of `bynk client` can represent\n  a"), /cannot represent/);
-    assert.match(clientFailure("bynk: two routes share the function name `get`"), /share a client function name/);
+    assert.match(clientFailure("bynk: `GET /a` and `GET /b` of service `api` both make the function `getA`; the client cannot name them apart"), /share a client function name/);
+    // A check failure that merely says "duplicate" is still a check failure.
+    const dup = clientFailure("src/a.bynk:1:1: error[bynk.resolve.duplicate_type]: duplicate type `T` with the same name");
+    assert.match(dup, /must check clean/);
+    assert.doesNotMatch(dup, /function name/);
     assert.match(clientFailure("src/a.bynk:1:1: error[x]: bad"), /must check clean[\s\S]*error\[x\]/);
     assert.match(clientFailure(" "), /without a message/);
   });

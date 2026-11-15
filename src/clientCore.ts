@@ -3,6 +3,8 @@
 // only picks where it goes and says what happened, including the routes the
 // client could not represent.
 
+import { parseUnitHeader } from "./projectModel";
+
 export type ClientLayout = "file" | "dir";
 
 export interface ClientOptions {
@@ -36,6 +38,23 @@ export function httpServiceNames(text: string): string[] {
   return names;
 }
 
+/** The `from http` services across a project's sources, sorted. `--service`
+ *  takes `Name` or `unit.Name`, so a name two units both declare is offered as
+ *  `unit.Name` (when a file has no recognisable unit header it stays bare). */
+export function httpServiceChoices(sources: readonly string[]): string[] {
+  const found: { unit?: string; name: string }[] = [];
+  for (const text of sources) {
+    const names = httpServiceNames(text);
+    if (names.length === 0) continue;
+    const unit = parseUnitHeader(text)?.name;
+    for (const name of names) found.push({ unit, name });
+  }
+  const count = new Map<string, number>();
+  for (const f of found) count.set(f.name, (count.get(f.name) ?? 0) + 1);
+  const out = new Set(found.map((f) => ((count.get(f.name) ?? 0) > 1 && f.unit ? `${f.unit}.${f.name}` : f.name)));
+  return [...out].sort();
+}
+
 /** The routes the CLI left out: its `bynk: skipped <route>: <why>` lines. */
 export function skippedRoutes(stderr: string): string[] {
   const out: string[] = [];
@@ -67,7 +86,9 @@ export function clientFailure(stderr: string): string {
   if (/no route of the selected services/i.test(stderr)) {
     return `Every route of the selected services is one the client cannot represent yet.\n${stderr.trim()}`;
   }
-  if (/\b(share|shares|same)\b[^\n]*name|collid|duplicate/i.test(stderr)) {
+  // "`GET /a` and `GET /b` of service `api` both make the function `getA`; the
+  // client cannot name them apart".
+  if (/both make the function|cannot name them apart/.test(stderr)) {
     return `Two routes would share a client function name, so nothing was written.\n${stderr.trim()}`;
   }
   const detail = stderr.trim();

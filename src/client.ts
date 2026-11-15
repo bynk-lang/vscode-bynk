@@ -7,7 +7,7 @@
 import * as vscode from "vscode";
 
 import { findProjectRoot, runBynk } from "./cli";
-import { clientArgs, clientOutcome, hasBuildClient, httpServiceNames, type ClientLayout } from "./clientCore";
+import { clientArgs, clientOutcome, hasBuildClient, httpServiceChoices, type ClientLayout } from "./clientCore";
 
 let output: vscode.OutputChannel | undefined;
 
@@ -26,12 +26,12 @@ async function readText(uri: vscode.Uri): Promise<string | undefined> {
 /** The `from http` services the project's sources declare, sorted. */
 async function httpServices(root: vscode.Uri): Promise<string[]> {
   const files = await vscode.workspace.findFiles(new vscode.RelativePattern(root, "**/*.bynk"), "**/{node_modules,.bynk}/**");
-  const names = new Set<string>();
+  const sources: string[] = [];
   for (const f of files) {
     const text = await readText(f);
-    if (text) for (const n of httpServiceNames(text)) names.add(n);
+    if (text) sources.push(text);
   }
-  return [...names].sort();
+  return httpServiceChoices(sources);
 }
 
 async function generateClient(): Promise<void> {
