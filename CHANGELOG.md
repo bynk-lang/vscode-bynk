@@ -12,6 +12,14 @@ version).
 
 ## [Unreleased]
 
+## [0.606.0] - 2026-11-15
+
+Built against `bynk` v0.606.0.
+
+### Changed
+
+- The server pin moves to v0.606.0 (from v0.562.0, via v0.603.10). The `doctor` golden is refreshed for v0.603.10 (#123, #126).
+
 ### Fixed
 
 - Grammar: the `~>` send arrow is no longer highlighted as an operator. Bynk v0.606.0 removed it (parse error `bynk.parse.removed_send_arrow`); `e.detach()` replaces it (#124).
