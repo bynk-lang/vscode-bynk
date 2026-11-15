@@ -570,6 +570,12 @@
         "icon": "$(diff)"
       },
       {
+        "command": "bynk.compareModel",
+        "title": "Compare Model with…",
+        "category": "Bynk",
+        "icon": "$(git-compare)"
+      },
+      {
         "command": "bynk.showAgentState",
         "title": "Show Agent State",
         "category": "Bynk",
@@ -805,6 +811,13 @@
       }
     ],
     "menus": {
+      "scm/title": [
+        {
+          "command": "bynk.compareModel",
+          "when": "scmProvider == git && !isWeb",
+          "group": "navigation@90"
+        }
+      ],
       "commandPalette": [
         {
           "command": "bynk.copyPlaygroundLink",
@@ -917,6 +930,10 @@
         {
           "command": "bynk.showContractDiff",
           "when": "editorLangId == bynk && !isWeb"
+        },
+        {
+          "command": "bynk.compareModel",
+          "when": "!isWeb"
         },
         {
           "command": "bynk.showAgentState",

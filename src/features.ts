@@ -38,6 +38,7 @@ import { registerExplainView } from "./explainView";
 import { registerFileDecorations } from "./fileDecorations";
 import { registerInlineDocRendering } from "./inlineDocRendering";
 import { registerLmTools } from "./lmTools";
+import { registerModelDiff } from "./modelDiff";
 import { registerOpenapi } from "./openapi";
 import { registerPlaygroundCommands } from "./playgroundCommands";
 import { registerRefinedExplorer } from "./refinedExplorer";
@@ -96,6 +97,8 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context }) => registerInlineDocRendering(context),
   // #2463: the toolchain's answers as language-model tools.
   ({ context, client, viewRefresh }) => registerLmTools(context, client, viewRefresh),
+  // #147: "Bynk: Compare Model with…", the model against a git revision.
+  ({ context, client, viewRefresh }) => registerModelDiff(context, viewRefresh, client),
   // #16: "Bynk: Export OpenAPI", a wrapper over `bynk openapi`.
   ({ context }) => registerOpenapi(context),
   // #2480: share a selection or a single-file program as a playground link.
