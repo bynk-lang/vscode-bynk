@@ -675,6 +675,11 @@
         "category": "Bynk"
       },
       {
+        "command": "bynk.applyFixesAcrossProject",
+        "title": "Apply Fixes Across Project…",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.approveRequirements",
         "title": "Review Pending npm Requirements…",
         "category": "Bynk"
@@ -773,6 +778,10 @@
         },
         {
           "command": "bynk.exportOpenapi",
+          "when": "!isWeb"
+        },
+        {
+          "command": "bynk.applyFixesAcrossProject",
           "when": "!isWeb"
         },
         {

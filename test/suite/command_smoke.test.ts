@@ -76,6 +76,23 @@ describe("Bynk command smoke tests (#44)", () => {
     }
   });
 
+  it("bynk.applyFixesAcrossProject runs `bynk check --fix=` for the given codes", async function () {
+    if (process.platform === "win32") this.skip();
+    const win = vscode.window as unknown as Record<string, unknown>;
+    const real = { showInformationMessage: win.showInformationMessage };
+    const told: string[] = [];
+    win.showInformationMessage = async (m: string) => (told.push(m), undefined);
+    try {
+      await vscode.commands.executeCommand("bynk.applyFixesAcrossProject", ["bynk.consumes.type_not_selected"]);
+      await waitFor(() => told.length, truthy, "the fixes to report");
+      assert.match(told[0], /^Fixed 1 file\. Remaining: 0 errors, 1 warning\./);
+      const run = fake.read().find((e) => e.argv?.[0] === "check" && e.argv.some((a) => a.startsWith("--fix=")))!;
+      assert.ok(run.argv!.includes("--fix=bynk.consumes.type_not_selected"));
+    } finally {
+      Object.assign(win, real);
+    }
+  });
+
   it("bynk.showServerOutput and bynk.showLogs run", async () => {
     // An output channel cannot be read back, so this only proves the commands
     // are wired and complete.
