@@ -12,6 +12,11 @@ version).
 
 ## [Unreleased]
 
+## [0.614.1] - 2026-11-15
+
+Built against `bynk` v0.614.0. Editor support for v0.607–v0.614's `bynk client`
+and per-file `consumes`.
+
 ### Added
 
 - **Bynk: Apply Fixes Across Project…** (`bynk.applyFixesAcrossProject`) runs
