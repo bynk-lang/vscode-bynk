@@ -113,6 +113,19 @@ const SINGLE_FILE_ARTEFACTS = new Set([
 ]);
 
 /**
+ * The per-file `consumes` warnings (bynk#3536). Single-file analysis only emits
+ * one when the file has its own `consumes` of a unit it can resolve (in
+ * practice the standard library) that doesn't bring the name in. A unit that
+ * isn't loaded gives `bynk.consumes.unknown_context` or `bynk.resolve.*`
+ * instead, so these are genuine and the cascade doesn't drop them.
+ */
+const PER_FILE_CONSUMES = new Set([
+  "bynk.consumes.type_not_selected",
+  "bynk.consumes.capability_not_selected",
+  "bynk.consumes.unit_not_consumed",
+]);
+
+/**
  * In a file with a cross-unit root, or in one file of a unit split across
  * several, the categories that cascade from the missing names: unresolved
  * names, a consumed context's services and capabilities, its events, and the
@@ -194,6 +207,7 @@ export function singleFileDiagnostics(
     if (d.category === "bynk.adapter.no_binding" && d.message.includes("could not be read")) {
       return false;
     }
+    if (PER_FILE_CONSUMES.has(d.category)) return true;
     return !(cascade && CROSS_UNIT_CASCADE.some((c) => d.category.startsWith(c)));
   });
 }

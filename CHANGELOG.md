@@ -12,6 +12,13 @@ version).
 
 ## [Unreleased]
 
+### Fixed
+
+- Web: the per-file `consumes` warnings (`bynk.consumes.type_not_selected`,
+  `capability_not_selected`, `unit_not_consumed`) are no longer hidden in a
+  fragment of a split unit, where the file's own `consumes bynk { … }` doesn't
+  list a name it uses (#135).
+
 ## [0.614.0] - 2026-11-15
 
 Built against `bynk` v0.614.0.
