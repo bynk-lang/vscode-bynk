@@ -12,6 +12,14 @@ version).
 
 ## [Unreleased]
 
+## [0.614.0] - 2026-11-15
+
+Built against `bynk` v0.614.0.
+
+### Changed
+
+- The server pin moves to v0.614.0 (from v0.606.0) (#128).
+
 ## [0.606.0] - 2026-11-15
 
 Built against `bynk` v0.606.0.
