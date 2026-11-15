@@ -244,9 +244,11 @@ export function clientFiles(root: string, config: ClientConfig): string[] {
   return config.layout === "dir" ? CLIENT_DIR_FILES.map((f) => `${out}/${f}`) : [out];
 }
 
-/** Whether `text` starts with the generated-client header. */
+/** Whether `text` starts with the generated-client header. The writer's first
+ *  line continues past it (`... — do not edit by hand.`), so this is a prefix
+ *  test, as the CLI's own check is (`have.starts_with(GENERATED)`). */
 export function hasClientHeader(text: string): boolean {
-  return text.replace(/^﻿/, "").split(/\r?\n/, 1)[0].trimEnd() === CLIENT_GENERATED_HEADER;
+  return text.replace(/^\uFEFF/, "").startsWith(CLIENT_GENERATED_HEADER);
 }
 
 /** The decoration's tooltip. `project` is the project's directory name. */

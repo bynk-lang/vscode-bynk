@@ -71,8 +71,11 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   private scanGen = 0;
   /** #134: generated client modules, by URI → the name of the project that writes them. */
   private clients = new Map<string, string>();
-  /** The manifests each project's client files came from, so one changing replaces only its own. */
-  private readonly clientsByManifest = new Map<string, Map<string, string>>();
+  /** The client paths each manifest configures (header not yet checked), so one changing replaces only its own. */
+  private readonly candidates = new Map<string, Map<string, string>>();
+  /** Bumped by every rebuild of `clients`, so a slower earlier one does not overwrite a newer one. */
+  private clientGen = 0;
+  private clientWatchers: vscode.Disposable[] = [];
   /** Generated files already warned about on first edit (once per session). */
   private readonly warned = new Set<string>();
 
@@ -101,9 +104,9 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   /** Read every `bynk.toml` in the workspace for its `[build.client]` table. */
   private async scanClients(): Promise<void> {
     const manifests = await vscode.workspace.findFiles("**/bynk.toml", "**/node_modules/**");
-    this.clientsByManifest.clear();
+    this.candidates.clear();
     await mapLimit(manifests, SCAN_CONCURRENCY, async (m) => this.readManifest(m, false));
-    this.rebuildClients();
+    await this.rebuildClients();
   }
 
   private async readManifest(manifest: vscode.Uri, rebuild = true): Promise<void> {
@@ -120,20 +123,55 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
     } catch {
       // unreadable or gone: no client
     }
-    if (files.size > 0) this.clientsByManifest.set(manifest.toString(), files);
-    else this.clientsByManifest.delete(manifest.toString());
-    if (rebuild) this.rebuildClients();
+    if (files.size > 0) this.candidates.set(manifest.toString(), files);
+    else this.candidates.delete(manifest.toString());
+    if (rebuild) await this.rebuildClients();
   }
 
-  /** Recompute the client set from the manifests, refreshing files whose state changed. */
-  private rebuildClients(): void {
+  /** Whether the file at `key` exists and starts with the generated header: a
+   *  hand-written file at a configured path is not ours to badge (the CLI
+   *  refuses to overwrite it too). */
+  private async isGenerated(key: string): Promise<boolean> {
+    try {
+      return hasClientHeader(await readText(vscode.Uri.parse(key)));
+    } catch {
+      return false;
+    }
+  }
+
+  /** Recompute the client set from the manifests' configured paths, keeping the
+   *  ones that carry the header, and refresh files whose state changed. */
+  private async rebuildClients(): Promise<void> {
+    const gen = ++this.clientGen;
+    const configured = new Map<string, string>();
+    for (const files of this.candidates.values()) for (const [k, v] of files) configured.set(k, v);
     const next = new Map<string, string>();
-    for (const files of this.clientsByManifest.values()) for (const [k, v] of files) next.set(k, v);
+    await mapLimit([...configured], SCAN_CONCURRENCY, async ([k, name]) => {
+      if (await this.isGenerated(k)) next.set(k, name);
+    });
+    if (gen !== this.clientGen) return; // a newer rebuild supersedes this one
     const changed = [...new Set([...this.clients.keys(), ...next.keys()])]
       .filter((k) => this.clients.get(k) !== next.get(k))
       .map((k) => vscode.Uri.parse(k));
     this.clients = next;
+    this.watchClients(configured.keys());
     if (changed.length > 0) this.changed.fire(changed);
+  }
+
+  /** Watch each configured client file (it may be outside the workspace and so
+   *  outside the `.bynk` watcher), so a generate, delete or hand edit of the
+   *  header re-checks it. */
+  private watchClients(keys: Iterable<string>): void {
+    for (const w of this.clientWatchers) w.dispose();
+    this.clientWatchers = [];
+    for (const key of keys) {
+      const uri = vscode.Uri.parse(key);
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(vscode.Uri.joinPath(uri, ".."), uri.path.split("/").pop() ?? ""),
+      );
+      const recheck = (): void => void this.rebuildClients();
+      this.clientWatchers.push(watcher, watcher.onDidCreate(recheck), watcher.onDidChange(recheck), watcher.onDidDelete(recheck));
+    }
   }
 
   /** #134: the first edit to a generated module offers a one-time notice. Only a
@@ -144,8 +182,9 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
     const key = e.document.uri.toString();
     const project = this.clients.get(key);
     if (project === undefined || this.warned.has(key)) return;
-    // The edit may have removed the header already; check the first line as saved.
-    if (!hasClientHeader(e.document.lineAt(0).text)) return;
+    // `clients` holds only files whose header was present on disk when last read,
+    // so a hand-written file at the same path, or one whose header is already
+    // gone, is not warned about; the buffer's own first line is not consulted.
     this.warned.add(key);
     const regenerate = (await vscode.commands.getCommands(true)).includes(GENERATE_CLIENT_COMMAND)
       ? "Regenerate"
@@ -209,6 +248,7 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
 
   dispose(): void {
     for (const d of this.disposables) d.dispose();
+    for (const w of this.clientWatchers) w.dispose();
   }
 
   /** The decoration state of a file, for the integration test. */
@@ -361,8 +401,8 @@ export class FileDecorations implements vscode.FileDecorationProvider, vscode.Di
   private async fileDeleted(uri: vscode.Uri): Promise<void> {
     if (uri.path.endsWith("/bynk.toml")) {
       clearProjectRoots();
-      this.clientsByManifest.delete(uri.toString());
-      this.rebuildClients();
+      this.candidates.delete(uri.toString());
+      void this.rebuildClients();
       return this.scanUnder(vscode.Uri.joinPath(uri, ".."));
     }
     const before = this.files.get(uri.toString());
