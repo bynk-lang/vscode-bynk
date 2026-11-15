@@ -22,6 +22,7 @@ import type * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
 import type { ApprovalState } from "./approveRequirements";
+import { registerApplyFixes } from "./applyFixes";
 import { registerCapabilityPath } from "./capabilityPath";
 import { registerChatParticipant } from "./chatParticipant";
 import { registerDebug } from "./debug";
@@ -34,7 +35,6 @@ import { registerExplainView } from "./explainView";
 import { registerFileDecorations } from "./fileDecorations";
 import { registerInlineDocRendering } from "./inlineDocRendering";
 import { registerLmTools } from "./lmTools";
-import { registerApplyFixes } from "./applyFixes";
 import { registerOpenapi } from "./openapi";
 import { registerPlaygroundCommands } from "./playgroundCommands";
 import { registerRefinedExplorer } from "./refinedExplorer";
