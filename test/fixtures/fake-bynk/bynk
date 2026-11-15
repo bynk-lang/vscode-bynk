@@ -152,6 +152,7 @@ if (args[0] === "book") {
     fs.mkdirSync(target, { recursive: true });
     for (const f of ["index.ts", "types.ts", "codecs.ts", "runtime.ts"]) fs.writeFileSync(require("path").join(target, f), header);
   } else {
+    fs.mkdirSync(require("path").dirname(target), { recursive: true });
     fs.writeFileSync(target, header + "export const createClient = () => ({});\n");
   }
   if (process.env.BYNK_FAKE_CLIENT === "skipped") {
