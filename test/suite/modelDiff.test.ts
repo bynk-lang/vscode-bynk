@@ -15,6 +15,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import type { ModelDiff } from "../../src/modelDiffCore";
+import type { DiffGraphs } from "../../src/modelDiffGraphCore";
 import { waitFor } from "./util";
 
 const EXT_ID = "bynk-lang.bynk-vscode";
@@ -69,8 +70,8 @@ describe("compare model with a git revision (#147)", () => {
     // The server commits its first round for the project asynchronously, so
     // the working-tree side may not have a model yet.
     const diff = await waitFor(
-      () => vscode.commands.executeCommand<ModelDiff | undefined>("bynk.compareModel", first),
-      (d): d is ModelDiff => !!d && d.sections.every((s) => !s.unavailable),
+      () => vscode.commands.executeCommand<(ModelDiff & { graphs: DiffGraphs }) | undefined>("bynk.compareModel", first),
+      (d): d is ModelDiff & { graphs: DiffGraphs } => !!d && d.sections.every((s) => !s.unavailable),
       "the model diff to cover every section",
       90_000,
     );
@@ -81,6 +82,13 @@ describe("compare model with a git revision (#147)", () => {
       `the second commit's service is reported as added: ${JSON.stringify(arch.entries)}`,
     );
     assert.ok(added[0].loc?.uri.startsWith(vscode.Uri.file(repo).toString()), "an added row links to the working tree");
+
+    // The map is drawn from the merged model: the added service is marked.
+    assert.strictEqual(
+      diff.graphs.architecture?.marks.members["md\u0000service\u0000second"],
+      "added",
+      JSON.stringify(diff.graphs.architecture?.marks),
+    );
 
     // The worktree is gone from git's records and from disk.
     assert.strictEqual(git(repo, "worktree", "list", "--porcelain").match(/^worktree /gm)?.length, 1);
