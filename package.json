@@ -23,6 +23,7 @@
   ],
   "activationEvents": [
     "onLanguage:bynk",
+    "onLanguage:bynk-http",
     "workspaceContains:bynk.toml",
     "onWebviewPanel:bynkSequenceDiagram",
     "onWebviewPanel:bynkDocumentation",
@@ -46,6 +47,17 @@
           ".bynk"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "bynk-http",
+        "aliases": [
+          "Bynk HTTP Scenario",
+          "bynk-http"
+        ],
+        "extensions": [
+          ".bynk-http"
+        ],
+        "configuration": "./syntaxes/bynk-http-language-configuration.json"
       }
     ],
     "themes": [
@@ -67,6 +79,11 @@
       }
     ],
     "grammars": [
+      {
+        "language": "bynk-http",
+        "scopeName": "source.bynk-http",
+        "path": "./syntaxes/bynk-http.tmLanguage.json"
+      },
       {
         "language": "bynk",
         "scopeName": "source.bynk",
@@ -564,6 +581,17 @@
         "icon": "$(send)"
       },
       {
+        "command": "bynk.scenario.run",
+        "title": "Run Scenario",
+        "category": "Bynk",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "bynk.scenario.showOutput",
+        "title": "Show Scenario Output",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.showContractDiff",
         "title": "Show Contract Diff",
         "category": "Bynk",
@@ -926,6 +954,14 @@
         {
           "command": "bynk.sendRequest",
           "when": "editorLangId == bynk && !isWeb"
+        },
+        {
+          "command": "bynk.scenario.run",
+          "when": "editorLangId == bynk-http && !isWeb"
+        },
+        {
+          "command": "bynk.scenario.showOutput",
+          "when": "editorLangId == bynk-http && !isWeb"
         },
         {
           "command": "bynk.showContractDiff",
@@ -1664,6 +1700,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show a `Send request` CodeLens above each `from http` handler. It opens **Bynk: Send Request**, which sends the handler a request on the dev server."
+        },
+        "bynk.scenario.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show `Run scenario` and `Run step` CodeLenses, and each step's last result, in `.bynk-http` scenario files."
         },
         "bynk.dependencies.upgradeLenses": {
           "type": "boolean",

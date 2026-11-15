@@ -42,6 +42,7 @@ import { registerModelDiff } from "./modelDiff";
 import { registerOpenapi } from "./openapi";
 import { registerPlaygroundCommands } from "./playgroundCommands";
 import { registerRefinedExplorer } from "./refinedExplorer";
+import { registerScenario } from "./scenario";
 import { registerTasks } from "./tasks";
 import { registerTomlRecommendation } from "./tomlRecommendation";
 import { registerToolchain } from "./toolchain";
@@ -105,6 +106,8 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context }) => registerPlaygroundCommands(context),
   // #2470: the "Refined Type" explorer.
   ({ context, client }) => registerRefinedExplorer(context, client),
+  // #149: request scenarios (`.bynk-http`), checked against the wire contract.
+  ({ context, viewRefresh }) => registerScenario(context, viewRefresh),
   // B-2: the `bynkc: check` build task (errors → Problems via `$bynkc`).
   ({ context }) => registerTasks(context),
   // #2096: suggest a TOML extension, once, if none is installed.
