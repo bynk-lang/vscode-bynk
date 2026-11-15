@@ -22,7 +22,6 @@ version).
   carries a `+`, `~` or `−` so it does not rely on colour. The map keeps its
   expandable boxes; a state diagram is drawn for each agent, present in both
   revisions, whose state machine differs.
-
 - **Contract Diff filter** (#157): **Show Contract Diff** on a context in the
   Environments view now opens the panel scoped to that context and environment,
   with a "Showing shop.payment in staging · Show all" chip that clears the
