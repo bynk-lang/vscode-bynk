@@ -21,7 +21,6 @@ version).
   Fix All per file. Open Bynk files are saved first; it reports the files the
   CLI changed and the problems that remain, and shows the CLI's own message when
   it refuses or does not know a code (#130).
-
 - `suite consumes` and `suite as consumes` snippets: a suite with its own `consumes` clause, placed after the header and before the first `case`, as Bynk v0.614 requires (#133).
 
 ### Fixed
