@@ -286,7 +286,14 @@ describe("Request scenarios (#149)", () => {
     it("refuses a literal credential in the file against a target", async function () {
       this.timeout(60_000);
       received.length = 0;
-      write("scenarios/against.bynk-http", AGAINST.replace("{{env.AGAINST_TOKEN}}", "Bearer literal-secret"));
+      const file = write("scenarios/against.bynk-http", AGAINST.replace("{{env.AGAINST_TOKEN}}", "Bearer literal-secret"));
+      // The open buffer follows the file on the watcher's schedule: wait for it.
+      await waitFor(
+        async () => (await vscode.workspace.openTextDocument(file)).getText(),
+        (t) => t.includes("literal-secret"),
+        "the scenario's buffer to read the rewritten file",
+        15_000,
+      );
       const results = await runAgainst("preview");
       assert.strictEqual(results?.[0].state, "error");
       assert.match(results?.[0].message ?? "", /literal credential/);
