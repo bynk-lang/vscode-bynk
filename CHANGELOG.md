@@ -12,6 +12,11 @@ version).
 
 ## [Unreleased]
 
+## [0.614.2] - 2026-11-15
+
+Built against `bynk` v0.614.0. New views of where a project is deployed, how it
+has changed since a git revision, and saved request scenarios.
+
 ### Added
 
 - **Environments view** (#150): a second view in the Bynk sidebar with one node
