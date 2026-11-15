@@ -6,6 +6,7 @@
 
 import { escapeHtml } from "./escapeHtml";
 import { countChanges, type DiffEntry, type ModelDiff } from "./modelDiffCore";
+import type { DiffGraphs } from "./modelDiffGraphCore";
 
 const SIGN: Record<DiffEntry["change"], string> = { added: "+", removed: "−", changed: "~" };
 
@@ -26,6 +27,17 @@ const CSS = `
   tr.clickable { cursor: pointer; }
   tr.clickable:hover { background: var(--vscode-list-hoverBackground); }
   .breaking { color: var(--vscode-editorWarning-foreground); font-weight: bold; }
+  .diff-legend span { margin-right: 1.2em; }
+  .diff-legend .added, .diff-added { color: var(--vscode-gitDecoration-addedResourceForeground, #81b88b); }
+  .diff-legend .removed, .diff-removed { color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39); }
+  .diff-legend .changed, .diff-changed { color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d); }
+  .diagram { overflow-x: auto; margin: 0.5em 0 1em; }
+  .diagram path.diff-added { stroke: var(--vscode-gitDecoration-addedResourceForeground, #81b88b) !important; stroke-width: 2.5px; }
+  .diagram path.diff-changed { stroke: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d) !important; stroke-width: 2.5px; }
+  .diagram path.diff-removed { stroke: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39) !important; stroke-dasharray: 4 3; opacity: 0.7; }
+  .diagram .label.diff-removed { text-decoration: line-through; }
+  #root svg, .diagram svg { max-width: 100%; }
+  h3 { font-size: 0.95em; margin: 1em 0 0.2em; }
   .compatible { color: var(--vscode-testing-iconPassed, var(--vscode-descriptionForeground)); }
 `;
 
@@ -44,6 +56,44 @@ export interface ModelDiffPage {
   against: string;
   nonce: string;
   cspSource: string;
+  /** #153: the bundle (`out/model-diff.js`) that draws `graphs` and handles row
+   *  clicks, and what it draws. Without them the page is the tables alone. */
+  scriptUri?: string;
+  graphs?: DiffGraphs;
+}
+
+const LEGEND = `<p class="diff-legend"><span class="added">+ added</span><span class="changed">~ changed</span><span class="removed">− removed (dashed ghost, not in the working tree)</span></p>`;
+
+/** The graph sections: the architecture map and the changed agents' state
+ *  diagrams, drawn client-side into the containers this leaves. */
+function graphSections(g: DiffGraphs): string {
+  const arch = g.architecture
+    ? `<section id="architecture-map"><h2>Architecture map</h2>${LEGEND}<div id="diff-architecture" class="diagram"><p class="muted">Drawing…</p></div></section>`
+    : "";
+  const states =
+    g.agents.length > 0
+      ? `<section id="state-diagrams"><h2>Agent state diagrams (${g.agents.length})</h2>${LEGEND}<div id="diff-states"></div></section>`
+      : "";
+  return arch + states;
+}
+
+/** The page's script: the bundle with its payload when there is one, else just
+ *  the row clicks. (`acquireVsCodeApi` may be called once per page, so the two
+ *  never both appear.) */
+function script(page: ModelDiffPage): string {
+  if (page.scriptUri) {
+    const json = JSON.stringify(page.graphs ?? { architecture: null, agents: [] }).replace(/</g, "\\u003c");
+    return `<script nonce="${page.nonce}">window.__BYNK_MODEL_DIFF__ = ${json};</script>
+<script nonce="${page.nonce}" src="${escapeHtml(page.scriptUri)}"></script>`;
+  }
+  return `<script nonce="${page.nonce}">
+  const vscode = acquireVsCodeApi();
+  document.addEventListener("click", (ev) => {
+    const row = ev.target.closest && ev.target.closest("tr[data-uri]");
+    if (!row) return;
+    vscode.postMessage({ type: "reveal", uri: row.dataset.uri, range: JSON.parse(row.dataset.range) });
+  });
+</script>`;
 }
 
 /** The page's HTML. */
@@ -72,15 +122,9 @@ export function renderModelDiffHtml(diff: ModelDiff, page: ModelDiffPage): strin
 <body>
 <h1>Model diff: <code>${escapeHtml(page.against)}</code> → working tree</h1>
 <p>${summary} <span class="muted">+ added, − removed, ~ changed since ${escapeHtml(page.against)}. Select a row to open its source in the working tree.</span></p>
+${page.graphs ? graphSections(page.graphs) : ""}
 ${sections}
-<script nonce="${page.nonce}">
-  const vscode = acquireVsCodeApi();
-  document.addEventListener("click", (ev) => {
-    const row = ev.target.closest && ev.target.closest("tr[data-uri]");
-    if (!row) return;
-    vscode.postMessage({ type: "reveal", uri: row.dataset.uri, range: JSON.parse(row.dataset.range) });
-  });
-</script>
+${script(page)}
 </body>
 </html>`;
 }

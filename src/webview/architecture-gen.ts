@@ -31,6 +31,7 @@ import type {
   ArchProvider,
   ArchService,
 } from "./architectureTypes";
+import { type ArchMarks, type DiffMark, edgeKey, markClass, MARK_SIGN, memberKey } from "./diffMarks";
 
 export type ClickTarget =
   | { kind: "reveal"; loc: ArchLoc }
@@ -40,6 +41,10 @@ export interface ArchMermaidResult {
   text: string;
   /** Mermaid node id -> the click behaviour for that node. */
   clickTargets: Map<string, ClickTarget>;
+  /** #153: for a diff, the zero-based index of each marked link (what
+   *  `linkStyle` addresses) and its mark. The caller styles them, since the
+   *  colours come from the theme. */
+  linkMarks: Array<{ index: number; mark: DiffMark }>;
 }
 
 function esc(label: string): string {
@@ -61,22 +66,42 @@ function memberId(i: number, m: number): string {
   return `${contextId(i)}_m${m}`;
 }
 
-function memberLine(
-  id: string,
-  ownerId: string,
-  label: string,
-  loc: ArchLoc,
-  clickTargets: Map<string, ClickTarget>,
-  lines: string[],
-): void {
-  lines.push(`  ${id}("${esc(label)}"):::memberNode`);
-  lines.push(`  ${ownerId} --- ${id}`);
-  clickTargets.set(id, { kind: "reveal", loc });
+/** A label with its mark's sign in front, so a diff does not rely on colour. */
+function signed(label: string, mark: DiffMark | undefined): string {
+  return mark ? `${MARK_SIGN[mark]} ${label}` : label;
 }
 
-export function toMermaidArch(model: ArchModel, expanded: ReadonlySet<string>): ArchMermaidResult {
+/** `model` as a `flowchart`. With `marks` (#153) it is the merged before-and-
+ *  after model of a diff: marked nodes, members and links are styled, and a
+ *  `removed` element — a ghost, with no working-tree location — is not
+ *  clickable. */
+export function toMermaidArch(
+  model: ArchModel,
+  expanded: ReadonlySet<string>,
+  marks?: ArchMarks,
+): ArchMermaidResult {
   const lines: string[] = ["flowchart LR"];
   const clickTargets = new Map<string, ClickTarget>();
+  const linkMarks: ArchMermaidResult["linkMarks"] = [];
+  let links = 0;
+  /** Count a link and style it when it is marked. */
+  const link = (text: string, mark: DiffMark | undefined): void => {
+    lines.push(text);
+    if (mark) linkMarks.push({ index: links, mark });
+    links++;
+  };
+  const memberLine = (
+    id: string,
+    ownerId: string,
+    label: string,
+    loc: ArchLoc,
+    mark: DiffMark | undefined,
+  ): void => {
+    lines.push(`  ${id}("${esc(signed(label, mark))}"):::memberNode`);
+    if (mark) lines.push(`  class ${id} ${markClass(mark)};`);
+    link(`  ${ownerId} --- ${id}`, mark);
+    if (mark !== "removed") clickTargets.set(id, { kind: "reveal", loc });
+  };
   const idByName = new Map<string, string>();
   model.nodes.forEach((n, i) => idByName.set(n.name, contextId(i)));
 
@@ -84,32 +109,36 @@ export function toMermaidArch(model: ArchModel, expanded: ReadonlySet<string>): 
     const id = contextId(i);
     const isExpanded = expanded.has(node.name);
     const cls = node.kind === "Adapter" ? "adapterNode" : "contextNode";
-    lines.push(`  ${id}["${esc(node.name)}"]:::${cls}`);
-    clickTargets.set(id, { kind: "reveal", loc: node.loc });
+    const nodeMark = marks?.nodes[node.name];
+    lines.push(`  ${id}["${esc(signed(node.name, nodeMark))}"]:::${cls}`);
+    if (nodeMark) lines.push(`  class ${id} ${markClass(nodeMark)};`);
+    if (nodeMark !== "removed") clickTargets.set(id, { kind: "reveal", loc: node.loc });
 
     const tId = toggleId(i);
     const hasMembers =
       node.capabilities.length + node.providers.length + node.services.length + node.agents.length > 0;
     if (hasMembers) {
       lines.push(`  ${tId}(("${isExpanded ? "−" : "+"}")):::toggleNode`);
-      lines.push(`  ${id} -.- ${tId}`);
+      link(`  ${id} -.- ${tId}`, undefined);
       clickTargets.set(tId, { kind: "toggle", name: node.name });
     }
 
     if (isExpanded) {
       let m = 0;
+      const markOf = (kind: Parameters<typeof memberKey>[1], name: string) =>
+        marks?.members[memberKey(node.name, kind, name)];
       const emitCapability = (c: ArchCapability): void => {
         const label = c.local ? `${c.name} (capability)` : `${c.name} (from ${c.from ?? "?"})`;
-        memberLine(memberId(i, m++), id, label, c.loc, clickTargets, lines);
+        memberLine(memberId(i, m++), id, label, c.loc, markOf("capability", c.name));
       };
       const emitProvider = (p: ArchProvider): void => {
-        memberLine(memberId(i, m++), id, `${p.capability} = ${p.providerName}`, p.loc, clickTargets, lines);
+        memberLine(memberId(i, m++), id, `${p.capability} = ${p.providerName}`, p.loc, markOf("provider", p.capability));
       };
       const emitService = (s: ArchService): void => {
-        memberLine(memberId(i, m++), id, `service ${s.name} (${s.handlerCount})`, s.loc, clickTargets, lines);
+        memberLine(memberId(i, m++), id, `service ${s.name} (${s.handlerCount})`, s.loc, markOf("service", s.name));
       };
       const emitAgent = (a: ArchAgent): void => {
-        memberLine(memberId(i, m++), id, `agent ${a.name} (${a.handlerCount})`, a.loc, clickTargets, lines);
+        memberLine(memberId(i, m++), id, `agent ${a.name} (${a.handlerCount})`, a.loc, markOf("agent", a.name));
       };
       node.capabilities.forEach(emitCapability);
       node.providers.forEach(emitProvider);
@@ -122,11 +151,13 @@ export function toMermaidArch(model: ArchModel, expanded: ReadonlySet<string>): 
     const from = idByName.get(edge.from);
     const to = idByName.get(edge.to);
     if (!from || !to) continue;
+    const mark = marks?.edges[edgeKey(edge)];
     const label = edge.capabilities.length > 0 ? esc(edge.capabilities.join(", ")) : "";
-    lines.push(label ? `  ${from} -->|"${label}"| ${to}` : `  ${from} --> ${to}`);
+    const shown = mark ? esc(signed(label, mark)) : label;
+    link(label || mark ? `  ${from} -->|"${shown}"| ${to}` : `  ${from} --> ${to}`, mark);
   }
 
-  return { text: lines.join("\n"), clickTargets };
+  return { text: lines.join("\n"), clickTargets, linkMarks };
 }
 
 /** Every edge in `model` whose endpoints both resolved to a rendered node —

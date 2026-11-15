@@ -2,6 +2,7 @@
 // shape (`bynk-lsp/src/agent_state_request.rs`), maintained by hand like
 // every other custom request's types in this extension.
 
+import type { DiffMark } from "./diffMarks";
 import type { Range } from "./types";
 
 export type StateTarget =
@@ -37,6 +38,9 @@ export interface StateEdge {
   /** The write, or for an unchanged path the tail. */
   range: Range;
   violations: StateViolation[];
+  /** #153: client-only, never on the wire. Set on the merged machine a model
+   *  diff draws: how this path differs from the other revision. */
+  diff?: DiffMark;
 }
 
 export interface StateMachine {
@@ -55,6 +59,11 @@ export interface StateMachine {
   truncated: string[];
   /** #2197: `transition`s on the field outside the evaluated fragment. */
   notEvaluated: Array<{ name: string; range: Range }>;
+  /** #153: client-only, never on the wire. Set on the merged machine a model
+   *  diff draws: the marks of its states by name, and of the whole machine
+   *  when the field exists in only one revision. */
+  diffStates?: Record<string, DiffMark>;
+  diff?: DiffMark;
 }
 
 export interface AgentHandler {

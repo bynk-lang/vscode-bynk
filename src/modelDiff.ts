@@ -9,7 +9,9 @@
 // requests the live views use (`bynk/architectureModel`, `bynk/contractDiff`,
 // `bynk/agentStateModel`) are sent for it. The working-tree side goes through
 // the live views' own requests. The two models are diffed client-side
-// (`modelDiffCore.ts`). The worktree is removed afterwards.
+// (`modelDiffCore.ts`). The worktree is removed afterwards. The page lists the
+// differences and, through `modelDiffGraphCore.ts` and `webview/model-diff.ts`,
+// draws them on the architecture map and the agent state diagrams (#153).
 
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -37,6 +39,7 @@ import {
   type ModelSnapshot,
   type RefChoice,
 } from "./modelDiffCore";
+import { buildGraphs } from "./modelDiffGraphCore";
 import { renderModelDiffHtml } from "./modelDiffHtml";
 import { activeProjectRoot } from "./projectRoots";
 import type { ViewRefresh } from "./viewRefresh";
@@ -147,20 +150,23 @@ export function registerModelDiff(
   getClient: () => LanguageClient | undefined,
 ): void {
   let panel: vscode.WebviewPanel | undefined;
-  const show = (html: (nonce: string, cspSource: string) => string): void => {
+  const show = (html: (nonce: string, cspSource: string, scriptUri: string) => string): void => {
     if (!panel) {
       panel = vscode.window.createWebviewPanel(
         "bynkModelDiff",
         "Bynk Model Diff",
         { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
-        { enableScripts: true },
+        { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "out")] },
       );
       panel.onDidDispose(() => (panel = undefined));
       panel.webview.onDidReceiveMessage((m: unknown) => {
         if (isRevealMessage(m)) void revealLocation(m.uri, m.range);
       });
     }
-    panel.webview.html = html(getNonce(), panel.webview.cspSource);
+    const scriptUri = panel.webview
+      .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "out", "model-diff.js"))
+      .toString();
+    panel.webview.html = html(getNonce(), panel.webview.cspSource, scriptUri);
     panel.reveal(undefined, false);
   };
 
@@ -238,9 +244,12 @@ export function registerModelDiff(
           },
         );
         const result = diffSnapshots(diff.before, diff.after);
-        show((nonce, cspSource) => renderModelDiffHtml(result, { against: label, nonce, cspSource }));
+        const graphs = buildGraphs(diff.before, diff.after);
+        show((nonce, cspSource, scriptUri) =>
+          renderModelDiffHtml(result, { against: label, nonce, cspSource, scriptUri, graphs }),
+        );
         // For tests; the palette ignores it.
-        return result;
+        return { ...result, graphs };
       } catch (error) {
         void vscode.window.showErrorMessage(`Bynk: could not compare the model: ${error instanceof Error ? error.message : String(error)}`);
       }
