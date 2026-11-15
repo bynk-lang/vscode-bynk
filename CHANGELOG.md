@@ -24,7 +24,6 @@ version).
   command with the environment preset, so their confirmations are unchanged;
   a context has Show Contract Diff. It reads local files and the offline report
   only. The ledger records no deploy time, so the view does not show one.
-
 - **Bynk: Compare Model with…** (`bynk.compareModel`, also on the Source Control
   title bar) compares the project's model with a git revision (#147): pick a ref,
   defaulting to the merge base with the default branch, and a view lists the
