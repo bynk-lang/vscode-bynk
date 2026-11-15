@@ -1,5 +1,5 @@
 // Unit coverage for the stale-client warning's pure core (#132): reading
-// `bynk client --check`'s outcome, spotting `[build.client]`, and the state
+// `bynk client --check`'s outcome, and the state
 // the editor keeps between checks. The stderr below is what bynk v0.614.0
 // prints (bynk/src/http_client.rs).
 
@@ -8,7 +8,6 @@ import * as assert from "assert";
 import {
   CHECK_ARGS,
   classifyCheck,
-  hasBuildClient,
   isDrifted,
   nextState,
   statusFor,
@@ -16,23 +15,6 @@ import {
 } from "../../src/clientCheckCore";
 
 const run = (code: number | null, stderr = "", stdout = "") => ({ code, stdout, stderr });
-
-describe("hasBuildClient (#132)", () => {
-  it("finds the table", () => {
-    assert.ok(hasBuildClient('[package]\nname = "x"\n\n[build.client]\nout = "../web/api.ts"\n'));
-    assert.ok(hasBuildClient("[build.client] # the client\nout = 'a.ts'\n"));
-    assert.ok(hasBuildClient("  [ build . client ]\r\nout = 'a.ts'\r\n"));
-    assert.ok(hasBuildClient('["build"."client"]\nout = "a.ts"\n'));
-  });
-
-  it("ignores manifests without it", () => {
-    assert.ok(!hasBuildClient(""));
-    assert.ok(!hasBuildClient('[build]\nout = "dist"\n'));
-    assert.ok(!hasBuildClient("[build.clients]\n"));
-    assert.ok(!hasBuildClient("# [build.client]\n"));
-    assert.ok(!hasBuildClient("[[build.client]]\n"));
-  });
-});
 
 describe("classifyCheck (#132)", () => {
   it("passes a client that is current", () => {

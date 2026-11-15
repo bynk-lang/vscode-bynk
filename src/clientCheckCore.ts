@@ -38,14 +38,6 @@ const STALE_HEADER = /^bynk: client is stale\b/;
 const MISSING_ENTRY = /^ {2}(?![ +-])(.+): missing\s*$/;
 const DIFF_ENTRY = /^ {2}(?![ +-])(.+) differs at line (\d+)\b/;
 
-/** Whether a `bynk.toml` has a `[build.client]` table (#132): the only projects
- *  the check runs for. A scan, not a TOML parse: a header on a line of its own
- *  (spaces around the dot and quoted keys allowed, a trailing comment allowed),
- *  never one inside a multi-line string, which the manifest has no use for. */
-export function hasBuildClient(manifest: string): boolean {
-  return /^[ \t]*\[[ \t]*build[ \t]*\.[ \t]*client[ \t]*\][ \t]*(#.*)?$/m.test(manifest.replace(/"build"|'build'/g, "build").replace(/"client"|'client'/g, "client"));
-}
-
 /** Classify a `bynk client --check` run. */
 export function classifyCheck(run: CheckRun): ClientOutcome {
   if (run.code === 0) return { kind: "fresh" };

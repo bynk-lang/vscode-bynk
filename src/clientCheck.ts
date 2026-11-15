@@ -18,18 +18,17 @@ import { BynkNotFoundError, runBynk } from "./cli";
 import {
   CHECK_ARGS,
   classifyCheck,
-  hasBuildClient,
   isDrifted,
   nextState,
   statusFor,
   type ClientOutcome,
   type ClientState,
 } from "./clientCheckCore";
+import { GENERATE_CLIENT_COMMAND, parseClientConfig } from "./fileDecorationsCore";
 import { projectRootFor } from "./projectRoots";
 import { mapLimit } from "./refreshScope";
 import type { ViewRefresh } from "./viewRefresh";
 
-const GENERATE_COMMAND = "bynk.generateClient";
 const ACTIONS_COMMAND = "bynk.checkClient";
 
 /** At most this many projects are checked at once. */
@@ -134,7 +133,7 @@ class ClientCheck implements vscode.Disposable {
       const manifest = new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(root, "bynk.toml")));
       // No `[build.client]`: no client to be stale (and no warning left over
       // from a table that has since been removed).
-      if (!hasBuildClient(manifest)) return { kind: "fresh" };
+      if (!parseClientConfig(manifest)) return { kind: "fresh" };
       if (hasErrors(root)) return { kind: "unknown", reason: "the project has errors" };
       return classifyCheck(await runBynk([...CHECK_ARGS], root.fsPath));
     } catch (e) {
@@ -178,7 +177,7 @@ class ClientCheck implements vscode.Disposable {
       void vscode.window.showInformationMessage("Bynk: the generated client is up to date (or the project has no `[build.client]`).");
       return;
     }
-    const regenerate = (await vscode.commands.getCommands(true)).includes(GENERATE_COMMAND);
+    const regenerate = (await vscode.commands.getCommands(true)).includes(GENERATE_CLIENT_COMMAND);
     const buttons = regenerate ? ["Regenerate", "Show difference"] : ["Show difference"];
     const first = drifted[0];
     const message =
@@ -190,7 +189,7 @@ class ClientCheck implements vscode.Disposable {
       this.showDifference(drifted);
     } else if (choice === "Regenerate") {
       for (const d of drifted) {
-        await vscode.commands.executeCommand(GENERATE_COMMAND, d.root);
+        await vscode.commands.executeCommand(GENERATE_CLIENT_COMMAND, d.root);
         await this.check(d.root);
       }
     }
