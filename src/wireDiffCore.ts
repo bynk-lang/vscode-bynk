@@ -17,15 +17,29 @@
 //   - it errs towards breaking: a wrong "compatible" lets a breaking change
 //     through, a wrong "breaking" only names a difference to look at.
 //
+// The rules are those of `bynk-check/src/contract_compat.rs` at bynk v0.614.0:
+// `flows(sender, receiver)` and `check_call` there, which `flows`, `fields` and
+// `classifyWire` below mirror, and whose tests (`request_optional_field_added_is_compatible`,
+// `request_defaulted_field_added_is_compatible`,
+// `request_field_removed_is_compatible_because_the_callee_ignores_it`,
+// `request_refinement_narrowed_is_breaking`,
+// `response_variant_added_is_breaking_and_removed_is_compatible`,
+// `response_field_added_is_compatible`, …) the unit tests in
+// `test/suite/wireDiffCore.unit.test.ts` are named after. When that file's
+// rules change, update the test it maps to here.
+//
 // `WcModel` has no explicit response shape, so the response side is inferred:
 // the boundary types and instantiations the request does not reach. A type used
-// on both sides is checked as a request only (`WIRE_NOTE` says so).
+// on both sides is checked as a request only (`WIRE_NOTE` says so). That is an
+// approximation until bynk-lang/bynk#3609 puts the handler's success type
+// (`success: WcRef | null`) into `bynk/wireContract`; replace the inference
+// with that field then.
 
 import type { DiffEntry } from "./modelDiffCore";
 import type { WcEnvelope, WcField, WcInst, WcModel, WcRef, WcType } from "./webview/wireContractTypes";
 
 export const WIRE_NOTE =
-  "Each handler's wire contract in the two revisions is classified as a caller built against the earlier revision would meet the later one, by the language server's own rules for service contracts: breaking unless every value the sender can produce still decodes. A response's shape is inferred from the boundary types the request does not reach, so a type used on both sides is checked as a request only. Where unsure, it says breaking.";
+  "Each handler's wire contract in the two revisions is classified as a caller built against the earlier revision would meet the later one, by the language server's own rules for service contracts: breaking unless every value the sender can produce still decodes. A response's shape is inferred from the boundary types the request does not reach (until bynk-lang/bynk#3609 exposes it), so a type used on both sides is checked as a request only. Where unsure, it says breaking.";
 
 /** A handler's contract in one revision, and the working-tree file it is in. */
 export interface WireHandler {

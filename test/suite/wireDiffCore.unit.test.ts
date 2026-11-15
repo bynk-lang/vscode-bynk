@@ -37,13 +37,15 @@ const ok = (status: number, variant = "Ok", origin: WcResponseOrigin = { kind: "
 const keyed = (...params: Array<[string, WcRef]>) => ({ kind: "Keyed" as const, params: params.map(([name, shape]) => ({ name, shape })) });
 const verdict = (b: WcModel, a: WcModel) => classifyWire(b, a);
 
+// Each test is named after the `bynk-check/src/contract_compat.rs` rule it mirrors
+// (bynk v0.614.0), so a rule change there maps to the test to update.
 describe("wire contract classification (#154)", () => {
   it("keys an HTTP handler by route and any other by its symbol", () => {
     assert.strictEqual(wireHandlerKey(handler(), "call"), "shop.api: POST /orders");
     assert.strictEqual(wireHandlerKey(handler({ kind: { kind: "Call" } }), "call place"), "shop.api: call place");
   });
 
-  it("treats a request field added as optional or defaulted as compatible, required as breaking", () => {
+  it("request_optional_field_added_is_compatible, and a required one added is breaking", () => {
     const base = handler({ envelope: keyed(["id", INT]) });
     assert.strictEqual(verdict(base, handler({ envelope: keyed(["id", INT], ["note", inst("Option[String]")]), instantiations: [{ kind: "OptionInst", key: "Option[String]", inner: STR }] })).verdict, "compatible");
     const req = verdict(base, handler({ envelope: keyed(["id", INT], ["note", STR]) }));
@@ -51,11 +53,11 @@ describe("wire contract classification (#154)", () => {
     assert.deepStrictEqual(req.reasons, ["request.note: is now required"]);
   });
 
-  it("treats a request field removed as compatible: the callee ignores it", () => {
+  it("request_field_removed_is_compatible_because_the_callee_ignores_it", () => {
     assert.strictEqual(verdict(handler({ envelope: keyed(["id", INT], ["x", STR]) }), handler({ envelope: keyed(["id", INT]) })).verdict, "compatible");
   });
 
-  it("treats a request refinement tightened as breaking and widened as compatible", () => {
+  it("request_refinement_widened_is_compatible, request_refinement_narrowed_is_breaking", () => {
     const withPred = (p: string[]) => handler({ envelope: keyed(["email", named("Email")]), types: [scalar("Email", p)] });
     const tight = verdict(withPred([]), withPred(["contains(\"@\")"]));
     assert.strictEqual(tight.verdict, "breaking");
@@ -76,7 +78,7 @@ describe("wire contract classification (#154)", () => {
     assert.strictEqual(verdict(handler({ envelope: keyed(["id", inst("Option[Int]")]), instantiations: [opt] }), handler({ envelope: keyed(["id", INT]) })).verdict, "breaking");
   });
 
-  it("treats a response variant added as breaking, a response field added as compatible", () => {
+  it("response_variant_added_is_breaking_and_removed_is_compatible, response_field_added_is_compatible", () => {
     const res = (variants: string[], extra: WcField[] = []) =>
       handler({ types: [sum("Status", variants), record("Out", [field("id", INT), ...extra])], envelope: keyed(["id", INT]) });
     const added = verdict(res(["A"]), res(["A", "B"]));
