@@ -12,6 +12,16 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Bynk: Apply Fixes Across Project…** (`bynk.applyFixesAcrossProject`) runs
+  `bynk check --fix=<codes>` for the codes you pick (those in the Problems
+  panel, or typed), so a migration such as the per-file `consumes` warnings
+  (`bynk.consumes.type_not_selected` and friends) is one command rather than a
+  Fix All per file. Open Bynk files are saved first; it reports the files the
+  CLI changed and the problems that remain, and shows the CLI's own message when
+  it refuses or does not know a code (#130).
+
 ### Fixed
 
 - Web: the per-file `consumes` warnings (`bynk.consumes.type_not_selected`,

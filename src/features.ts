@@ -34,6 +34,7 @@ import { registerExplainView } from "./explainView";
 import { registerFileDecorations } from "./fileDecorations";
 import { registerInlineDocRendering } from "./inlineDocRendering";
 import { registerLmTools } from "./lmTools";
+import { registerApplyFixes } from "./applyFixes";
 import { registerOpenapi } from "./openapi";
 import { registerPlaygroundCommands } from "./playgroundCommands";
 import { registerRefinedExplorer } from "./refinedExplorer";
@@ -86,6 +87,7 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context, client, viewRefresh }) => registerLmTools(context, client, viewRefresh),
   // #16: "Bynk: Export OpenAPI", a wrapper over `bynk openapi`.
   ({ context }) => registerOpenapi(context),
+  ({ context }) => registerApplyFixes(context),
   // #2480: share a selection or a single-file program as a playground link.
   ({ context }) => registerPlaygroundCommands(context),
   // #2470: the "Refined Type" explorer.
