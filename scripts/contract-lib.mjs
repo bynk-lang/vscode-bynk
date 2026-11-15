@@ -198,7 +198,7 @@ export function stripSnippetPlaceholders(body) {
 
 /** How the scaffold named `name` (its key in snippets/bynk.json) must be wrapped to parse. */
 function classify(name) {
-  if (["context", "commons", "adapter", "suite", "suite as"].includes(name)) return "unit";
+  if (["context", "commons", "adapter", "suite", "suite as", "suite consumes", "suite as consumes"].includes(name)) return "unit";
   if (["property", "case", "case as", "stub"].includes(name)) return "suite";
   if (name === "advance Clock by") return "case";
   if (name === "uses" || name === "consumes") return "header";
