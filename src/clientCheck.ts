@@ -213,10 +213,11 @@ class ClientCheck implements vscode.Disposable {
   }
 }
 
-/** Whether the language server reports an error in the project. */
+/** Whether the language server reports an error in a `.bynk` source of the
+ *  project (a complaint about `bynk.toml` itself is the CLI's to make). */
 function hasErrors(root: vscode.Uri): boolean {
   const prefix = root.toString().replace(/\/?$/, "/");
   return vscode.languages
     .getDiagnostics()
-    .some(([uri, diagnostics]) => uri.toString().startsWith(prefix) && diagnostics.some((d) => d.severity === vscode.DiagnosticSeverity.Error));
+    .some(([uri, diagnostics]) => uri.path.endsWith(".bynk") && uri.toString().startsWith(prefix) && diagnostics.some((d) => d.severity === vscode.DiagnosticSeverity.Error));
 }

@@ -25,7 +25,7 @@ describe("stale generated client (#132)", () => {
   after(async () => {
     fs.writeFileSync(MANIFEST, original);
     delete process.env.BYNK_FAKE_CLIENT;
-    await vscode.commands.executeCommand("workbench.action.closeMessages");
+    await vscode.commands.executeCommand("notifications.clearAll");
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     await fake.restore();
   });
@@ -38,7 +38,7 @@ describe("stale generated client (#132)", () => {
     await vscode.commands.executeCommand("bynk.checkClient");
     // The command answers with a message once it has checked.
     await new Promise((r) => setTimeout(r, 1000));
-    await vscode.commands.executeCommand("workbench.action.closeMessages");
+    await vscode.commands.executeCommand("notifications.clearAll");
     assert.deepStrictEqual(checks(), []);
   });
 
