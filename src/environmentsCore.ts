@@ -16,8 +16,12 @@
 // `[…contracts]` table of service name → contract hash. The ledger records no
 // timestamps, so the view cannot say *when* a Worker was last deployed.
 
+import { contextFromWorker, sameContext, workerKey } from "./contextNames";
 import { type ClassStatus, isProductionEnvironment } from "./migrationsCore";
 import type { CdService } from "./webview/contractDiffTypes";
+
+// Re-exported so existing importers of these names are unchanged.
+export { contextFromWorker, sameContext, workerKey };
 
 /** One Worker the ledger records in an environment. */
 export interface WorkerRecord {
@@ -130,24 +134,6 @@ export function parseDeployLock(text: string): LedgerEnvironment[] {
 
 // ---------------------------------------------------------------------------
 // Names
-
-/** The ledger's Worker key for a dotted context name: the driver's own
- *  direction (`context.replace('.', "-")`, `bynk/src/deploy/plan.rs`). Matching
- *  goes this way, so it stays correct if a context segment ever contains `-`. */
-export function workerKey(context: string): string {
-  return context.replace(/\./g, "-");
-}
-
-/** A context's dotted name from the ledger's Worker key. For display only:
- *  it is not the inverse of `workerKey` if a segment contains `-`. */
-export function contextFromWorker(worker: string): string {
-  return worker.replace(/-/g, ".");
-}
-
-/** Whether a dotted (or Worker-key) `a` and `b` name one context. */
-export function sameContext(a: string, b: string): boolean {
-  return workerKey(a) === workerKey(b);
-}
 
 // ---------------------------------------------------------------------------
 // Drift

@@ -9,7 +9,7 @@
 // reports how many it hid and the panel shows that count beside the chip, so a
 // scoped view is never mistaken for "no other changes".
 
-import { sameContext } from "./environmentsCore";
+import { sameContext } from "./contextNames";
 import type { CdModel, CdService } from "./webview/contractDiffTypes";
 
 export interface ContractDiffFilter {
