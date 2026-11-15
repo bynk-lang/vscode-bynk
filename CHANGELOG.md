@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Fixed
+
+- Grammar: the `~>` send arrow is no longer highlighted as an operator. Bynk v0.606.0 removed it (parse error `bynk.parse.removed_send_arrow`); `e.detach()` replaces it (#124).
+
 ## [0.562.0] - 2026-11-12
 
 Built against `bynk` v0.562.0.
