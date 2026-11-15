@@ -766,6 +766,42 @@
         "command": "bynk.chat.applyFix",
         "title": "Apply @bynk Fix",
         "category": "Bynk"
+      },
+      {
+        "command": "bynk.environments.refresh",
+        "title": "Refresh Environments",
+        "category": "Bynk",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "bynk.environments.showPlan",
+        "title": "Show Deploy Plan",
+        "category": "Bynk",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "bynk.environments.deploy",
+        "title": "Deploy…",
+        "category": "Bynk",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "bynk.environments.tail",
+        "title": "Tail Logs",
+        "category": "Bynk",
+        "icon": "$(output)"
+      },
+      {
+        "command": "bynk.environments.sweep",
+        "title": "Sweep Migrations…",
+        "category": "Bynk",
+        "icon": "$(versions)"
+      },
+      {
+        "command": "bynk.environments.showContractDiff",
+        "title": "Show Contract Diff",
+        "category": "Bynk",
+        "icon": "$(diff)"
       }
     ],
     "menus": {
@@ -1001,6 +1037,30 @@
         {
           "command": "bynk.chat.applyFix",
           "when": "false"
+        },
+        {
+          "command": "bynk.environments.showPlan",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.deploy",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.tail",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.sweep",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.showContractDiff",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.refresh",
+          "when": "!isWeb"
         }
       ],
       "testing/item/context": [
@@ -1123,6 +1183,11 @@
           "command": "bynk.addDependency",
           "when": "view == bynk.project && !isWeb",
           "group": "navigation@3"
+        },
+        {
+          "command": "bynk.environments.refresh",
+          "when": "view == bynk.environments && !isWeb",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -1190,6 +1255,31 @@
           "command": "bynk.project.sendRequest",
           "when": "view == bynk.project && viewItem == bynkHttpHandler && !isWeb",
           "group": "bynk@3"
+        },
+        {
+          "command": "bynk.environments.showPlan",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvironment",
+          "group": "inline@1"
+        },
+        {
+          "command": "bynk.environments.deploy",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvironment",
+          "group": "inline@2"
+        },
+        {
+          "command": "bynk.environments.tail",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvironment",
+          "group": "inline@3"
+        },
+        {
+          "command": "bynk.environments.sweep",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvironment",
+          "group": "inline@4"
+        },
+        {
+          "command": "bynk.environments.showContractDiff",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvContext",
+          "group": "inline"
         }
       ]
     },
@@ -1207,6 +1297,12 @@
         {
           "id": "bynk.project",
           "name": "Project",
+          "when": "bynk.hasProject && !isWeb",
+          "contextualTitle": "Bynk"
+        },
+        {
+          "id": "bynk.environments",
+          "name": "Environments",
           "when": "bynk.hasProject && !isWeb",
           "contextualTitle": "Bynk"
         }

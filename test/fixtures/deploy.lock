@@ -1,0 +1,30 @@
+version = 1
+
+[environments.default.workers.shop-payment]
+deployed = true
+
+[environments.default.workers.shop-payment.contracts]
+authorise = "aaaaaaaaaaaaaaaa"
+refund = "bbbbbbbbbbbbbbbb"
+
+[environments.default.workers.shop-orders]
+deployed = true
+
+[environments.default.workers.shop-orders.contracts]
+place = "cccccccccccccccc"
+
+[environments.default.workers.shop-orders.expects."shop.payment"]
+authorise = "aaaaaaaaaaaaaaaa"
+
+[environments.default]
+queues = ["jobs"]
+
+[environments.staging.workers.shop-payment]
+deployed = true
+
+[environments.staging.workers.shop-payment.contracts]
+authorise = "aaaaaaaaaaaaaaaa"
+
+[[contract_shapes]]
+hash = "aaaaaaaaaaaaaaaa"
+shape = "x"

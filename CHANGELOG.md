@@ -12,6 +12,19 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Environments view** (#150): a second view in the Bynk sidebar with one node
+  per environment recorded in `bynk.deploy.lock`. Each lists its contexts with
+  the contract hash of every deployed service, marks the contexts whose service
+  contracts differ from the working tree (compatible or breaking, from the
+  contract diff), and lists the agent classes whose floor or stored versions lag
+  the current one (`bynk migrate status`). The environment's actions are Show
+  Deploy Plan, Deploy…, Tail Logs and Sweep Migrations…, each the existing
+  command with the environment preset, so their confirmations are unchanged;
+  a context has Show Contract Diff. It reads local files and the offline report
+  only. The ledger records no deploy time, so the view does not show one.
+
 ## [0.614.1] - 2026-11-15
 
 Built against `bynk` v0.614.0. Editor support for v0.607–v0.614's `bynk client`
