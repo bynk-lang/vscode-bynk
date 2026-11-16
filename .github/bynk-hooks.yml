@@ -1,0 +1,14 @@
+triage:
+  enabled: true
+  labels: [bug, enhancement, documentation, question]
+
+nudges:
+  enabled: true
+  after_days: 3
+
+release_notes:
+  enabled: true
+
+weekly_summary:
+  enabled: true
+  category: Announcements
