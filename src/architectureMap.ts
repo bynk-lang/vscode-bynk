@@ -55,6 +55,7 @@ export function registerArchitectureMap(
     viewType: "bynkArchitectureMap",
     commandLabel: "Show Architecture Map",
     script: "architecture.js",
+    vendorScripts: ["mermaid.js"],
     globalName: "__BYNK_ARCH_MODEL__",
     followsCursor: false,
     title: () => "Bynk Architecture Map",

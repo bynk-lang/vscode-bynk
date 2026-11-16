@@ -14,6 +14,7 @@
 import mermaid from "mermaid";
 
 import { type LiveView, startLiveView, type ViewState, type VsCodeApi } from "./live";
+import { watchTheme } from "./theme";
 import { cellEdges, cellText, toMermaidState, type TransitionGroup, violationsFrom, writeText } from "./state-gen";
 import { alignLabels, stateNode, transitionLabels } from "./state-map";
 import type { AgentStatePayload, StateMachine } from "./stateTypes";
@@ -396,4 +397,11 @@ live = startLiveView<AgentStatePayload>(vscodeApi, "__BYNK_AGENT_STATE__", rende
   focus = view.focus;
   const root = document.getElementById("root");
   if (root) applyFocus(root);
+});
+
+// Mermaid snapshots the theme's colours into its configuration and SVG, so a
+// theme switch re-initialises it and redraws.
+watchTheme(() => {
+  mermaidReady = false;
+  live?.rerender();
 });

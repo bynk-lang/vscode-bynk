@@ -73,6 +73,9 @@ export interface LiveViewSpec<P> {
   commandLabel: string;
   /** The bundle under `out/` and the global it reads its payload from. */
   script: string;
+  /** Bundles under `out/` loaded before `script`, in order: the shared
+   *  `mermaid.js` for the views that still draw with Mermaid. */
+  vendorScripts?: string[];
   globalName: string;
   bodyCss?: string;
   /** Handler-scoped (sequence, wire contract): follow the cursor. */
@@ -476,9 +479,13 @@ export class LivePanel<P> implements vscode.Disposable {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "out", this.spec.script),
     );
+    const vendorScriptUris = (this.spec.vendorScripts ?? []).map((name) =>
+      webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, "out", name)),
+    );
     return renderWebviewHtml({
       webview,
       scriptUri,
+      vendorScriptUris,
       nonce: getNonce(),
       title: this.spec.title(null),
       globalName: this.spec.globalName,

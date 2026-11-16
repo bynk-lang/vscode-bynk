@@ -21,6 +21,7 @@ const GLOBALS = [
   "HTMLInputElement",
   "HTMLDetailsElement",
   "MessageEvent",
+  "MutationObserver",
   "getComputedStyle",
 ] as const;
 

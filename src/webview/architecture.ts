@@ -21,6 +21,7 @@ import { type ClickTarget, toMermaidArch } from "./architecture-gen";
 import { toClassDefColor } from "./classdef-color";
 import type { ArchPayload, ArchRevealMessage } from "./architectureTypes";
 import { startLiveView, type VsCodeApi } from "./live";
+import { watchTheme } from "./theme";
 
 declare function acquireVsCodeApi(): VsCodeApi;
 
@@ -156,4 +157,11 @@ async function renderPayload(root: HTMLElement, payload: ArchPayload | null): Pr
   await render(root, payload, expanded);
 }
 
-startLiveView<ArchPayload>(vscodeApi, "__BYNK_ARCH_MODEL__", renderPayload);
+const live = startLiveView<ArchPayload>(vscodeApi, "__BYNK_ARCH_MODEL__", renderPayload);
+
+// Mermaid snapshots the theme's colours into its configuration and SVG, so a
+// theme switch re-initialises it and redraws.
+watchTheme(() => {
+  mermaidReady = false;
+  live?.rerender();
+});
