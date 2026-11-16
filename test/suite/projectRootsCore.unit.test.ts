@@ -4,7 +4,7 @@
 
 import * as assert from "assert";
 
-import { containingFolder, inWorkspace, resolveRoot, RootCache } from "../../src/projectRootsCore";
+import { containingFolder, inWorkspace, isWorkspaceManifest, resolveRoot, RootCache } from "../../src/projectRootsCore";
 
 const fsWith =
   (...manifests: string[]) =>
@@ -127,5 +127,36 @@ describe("root cache, concurrent stale hits (#61)", () => {
     assert.strictEqual(a, undefined);
     assert.strictEqual(b, undefined);
     assert.strictEqual(resolves, 2, "one initial resolve, one shared re-resolve");
+  });
+});
+
+describe("workspace manifests are not projects", () => {
+  it("recognises the showcase's workspace root", () => {
+    assert.ok(
+      isWorkspaceManifest(
+        '# The showcase is a workspace: each top-level directory is its own project.\n[workspace]\nmembers = ["*"]   # every top-level directory\n',
+      ),
+    );
+  });
+
+  it("recognises every spelling of a top-level `workspace` key", () => {
+    assert.ok(isWorkspaceManifest('[workspace.registries]\nx = 1\n'));
+    assert.ok(isWorkspaceManifest('[ "workspace" ]\nmembers = ["a"]\n'));
+    assert.ok(isWorkspaceManifest('workspace = { members = ["a", "b"] }\n'));
+    assert.ok(isWorkspaceManifest('workspace.members = ["a"]\n'));
+    assert.ok(isWorkspaceManifest('[registries.acme]\nurl = "https://x"\n\n[workspace]\nmembers = ["*"]\n'));
+    assert.ok(isWorkspaceManifest('﻿[workspace]\r\nmembers = ["*"]\r\n'));
+  });
+
+  it("does not mistake a project's manifest for one", () => {
+    assert.ok(!isWorkspaceManifest('[project]\nname = "shop"\n'));
+    assert.ok(!isWorkspaceManifest('[package]\nname = "acme/shop"\nversion = "1.0.0"\n'));
+    assert.ok(!isWorkspaceManifest(""));
+    // Only a top-level key counts: inside another table, or commented out, it isn't one.
+    assert.ok(!isWorkspaceManifest('[project]\nname = "x"\nworkspace = "nope"\n'));
+    assert.ok(!isWorkspaceManifest('# [workspace]\n[project]\nname = "x"\n'));
+    assert.ok(!isWorkspaceManifest('[project.workspace]\nx = 1\n'));
+    assert.ok(!isWorkspaceManifest('[[workspace]]\nx = 1\n'));
+    assert.ok(!isWorkspaceManifest('[project]\ndescription = "a [workspace] of things"\n'));
   });
 });

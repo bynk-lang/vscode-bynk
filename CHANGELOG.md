@@ -12,6 +12,17 @@ version).
 
 ## [Unreleased]
 
+### Fixed
+
+- In a Bynk workspace (a root `bynk.toml` with `[workspace]`, such as
+  bynk-lang/showcase), **Run All Tests** no longer also runs the tests at the
+  workspace root itself. Every member's tests ran and passed, but the extra run at
+  the root failed with "`--format ndjson` streams one project — run it inside a
+  member of this workspace". A workspace root groups projects and is not one
+  itself, so the extension no longer treats it as a project: Run All runs only the
+  members, and a command that needs a project, with no `.bynk` file open, no longer
+  falls back to the workspace root.
+
 ## [0.614.3] - 2026-11-16
 
 Built against `bynk` v0.614.0. Compare Model draws its differences and compares

@@ -7,7 +7,7 @@
 
 import * as vscode from "vscode";
 
-import { inWorkspace, resolveRoot, RootCache, type RootOptions } from "./projectRootsCore";
+import { inWorkspace, isWorkspaceManifest, resolveRoot, RootCache, type RootOptions } from "./projectRootsCore";
 
 // No `node:` import: the web build bundles this module, where there is no home.
 function homeDir(): string | undefined {
@@ -26,6 +26,17 @@ async function exists(uri: vscode.Uri): Promise<boolean> {
   try {
     await vscode.workspace.fs.stat(uri);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `dir` is a Bynk workspace root: its `bynk.toml` has a top-level
+ *  `workspace` table (`isWorkspaceManifest`). Such a directory groups projects and
+ *  is not one, so nothing that runs a project command should root at it. */
+export async function isWorkspaceRoot(dir: vscode.Uri): Promise<boolean> {
+  try {
+    return isWorkspaceManifest(new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(dir, "bynk.toml"))));
   } catch {
     return false;
   }
@@ -65,7 +76,8 @@ export async function workspaceRootFor(file: vscode.Uri): Promise<vscode.Uri | u
 }
 
 /** The project the user is working in: the root of the active `.bynk` file,
- *  else the first workspace folder that is itself a project. With
+ *  else the first workspace folder that is itself a project (not a Bynk
+ *  workspace root, which only groups projects). With
  *  `workspaceOnly`, an active file outside the workspace doesn't count. */
 export async function activeProjectRoot(workspaceOnly = false): Promise<vscode.Uri | undefined> {
   const active = vscode.window.activeTextEditor?.document;
@@ -73,8 +85,10 @@ export async function activeProjectRoot(workspaceOnly = false): Promise<vscode.U
     const root = await projectRootFor(active.uri);
     if (root) return root;
   }
+  // A workspace folder that is a Bynk workspace root is not a project: a project
+  // command run there is refused, so it is no fallback.
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
-    if (await exists(vscode.Uri.joinPath(folder.uri, "bynk.toml"))) return folder.uri;
+    if (await exists(vscode.Uri.joinPath(folder.uri, "bynk.toml")) && !(await isWorkspaceRoot(folder.uri))) return folder.uri;
   }
   return undefined;
 }

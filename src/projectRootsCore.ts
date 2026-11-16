@@ -106,3 +106,32 @@ export class RootCache<T> {
     this.entries.clear();
   }
 }
+
+/**
+ * Whether a `bynk.toml` is a **workspace root's** manifest: one with a top-level
+ * `workspace` key, as `bynk_project::is_workspace_root` decides (bynk v0.614.0,
+ * `bynk-project/src/workspace.rs:40`). A workspace root is not a project: it
+ * holds only `[workspace]` and `[registries]`, has no sources, and a project
+ * command run there is refused ("this is a workspace root, not a project — run
+ * the command inside a member", `paths.rs:493`). So the editor must never treat
+ * its directory as a project, only its members.
+ *
+ * A scan, not a TOML parse: a `[workspace]` or `[workspace.…]` table header, or
+ * a `workspace = …` / `workspace.… = …` key before the first table header.
+ * Comments and the contents of strings on a line are ignored.
+ */
+export function isWorkspaceManifest(toml: string): boolean {
+  let topLevel = true;
+  for (const raw of toml.split(/\r?\n/)) {
+    const line = raw.replace(/^﻿/, "").trim();
+    if (line === "" || line.startsWith("#")) continue;
+    const header = /^\[\[?\s*("?)([^\].]*)\1\s*(?:\.|\])/.exec(line);
+    if (header) {
+      if (!line.startsWith("[[") && header[2].trim() === "workspace") return true;
+      topLevel = false;
+      continue;
+    }
+    if (topLevel && /^"?workspace"?\s*(=|\.)/.test(line)) return true;
+  }
+  return false;
+}
