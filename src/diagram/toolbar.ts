@@ -8,8 +8,9 @@ import type { Drawing, DiagramViewport } from "./viewport";
 export interface ToolbarOptions {
   viewport: DiagramViewport;
   post(message: unknown): void;
-  /** The diagram as Mermaid text, for "Copy as Mermaid"; `null` when none. */
-  mermaid(): string | null;
+  /** The diagram as Mermaid text, for "Copy as Mermaid"; `null` when none.
+   *  Leave it out for a diagram Mermaid cannot draw (no button). */
+  mermaid?(): string | null;
   /** The current drawing and the file name to offer, for "Save as …". */
   drawing(): { drawing: Drawing; name: string } | null;
   fontFamily(): string;
@@ -63,11 +64,16 @@ export function buildToolbar(opts: ToolbarOptions): HTMLElement {
     }
   };
 
+  const mermaid = opts.mermaid;
+  if (mermaid) {
+    bar.append(
+      toolbarButton("Copy as Mermaid", "Copy this diagram as Mermaid text, to paste into Markdown", "bynk-copy-mermaid", () => {
+        const text = mermaid();
+        if (text) post({ type: "copyText", text, what: "Mermaid" });
+      }),
+    );
+  }
   bar.append(
-    toolbarButton("Copy as Mermaid", "Copy this diagram as Mermaid text, to paste into Markdown", "bynk-copy-mermaid", () => {
-      const text = opts.mermaid();
-      if (text) post({ type: "copyText", text, what: "Mermaid" });
-    }),
     toolbarButton("Save as SVG…", "Save this diagram as an SVG file, in the current theme's colours", "bynk-save-svg", () => void save("svg")),
     toolbarButton("Save as PNG…", "Save this diagram as a PNG image, in the current theme's colours", "bynk-save-png", () => void save("png")),
   );

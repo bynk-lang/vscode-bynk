@@ -1,15 +1,20 @@
-// The host side every diagram panel shares (model-diagrams slices 2–4): the
+// The host side every diagram panel shares (model-diagrams slices 2–5): the
 // page's "Copy as Mermaid", the editor mark for the element the reader points
-// at, "Save as SVG/PNG", and errors the page could not handle. Each message
+// at, "Save as SVG/PNG", opening a unit's component view (from the map, the
+// sequence diagram or the component view itself), and errors the page could
+// not handle. Each message
 // is checked (`sequenceMessages.ts`) before the host acts on it: the page is
 // untrusted.
 
 import * as vscode from "vscode";
 
+import { revealLocation } from "./webviewHost";
+
 import {
   fileStem,
   isCopyText,
   isHighlight,
+  isOpenComponent,
   isPageError,
   isSaveFile,
   type HighlightMessage,
@@ -45,6 +50,13 @@ export function diagramMessages(context: vscode.ExtensionContext, what: string):
         showHighlight(highlight, message);
       } else if (isSaveFile(message)) {
         void saveFile(message, what);
+      } else if (isOpenComponent(message)) {
+        // Reveal the unit first when the page says where, so the component
+        // view (which follows the cursor's context) stays on it.
+        const { uri, range } = message;
+        void (range ? revealLocation(uri, range) : Promise.resolve()).then(() =>
+          vscode.commands.executeCommand("bynk.showComponentView", uri, range?.start),
+        );
       } else if (isPageError(message)) {
         void vscode.window.showErrorMessage(`Bynk: ${message.message}`);
       } else {

@@ -35,6 +35,15 @@ export interface OpenSequenceMessage {
   range: RevealRange;
 }
 
+/** Model-diagrams slice 5: open the component view of the unit `uri` belongs
+ *  to, from the map (a unit's ↗) or the sequence diagram's toolbar. `range`,
+ *  when given, is revealed first, so a cursor-following view agrees. */
+export interface OpenComponentMessage {
+  type: "openComponent";
+  uri: string;
+  range?: RevealRange;
+}
+
 /** Something the page could not do, to show the user. */
 export interface PageErrorMessage {
   type: "error";
@@ -84,6 +93,11 @@ export function isSaveFile(message: unknown): message is SaveFileMessage {
 export function isOpenSequence(message: unknown): message is OpenSequenceMessage {
   const m = message as { type?: unknown; uri?: unknown; range?: unknown } | null | undefined;
   return m?.type === "openSequence" && typeof m.uri === "string" && m.uri !== "" && isRange(m.range);
+}
+
+export function isOpenComponent(message: unknown): message is OpenComponentMessage {
+  const m = message as { type?: unknown; uri?: unknown; range?: unknown } | null | undefined;
+  return m?.type === "openComponent" && typeof m.uri === "string" && m.uri !== "" && (m.range === undefined || isRange(m.range));
 }
 
 export function isPageError(message: unknown): message is PageErrorMessage {

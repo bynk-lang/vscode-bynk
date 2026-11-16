@@ -7,8 +7,8 @@
 
 import { px, svg, svgText, svgTitle } from "../svg";
 import type { Drawing } from "../viewport";
-import type { StructEdge, StructNode, StructRef } from "./ir";
-import { nodeLines, type PlacedStructEdge, type PlacedStructNode, type StructScene } from "./layout";
+import type { StructEdge, StructItem, StructNode, StructRef } from "./ir";
+import { headerReserve, nodeLines, type PlacedPort, type PlacedStructEdge, type PlacedStructNode, type StructScene } from "./layout";
 
 const EDGE_WORD: Record<StructEdge["kind"], string> = {
   consumes: "consumes",
@@ -16,6 +16,9 @@ const EDGE_WORD: Record<StructEdge["kind"], string> = {
   calls: "calls",
   emits: "emits",
   subscribes: "is subscribed to by",
+  delegates: "delegates to",
+  assembly: "is wired to",
+  invokes: "calls",
 };
 
 function identify(el: SVGElement, ref: StructRef, description: string): void {
@@ -70,17 +73,22 @@ export function drawStructure(scene: StructScene, opts: StructDrawOptions): Draw
   svg("path", { d: "M0,0 L10,5 L0,10", class: "bynk-head-open" }, m);
 
   const names = new Map(scene.nodes.map((p) => [p.node.ref.id, p.node.stereotype ? `«${p.node.stereotype}» ${p.node.name}` : p.node.name]));
+  for (const p of scene.nodes) for (const q of p.ports) names.set(q.port.ref.id, `${q.port.kind} interface ${q.port.name}`);
   const nodesG = svg("g", { class: "bynk-snodes" }, body);
   const edgesG = svg("g", { class: "bynk-sedges" }, body);
+  const portsG = svg("g", { class: "bynk-sports" }, body);
   for (const p of scene.nodes) drawNode(p, nodesG);
   for (const e of scene.edges) drawEdge(e, names, edgesG);
+  for (const p of scene.nodes) for (const q of p.ports) drawPort(q, p.node, portsG);
   return { head, body, width: scene.width, headHeight: 0, bodyHeight: scene.height };
 }
 
 function drawNode(p: PlacedStructNode, parent: Element): void {
   const n = p.node;
   const { x, y, w, h } = p.box;
-  const g = svg("g", { class: `bynk-snode bynk-snode--${n.kind}${n.cycle ? " bynk-cycle" : ""}${n.expanded ? " bynk-snode--open" : ""}` }, parent);
+  const g = svg("g", {
+    class: `bynk-snode bynk-snode--${n.kind}${n.cycle ? " bynk-cycle" : ""}${n.expanded ? " bynk-snode--open" : ""}${n.muted ? " bynk-muted" : ""}`,
+  }, parent);
   if (n.kind === "actor") {
     const cx = px(x + w / 2);
     svg("circle", { class: "bynk-figure", cx, cy: y + 9, r: 7 }, g);
@@ -110,9 +118,11 @@ function drawNode(p: PlacedStructNode, parent: Element): void {
     }, g);
   }
   const lines = n.expanded ? nodeLines({ ...n, detail: null }) : nodeLines(n);
-  const cx = n.expanded ? x + 12 : x + (w - (n.expandable ? 18 : 0)) / 2;
+  const items = n.items ?? [];
+  const cx = n.expanded ? x + 12 : x + (w - headerReserve(n)) / 2;
   const anchor = n.expanded ? "start" : "middle";
-  const startY = n.expanded ? y + 18 : y + h / 2 - ((lines.length - 1) * 16) / 2 + 4;
+  // A part with a compartment keeps its header at the top.
+  const startY = n.expanded ? y + 18 : items.length > 0 ? y + 10 + 12 : y + h / 2 - ((lines.length - 1) * 16) / 2 + 4;
   lines.forEach((l, i) => {
     svgText(l.text, {
       class: l.role === "name" ? "bynk-name" : i === 0 && n.stereotype ? "bynk-stereotype" : "bynk-detail",
@@ -122,6 +132,16 @@ function drawNode(p: PlacedStructNode, parent: Element): void {
     }, g);
   });
   identify(g, n.ref, describe(n));
+  if (items.length > 0) {
+    const ruleY = y + 10 + lines.length * 16 + 4;
+    svg("path", { class: "bynk-compartment-rule", d: `M${px(x)},${px(ruleY)} H${px(x + w)}` }, g);
+    items.forEach((item, i) => drawItem(item, n, { x, w, y: ruleY + 16 + i * 16 }, g));
+  }
+  if (n.opens) {
+    // Clear of the component icon, and of an open unit's fold toggle.
+    const ox = n.kind === "context" || n.kind === "adapter" ? x + w - (n.expanded ? 52 : 34) : x + w - 12;
+    drawOpenLink(n.ref.id, `Open the component view of ${n.name}`, ox, y + 14, g);
+  }
   if (n.expandable) {
     const fx = n.expanded ? x + w - 34 : x + w - 14;
     const fy = n.expanded ? y + 13 : y + h / 2;
@@ -138,13 +158,78 @@ function drawNode(p: PlacedStructNode, parent: Element): void {
   }
 }
 
+/** One compartment line: its own element, linked to its source; an
+ *  operation also has a ↗ that opens its sequence diagram. */
+function drawItem(item: StructItem, owner: StructNode, at: { x: number; w: number; y: number }, parent: Element): void {
+  const g = svg("g", { class: `bynk-item bynk-item--${item.role}` }, parent);
+  svgText(item.text, { class: "bynk-item-text", x: px(at.x + 12), y: px(at.y) }, g);
+  const what = item.role === "operation" ? `Operation ${item.text} of ${owner.name}` : `${item.text}, of ${owner.name}`;
+  identify(g, item.ref, what);
+  if (item.role === "operation") drawOpenLink(item.ref.id, `Open the sequence diagram of ${owner.name} ${item.text}`, at.x + at.w - 12, at.y - 4, parent);
+}
+
+/** A ↗ link: its own focusable button, marked `data-bynk-open` so the
+ *  interaction layer opens what it leads to rather than revealing source. Its
+ *  ref is the element's id plus `.open`. */
+function drawOpenLink(id: string, description: string, x: number, y: number, parent: Element): void {
+  const link = svg("g", {
+    class: "bynk-ref-link",
+    "data-bynk-ref": `${id}.open`,
+    "data-bynk-focusable": "",
+    "data-bynk-open": "",
+    tabindex: "-1",
+    role: "button",
+    "aria-label": description,
+  }, parent);
+  svg("rect", { class: "bynk-ref-hit", x: px(x - 7), y: px(y - 7), width: 14, height: 14 }, link);
+  svgText("↗", { class: "bynk-ref-glyph", x: px(x), y: px(y + 4), "text-anchor": "middle" }, link);
+  svgTitle(`${description}.`, link);
+}
+
+/** A port on a component's border, with the UML ball (provided) or socket
+ *  (required) outside it, and its interface's name. */
+function drawPort(p: PlacedPort, owner: StructNode, parent: Element): void {
+  const { x, y, w, h } = p.box;
+  const g = svg("g", { class: `bynk-port bynk-port--${p.port.kind}` }, parent);
+  // One target for the square, its ball or socket, and its name.
+  const l0 = p.label;
+  const hx = Math.min(x - 18, l0.x);
+  const hy = Math.min(y, l0.y);
+  svg("rect", {
+    class: "bynk-ref-hit",
+    x: px(hx),
+    y: px(hy),
+    width: px(Math.max(x + w + 18, l0.x + l0.w) - hx),
+    height: px(Math.max(y + h, l0.y + l0.h) - hy),
+  }, g);
+  svg("rect", { class: "bynk-port-box", x: px(x), y: px(y), width: px(w), height: px(h) }, g);
+  const cy = y + h / 2;
+  if (p.side === "left") {
+    const ox = x;
+    svg("path", { class: "bynk-port-stem", d: `M${px(ox)},${px(cy)} H${px(ox - 6)}` }, g);
+    if (p.port.kind === "provided") svg("circle", { class: "bynk-port-ball", cx: px(ox - 11), cy: px(cy), r: 5 }, g);
+    else svg("path", { class: "bynk-port-socket", d: `M${px(ox - 8)},${px(cy - 7)} A7,7 0 0,1 ${px(ox - 8)},${px(cy + 7)}` }, g);
+  } else {
+    const ox = x + w;
+    svg("path", { class: "bynk-port-stem", d: `M${px(ox)},${px(cy)} H${px(ox + 6)}` }, g);
+    if (p.port.kind === "provided") svg("circle", { class: "bynk-port-ball", cx: px(ox + 11), cy: px(cy), r: 5 }, g);
+    else svg("path", { class: "bynk-port-socket", d: `M${px(ox + 13)},${px(cy - 7)} A7,7 0 0,0 ${px(ox + 13)},${px(cy + 7)}` }, g);
+  }
+  const l = p.label;
+  svgText(p.port.name, { class: "bynk-port-label", x: px(l.x + l.w / 2), y: px(l.y + l.h / 2 + 4), "text-anchor": "middle" }, g);
+  const what = p.port.kind === "provided" ? "Provided interface" : "Required interface";
+  identify(g, p.port.ref, `${what} ${p.port.name} of ${owner.name}`);
+}
+
 function drawEdge(p: PlacedStructEdge, names: Map<string, string>, parent: Element): void {
   const e = p.edge;
   if (p.points.length < 2) return;
   const g = svg("g", { class: `bynk-sedge bynk-sedge--${e.kind}${e.cycle ? " bynk-cycle" : ""}` }, parent);
   const d = p.points.map((pt, i) => `${i === 0 ? "M" : "L"}${px(pt.x)},${px(pt.y)}`).join(" ");
   svg("path", { class: "bynk-hit", d }, g);
-  svg("path", { class: "bynk-sedge-line", d, "marker-end": "url(#bynk-struct-open)" }, g);
+  // An assembly connector is a plain line: the ball and socket say which way.
+  const head = e.kind === "assembly" ? {} : { "marker-end": "url(#bynk-struct-open)" };
+  svg("path", { class: "bynk-sedge-line", d, ...head }, g);
   if (p.label) {
     const l = p.label;
     svg("rect", { class: "bynk-sedge-label-box", x: px(l.x), y: px(l.y), width: px(l.w), height: px(l.h), rx: 2 }, g);

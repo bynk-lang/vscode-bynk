@@ -12,7 +12,7 @@ import ELK from "elkjs/lib/elk.bundled.js";
 import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk-api";
 
 import { FONT_SIZE, type TextMeasurer } from "../measure";
-import type { StructDiagram, StructEdge, StructNode } from "./ir";
+import type { StructDiagram, StructEdge, StructNode, StructPort } from "./ir";
 
 export interface Box {
   x: number;
@@ -26,6 +26,17 @@ export interface PlacedStructNode {
   box: Box;
   /** 0 for a top-level node. */
   depth: number;
+  /** Its ports, absolute, with their labels (component view). */
+  ports: PlacedPort[];
+}
+
+export interface PlacedPort {
+  port: StructPort;
+  /** The port square, straddling the node's border. */
+  box: Box;
+  /** Which border: provided ports sit on the left, required on the right. */
+  side: "left" | "right";
+  label: Box;
 }
 
 export interface PlacedStructEdge {
@@ -56,6 +67,11 @@ const M = {
   headerBoundary: 30,
   inner: 14,
   labelPad: 6,
+  /** The compartment's rule and its gap above the first item. */
+  rule: 8,
+  port: 12,
+  /** Room for the ball or socket drawn outside a port. */
+  portReach: 12,
 };
 
 /** A node's text lines, top to bottom, with their type sizes. */
@@ -67,27 +83,73 @@ export function nodeLines(n: StructNode): { text: string; role: "small" | "name"
   return lines;
 }
 
+/** The extra width an open-in-its-own-view link takes in a header. */
+const OPEN_W = 18;
+
+/** Width kept clear at the right of a closed node's centred text: the
+ *  component icon and the ↗ link on the top row, the fold toggle at mid
+ *  height. `draw.ts` centres the text in what is left. */
+export function headerReserve(n: StructNode): number {
+  const unit = n.kind === "context" || n.kind === "adapter";
+  const top = (unit ? 22 : 0) + (n.opens ? OPEN_W : 0);
+  return Math.max(top, n.expandable ? M.toggleW : 0);
+}
+
 function leafSize(n: StructNode, measure: TextMeasurer): { width: number; height: number } {
   if (n.kind === "actor") return { width: Math.max(M.actorW, measure.width(n.name, "name") + 8), height: M.actorH };
   const lines = nodeLines(n);
-  const w = Math.max(...lines.map((l) => measure.width(l.text, l.role)));
+  const items = n.items ?? [];
+  const w = Math.max(
+    ...lines.map((l) => measure.width(l.text, l.role) + headerReserve(n)),
+    ...items.map((i) => measure.width(i.text, "small") + (i.role === "operation" ? OPEN_W : 0)),
+  );
   return {
-    width: Math.max(M.minW, w + 2 * M.padX + (n.expandable ? M.toggleW : 0)),
-    height: M.padY * 2 + lines.length * M.line,
+    width: Math.max(M.minW, w + 2 * M.padX),
+    height: M.padY * 2 + lines.length * M.line + (items.length > 0 ? M.rule + items.length * M.line : 0),
+  };
+}
+
+function elkPorts(n: StructNode, measure: TextMeasurer): Pick<ElkNode, "ports"> & { layoutOptions?: Record<string, string> } {
+  const ports = n.ports ?? [];
+  if (ports.length === 0) return {};
+  return {
+    ports: ports.map((p) => ({
+      id: p.ref.id,
+      width: M.port,
+      height: M.port,
+      layoutOptions: {
+        "elk.port.side": p.kind === "provided" ? "WEST" : "EAST",
+        "elk.port.borderOffset": String(-M.port / 2),
+      },
+      labels: [{ text: p.name, width: measure.width(p.name, "small") + 4, height: FONT_SIZE.small + 4 }],
+    })),
+    layoutOptions: {
+      "elk.portConstraints": "FIXED_SIDE",
+      "elk.portLabels.placement": "OUTSIDE",
+      "elk.spacing.portPort": "30",
+      "elk.spacing.portsSurrounding": "[top=40,left=0,bottom=20,right=0]",
+    },
   };
 }
 
 function toElk(n: StructNode, measure: TextMeasurer): ElkNode {
-  if (n.children.length === 0) return { id: n.ref.id, ...leafSize(n, measure) };
+  const withPorts = elkPorts(n, measure);
+  if (n.children.length === 0) {
+    return { id: n.ref.id, ...leafSize(n, measure), ...withPorts };
+  }
   const top = n.kind === "boundary" ? M.headerBoundary : M.headerUnit;
   // An open unit is at least as wide as its own header.
   const header = Math.max(...nodeLines({ ...n, detail: null }).map((l) => measure.width(l.text, l.role))) + 2 * M.padX + M.toggleW;
+  // Ports carry labels outside the border: leave the parts room inside.
+  const side = (n.ports ?? []).length > 0 ? M.inner + M.portReach + 30 : M.inner;
   return {
     id: n.ref.id,
+    ports: withPorts.ports,
     layoutOptions: {
-      "elk.padding": `[top=${top},left=${M.inner},bottom=${M.inner},right=${M.inner}]`,
+      ...withPorts.layoutOptions,
+      "elk.padding": `[top=${top},left=${side},bottom=${M.inner},right=${side}]`,
       "elk.nodeSize.constraints": "MINIMUM_SIZE",
-      "elk.nodeSize.minimum": `(${Math.ceil(header)}, ${top + 20})`,
+      "elk.nodeSize.minimum": `(${Math.ceil(header + (n.opens ? OPEN_W : 0))}, ${top + 20})`,
     },
     children: n.children.map((c) => toElk(c, measure)),
   };
@@ -111,7 +173,19 @@ let elk: InstanceType<typeof ELK> | undefined;
 /** Lay out `diagram`. Async: ELK answers with a promise. */
 export async function layoutStructure(diagram: StructDiagram, measure: TextMeasurer): Promise<StructScene> {
   elk ??= new ELK();
-  const edges: ElkExtendedEdge[] = diagram.edges.map((e) => ({
+  // ELK refuses a graph with an edge to an element it does not have; an
+  // adapter should not produce one, but a dropped edge beats no diagram.
+  const shapes = new Set<string>();
+  const index0 = (ns: StructNode[]): void => {
+    for (const n of ns) {
+      shapes.add(n.ref.id);
+      for (const p of n.ports ?? []) shapes.add(p.ref.id);
+      index0(n.children);
+    }
+  };
+  index0(diagram.nodes);
+  const drawable = diagram.edges.filter((e) => shapes.has(e.source) && shapes.has(e.target));
+  const edges: ElkExtendedEdge[] = drawable.map((e) => ({
     id: e.ref.id,
     sources: [e.source],
     targets: [e.target],
@@ -144,14 +218,31 @@ export async function layoutStructure(diagram: StructDiagram, measure: TextMeasu
       const y = oy + (c.y ?? 0);
       origin.set(c.id, { x, y });
       const node = byId.get(c.id);
-      if (node) nodes.push({ node, box: { x, y, w: c.width ?? 0, h: c.height ?? 0 }, depth });
+      if (node) {
+        const w = c.width ?? 0;
+        const ports: PlacedPort[] = [];
+        for (const ep of c.ports ?? []) {
+          const port = node.ports?.find((p) => p.ref.id === ep.id);
+          if (!port) continue;
+          const bx = x + (ep.x ?? 0);
+          const by = y + (ep.y ?? 0);
+          const l = ep.labels?.[0];
+          ports.push({
+            port,
+            box: { x: bx, y: by, w: ep.width ?? M.port, h: ep.height ?? M.port },
+            side: (ep.x ?? 0) + (ep.width ?? 0) / 2 < w / 2 ? "left" : "right",
+            label: { x: bx + (l?.x ?? 0), y: by + (l?.y ?? 0), w: l?.width ?? 0, h: l?.height ?? 0 },
+          });
+        }
+        nodes.push({ node, box: { x, y, w, h: c.height ?? 0 }, depth, ports });
+      }
       walk(c, x, y, depth + 1);
     }
   };
   walk(out, 0, 0, 0);
 
   // Edge routes: relative to the edge's container (ELK names it).
-  const edgeById = new Map(diagram.edges.map((e) => [e.ref.id, e]));
+  const edgeById = new Map(drawable.map((e) => [e.ref.id, e]));
   const placedEdges: PlacedStructEdge[] = [];
   const collect = (parent: ElkNode): void => {
     for (const e of (parent.edges ?? []) as (ElkExtendedEdge & { container?: string })[]) {

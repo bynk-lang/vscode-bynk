@@ -42,6 +42,7 @@ import { capabilityPathClientFeature } from "./capabilityPath";
 import { explainClientFeature } from "./explainView";
 import { refinedExplorerClientFeature, trustExplorerLink } from "./refinedExplorer";
 import { registerArchitectureMap } from "./architectureMap";
+import { registerComponentView } from "./componentView";
 import { registerAgentStateView } from "./agentStateView";
 import { registerContractDiff } from "./contractDiff";
 import { isModelDiffScratch, scratchProblems } from "./modelDiffCore";
@@ -140,6 +141,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // #2196: the agent state view — agent-scoped, so it follows the cursor
     // from agent to agent and highlights the handler under it.
     bynkAgentState: registerAgentStateView(context, viewRefresh) as LivePanel<unknown>,
+    // Model-diagrams slice 5: one context opened up; follows the cursor's
+    // context and marks the service or agent under it.
+    bynkComponentView: registerComponentView(context, viewRefresh) as LivePanel<unknown>,
   };
   // #2097: the Bynk activity-bar project tree — units, `consumes` edges and
   // declarations — on the same refresh hub and model cache as the views.

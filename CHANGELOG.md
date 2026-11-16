@@ -12,6 +12,17 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Bynk: Show Component View** (model-diagrams track, slice 5): one context opened up as a UML component diagram. It is also on the editor title bar of a `.bynk` file.
+  - **Inside:** the context's services, agents and providers as parts. Each service lists its handlers as operations, and each agent shows its key, its `store` fields and its handlers.
+  - **On the border:** a provided port (UML ball) for each service, and a required port (socket) for each capability the context needs from outside and each consumed service it calls. Connectors show which part realises or needs each port.
+  - **Outside, in grey:** the actors and contexts that call in, on the left; the platform, adapters and contexts that satisfy its requirements, on the right.
+  - It follows the cursor's context (or pin it), and marks the service or agent the cursor is in.
+  - Every element opens its source. An operation's **↗** opens its sequence diagram, and a neighbouring context's **↗** opens that context's component view.
+  - Operations, calls, and agent keys and state need a `bynk` language server with bynk-lang/bynk#3657. With an older server the view draws the parts and the ports it can work out from capabilities and `consumes`.
+- Moving between the views: each unit on the **architecture map** has a **↗** that opens its component view, and the **sequence diagram** has a **Components** button for the handler's context.
+
 ### Changed
 
 - **The architecture map is redrawn** by the extension's own diagram engine, not Mermaid (model-diagrams track, slice 4). It is now a UML system view:
