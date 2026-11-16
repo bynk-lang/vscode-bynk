@@ -44,7 +44,7 @@ import { refinedExplorerClientFeature, trustExplorerLink } from "./refinedExplor
 import { registerArchitectureMap } from "./architectureMap";
 import { registerAgentStateView } from "./agentStateView";
 import { registerContractDiff } from "./contractDiff";
-import { isModelDiffScratch } from "./modelDiffCore";
+import { isModelDiffScratch, scratchProblems } from "./modelDiffCore";
 import { registerSendRequest } from "./sendRequest";
 import { registerWireContract } from "./wireContract";
 import { registerFeatures } from "./features";
@@ -303,7 +303,11 @@ async function startServerNow(
         // #147: the server analyses a model-diff checkout in a scratch
         // directory and publishes diagnostics for it; they are not the
         // user's, and must not reach the Problems panel or what reads it.
-        if (isModelDiffScratch(uri.path)) return;
+        if (isModelDiffScratch(uri.path)) {
+          // #155: keep what says a dependency was not fetched, for the page.
+          scratchProblems.note(uri.path, diagnostics);
+          return;
+        }
         next(uri, diagnostics);
         viewRefresh?.roundCommitted();
       },

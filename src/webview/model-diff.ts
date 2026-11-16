@@ -23,14 +23,18 @@ import type { VsCodeApi } from "./live";
 declare function acquireVsCodeApi(): VsCodeApi;
 
 interface Graphs {
+  linked?: boolean;
   architecture: { model: ArchModel; marks: ArchMarks } | null;
   agents: Array<{ key: string; uri: string; machines: StateMachine[] }>;
 }
 
 const vscodeApi = acquireVsCodeApi();
 let renderSeq = 0;
+/** Between two revisions nothing is in the working tree to open. */
+let linked = true;
 
 function reveal(uri: string, range: Range): void {
+  if (!linked) return;
   const message: RevealMessage = { type: "reveal", uri, range };
   vscodeApi.postMessage(message);
 }
@@ -191,6 +195,7 @@ async function main(): Promise<void> {
     architecture: null,
     agents: [],
   }) as Graphs;
+  linked = graphs.linked !== false;
   initMermaid();
   const arch = document.getElementById("diff-architecture");
   if (arch && graphs.architecture) await drawArchitecture(arch, graphs.architecture);

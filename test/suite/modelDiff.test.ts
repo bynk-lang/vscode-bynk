@@ -108,4 +108,27 @@ describe("compare model with a git revision (#147)", () => {
       .filter(([uri]) => uri.path.includes("bynk-model-diff-"));
     assert.deepStrictEqual(scratch.map(([uri]) => uri.fsPath), []);
   });
+  it("compares two revisions, with nothing linked to the working tree (#155)", async function () {
+    this.timeout(120_000);
+    const diff = await waitFor(
+      () => vscode.commands.executeCommand<(ModelDiff & { graphs: DiffGraphs }) | undefined>("bynk.compareModel", first, "HEAD"),
+      (d): d is ModelDiff & { graphs: DiffGraphs } => !!d && d.sections.every((s) => !s.unavailable),
+      "the two-revision diff to cover every section",
+      90_000,
+    );
+    const arch = diff.sections.find((s) => s.id === "architecture")!;
+    assert.ok(
+      arch.entries.some((e) => e.change === "added" && e.element === "service" && e.name === "md.second"),
+      `the second commit's service is added: ${JSON.stringify(arch.entries)}`,
+    );
+    assert.ok(diff.sections.every((s) => s.entries.every((e) => e.loc === null)), "no row links to a file");
+    assert.strictEqual(diff.graphs.linked, false);
+    // Both checkouts are gone, and neither left diagnostics behind.
+    assert.deepStrictEqual(fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("bynk-model-diff-")), []);
+    assert.strictEqual(git(repo, "worktree", "list", "--porcelain").match(/^worktree /gm)?.length, 1);
+    assert.deepStrictEqual(
+      vscode.languages.getDiagnostics().filter(([uri]) => uri.path.includes("bynk-model-diff-")).map(([uri]) => uri.fsPath),
+      [],
+    );
+  });
 });

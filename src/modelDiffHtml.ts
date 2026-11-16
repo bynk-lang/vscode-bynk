@@ -38,6 +38,7 @@ const CSS = `
   .diagram .label.diff-removed { text-decoration: line-through; }
   #root svg, .diagram svg { max-width: 100%; }
   h3 { font-size: 0.95em; margin: 1em 0 0.2em; }
+  .warning { border-left: 3px solid var(--vscode-editorWarning-foreground); padding: 2px 8px; }
   .compatible { color: var(--vscode-testing-iconPassed, var(--vscode-descriptionForeground)); }
 `;
 
@@ -52,8 +53,10 @@ function row(e: DiffEntry): string {
 }
 
 export interface ModelDiffPage {
-  /** The ref the working tree was compared with, for the heading. */
+  /** The earlier revision, for the heading. */
   against: string;
+  /** What it was compared with (the later revision, or the working tree). */
+  to?: string;
   nonce: string;
   cspSource: string;
   /** #153: the bundle (`out/model-diff.js`) that draws `graphs` and handles row
@@ -120,8 +123,9 @@ export function renderModelDiffHtml(diff: ModelDiff, page: ModelDiffPage): strin
 <style>${CSS}</style>
 </head>
 <body>
-<h1>Model diff: <code>${escapeHtml(page.against)}</code> → working tree</h1>
-<p>${summary} <span class="muted">+ added, − removed, ~ changed since ${escapeHtml(page.against)}. Select a row to open its source in the working tree.</span></p>
+<h1>Model diff: <code>${escapeHtml(page.against)}</code> → ${escapeHtml(page.to ?? "working tree")}</h1>
+${(diff.warnings ?? []).map((w) => `<p class="warning">${escapeHtml(w)}</p>`).join("\n")}
+<p>${summary} <span class="muted">+ added, − removed, ~ changed since ${escapeHtml(page.against)}.${page.to ? "" : " Select a row to open its source in the working tree."}</span></p>
 ${page.graphs ? graphSections(page.graphs) : ""}
 ${sections}
 ${script(page)}
