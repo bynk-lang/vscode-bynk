@@ -12,3 +12,8 @@ release_notes:
 weekly_summary:
   enabled: true
   category: Announcements
+
+review:
+  enabled: true
+  # guidelines: .github/review-guidelines.md   # optional: your own review notes for Claude, read from the default branch, up to 20,000 characters
+  authors: members                           # the default; "all" also reviews outside contributors' pull requests
