@@ -10,10 +10,14 @@
 // each handler's header line, to ask the server about HTTP handlers only (as
 // the Send request lens does).
 
+import * as path from "node:path";
+
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
 import { devServerState } from "./devServer";
+import { checkSuiteInCopy } from "./promoteCheck";
+import { describeDiagnostic } from "./richDiagnostics";
 import { handlerSymbols } from "./refreshScheduler";
 import { pickTarget } from "./testTargetPicker";
 import { DEV_TARGET } from "./testTargets";
@@ -30,6 +34,7 @@ import {
 import { projectRootFor } from "./projectRoots";
 import {
   appendStep,
+  isSensitiveHeader,
   parseScenario,
   resolveRoute,
   runSteps,
@@ -45,6 +50,7 @@ import {
   type Step,
   type StepResult,
 } from "./scenarioCore";
+import { promote as promoteScenario, summarise, type PromoteRoute } from "./scenarioPromoteCore";
 import { devTarget } from "./sendRequestCore";
 import { fetchFailure, isHttpHandler, isTextual, readBody, targetProblem, TIMEOUT_MS } from "./sendRequest";
 import type { ViewRefresh } from "./viewRefresh";
@@ -123,7 +129,13 @@ class RouteIndex implements vscode.Disposable {
       const wc = await requestWireContract(client, { uri: doc.uri.toString(), position: { line: position.line, character: position.character } });
       const kind = wc?.model.kind;
       if (wc && kind?.kind === "Http") {
-        out.push({ unit: wc.model.unit, method: kind.method, path: kind.path, model: wc.model });
+        const r = h.symbol.range;
+        const header = doc.getText(new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character)).split("{", 1)[0];
+        // `by u: User`, `by Visitor`: the actors the handler admits.
+        const actors = [...header.matchAll(/\bby\s+(?:[a-z_]\w*\s*:\s*)?([A-Z]\w*)/g)].map((m) => m[1]);
+        const identities: Record<string, string> = {};
+        for (const a of doc.getText().matchAll(/\bactor\s+([A-Z]\w*)\s*\{[^}]*?\bidentity\s*=\s*([A-Z]\w*)/g)) identities[a[1]] = a[2];
+        out.push({ unit: wc.model.unit, method: kind.method, path: kind.path, model: wc.model, service: wc.model.service, responses: wc.model.responses, actors, identities });
       }
     }
     return out;
@@ -449,6 +461,7 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
       if (!busy) {
         out.push(new vscode.CodeLens(at(first), { title: "$(cloud) Run against…", tooltip: "Run the scenario against a [test.targets] target", command: "bynk.scenario.runAgainst", arguments: [uri] }));
       }
+      out.push(new vscode.CodeLens(at(first), { title: "$(beaker) Promote to test suite", tooltip: "Write the scenario as a system-tier test suite", command: "bynk.scenario.promote", arguments: [uri] }));
       if (fresh) {
         const rs = [...fresh.results.values()];
         const bad = rs.filter((r) => r.state === "failed" || r.state === "error").length;
@@ -541,6 +554,138 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
     return target;
   }
 
+  // --- Promote -------------------------------------------------------------
+
+  /** **Bynk: Promote Scenario to Test Suite** (#158): the scenario as a
+   *  `system`-tier suite under `tests/`, checked with the compiler before it is
+   *  offered and listing anything a suite cannot express. A one-way copy. */
+  async function promote(uriArg?: unknown): Promise<vscode.Uri | undefined> {
+    const uri = uriArg instanceof vscode.Uri ? uriArg : typeof uriArg === "string" ? vscode.Uri.parse(uriArg) : vscode.window.activeTextEditor?.document.uri;
+    if (!uri) {
+      void vscode.window.showErrorMessage("Bynk: Promote Scenario needs a .bynk-http file open.");
+      return undefined;
+    }
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const scenario = parseScenario(doc.getText());
+    const syntax = scenario.problems.filter((p) => p.severity === "error");
+    if (syntax.length > 0) {
+      void vscode.window.showErrorMessage(`Bynk: fix the scenario first (line ${syntax[0].line + 1}: ${syntax[0].message})`);
+      return undefined;
+    }
+    const root = await rootOf(doc);
+    if (!root) {
+      void vscode.window.showErrorMessage("Bynk: this scenario isn't inside a project (no bynk.toml found).");
+      return undefined;
+    }
+    const resolved = await resolveAll(doc, scenario);
+    if (scenario.steps.some((s, i) => s.requestLine >= 0 && !resolved[i])) {
+      void vscode.window.showErrorMessage("Bynk: the language server couldn't say which handlers serve this scenario. Wait for it to start and try again.");
+      return undefined;
+    }
+
+    // Credentials are the case's `by <Actor>`, never a header: ask which actor.
+    const routes = resolved.flatMap((r) => (r && !("error" in r) ? [r.route as PromoteRoute] : []));
+    const credentialed = scenario.steps.some((s) => s.headers.some((h) => isSensitiveHeader(h.name)));
+    const admits = (r: PromoteRoute): string[] => r.actors ?? [];
+    const guarded = routes.some((r) => admits(r).length > 0 && !admits(r).includes("Visitor"));
+    let chosen: string | undefined;
+    let rule: string;
+    if (credentialed || guarded) {
+      const names = [...new Set(routes.flatMap(admits))].filter((a) => a !== "Visitor");
+      let actor: string | undefined = names.length === 1 ? names[0] : undefined;
+      if (names.length !== 1) {
+        actor = await vscode.window.showQuickPick(names.length > 0 ? names : ["Visitor"], {
+          title: "Promote to a test suite: run the case as which actor?",
+          placeHolder: credentialed ? "The scenario sends credentials; a suite carries them as the case's actor" : "These routes admit an actor",
+        });
+        if (!actor) return undefined;
+      }
+      if (actor === "Visitor") {
+        chosen = "Visitor";
+      } else {
+        const identityType = routes.map((r) => r.identities?.[actor!]).find((t) => t !== undefined);
+        const identity = await vscode.window.showInputBox({
+          title: `Promote: the identity ${actor} runs as`,
+          prompt: `A Bynk expression for ${actor}'s identity. It is written into the suite as by ${actor}(…).`,
+          // An identity is a sealed type, built with `.of` (which fails the case if it is refused).
+          value: identityType && identityType !== "String" ? `${identityType}.of("ada")?` : '"ada"',
+          ignoreFocusOut: true,
+        });
+        if (identity === undefined || identity.trim() === "") return undefined;
+        chosen = `${actor}(${identity.trim()})`;
+      }
+      rule = `Runs as ${chosen}${credentialed ? ", because the scenario sends credentials (a suite carries them as the case's actor, never a header)" : ", because its routes are guarded by an actor"}; a step on a route that admits Visitor runs as Visitor.`;
+    } else {
+      rule = "Runs as Visitor on routes that admit it, and with no actor on routes that name none.";
+    }
+    const result = promoteScenario(scenario, resolved, {
+      name: vscode.workspace.asRelativePath(uri, false),
+      actorRule: rule,
+      actorFor: (step, route) => {
+        const a = admits(route);
+        if (step.headers.some((h) => isSensitiveHeader(h.name))) return chosen;
+        if (a.includes("Visitor")) return "Visitor";
+        return a.length > 0 ? chosen : undefined;
+      },
+    });
+    if (!result.ok) {
+      void vscode.window.showErrorMessage(`Bynk: can't promote this scenario. ${result.reason}`);
+      return undefined;
+    }
+
+    const base = vscode.workspace
+      .asRelativePath(uri, false)
+      .replace(/^.*[\\/]/, "")
+      .replace(/\.bynk-http$/, "")
+      .replace(/[^A-Za-z0-9._-]/g, "_");
+    const target = vscode.Uri.joinPath(root, "tests", `${base}.bynk`);
+    // The compiler checks the suite before it is offered; nothing is written otherwise.
+    const verdict = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: "Checking the generated suite…", cancellable: true },
+      (_p, token) => checkSuiteInCopy(root.fsPath, path.join("tests", `${base}.bynk`), result.text, token),
+    );
+    if (verdict.kind !== "ok") {
+      output.appendLine(`── promote ${vscode.workspace.asRelativePath(uri, false)} ──`);
+      output.appendLine(result.text);
+      if (verdict.kind === "errors") for (const d of verdict.errors) output.appendLine(describeDiagnostic(d));
+      output.show(true);
+      void vscode.window.showErrorMessage(
+        verdict.kind === "errors"
+          ? `Bynk: the generated suite doesn't check, so nothing was written (${verdict.errors[0] ? describeDiagnostic(verdict.errors[0]) : "see the Bynk Scenario output"}).`
+          : `Bynk: the generated suite couldn't be checked (${verdict.reason}), so nothing was written.`,
+      );
+      return undefined;
+    }
+
+    const WRITE = "Write suite";
+    const SHOW = "Show suite";
+    const pick = await vscode.window.showInformationMessage(
+      `Promote to ${vscode.workspace.asRelativePath(target, false)}?`,
+      { modal: true, detail: `${summarise(result)}\n\nA one-way copy: the scenario is not kept in sync with it.` },
+      WRITE,
+      SHOW,
+    );
+    if (pick === SHOW) {
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ language: "bynk", content: result.text }));
+      return undefined;
+    }
+    if (pick !== WRITE) return undefined;
+    let exists = true;
+    try {
+      await vscode.workspace.fs.stat(target);
+    } catch {
+      exists = false;
+    }
+    if (exists) {
+      const over = await vscode.window.showWarningMessage(`${vscode.workspace.asRelativePath(target, false)} already exists. Replace it?`, { modal: true }, "Replace");
+      if (over !== "Replace") return undefined;
+    }
+    await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(target, ".."));
+    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(result.text));
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target));
+    return target;
+  }
+
   context.subscriptions.push(
     index,
     diagnostics,
@@ -571,6 +716,7 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
     // Only the file and step reach `run`: its third argument is the target.
     vscode.commands.registerCommand("bynk.scenario.run", (uri?: unknown, step?: unknown) => run(uri, step)),
     vscode.commands.registerCommand("bynk.scenario.runAgainst", runAgainst),
+    vscode.commands.registerCommand("bynk.scenario.promote", promote),
     vscode.commands.registerCommand("bynk.scenario.showOutput", () => output.show(true)),
     // The Send Request panel's "Save to scenario…" (and the tests' seam).
     vscode.commands.registerCommand("bynk._scenarioSave", save),

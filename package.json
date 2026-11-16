@@ -587,6 +587,12 @@
         "icon": "$(run-all)"
       },
       {
+        "command": "bynk.scenario.promote",
+        "title": "Promote Scenario to Test Suite",
+        "category": "Bynk",
+        "icon": "$(beaker)"
+      },
+      {
         "command": "bynk.scenario.runAgainst",
         "title": "Run Scenario Against…",
         "category": "Bynk",
@@ -975,6 +981,10 @@
         },
         {
           "command": "bynk.scenario.run",
+          "when": "editorLangId == bynk-http && !isWeb"
+        },
+        {
+          "command": "bynk.scenario.promote",
           "when": "editorLangId == bynk-http && !isWeb"
         },
         {

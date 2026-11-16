@@ -1,0 +1,43 @@
+context shop
+
+type ItemId = String where NonEmpty
+
+type Item = { id: ItemId, name: String, qty: Int }
+
+type UserId = opaque String
+
+actor User { auth = Bearer(secret = "SHOP_JWT_SECRET"), identity = UserId }
+
+service api from http {
+  on POST("/items") (body: Item) -> Effect[HttpResult[Item]] by v: Visitor {
+    Created(body)
+  }
+
+  on GET("/items/:id") (id: ItemId) -> Effect[HttpResult[Item]] by v: Visitor {
+    Ok(Item { id: id, name: "widget", qty: 1 })
+  }
+
+  on GET("/go") () -> Effect[HttpResult[String]] by v: Visitor {
+    Found("/items/a")
+  }
+
+  on GET("/me") () -> Effect[HttpResult[String]] by u: User {
+    Ok("hello")
+  }
+
+  on DELETE("/items/:id") (id: ItemId) -> Effect[HttpResult[()]] by v: Visitor {
+    NoContent
+  }
+
+  on PUT("/items/:id") (id: ItemId, body: Item) -> Effect[HttpResult[Item]] by v: Visitor {
+    Conflict("exists")
+  }
+
+  on GET("/greet") () -> Effect[HttpResult[String]] by v: Visitor {
+    Ok("hi")
+  }
+
+  on POST("/tags") (body: List[String]) -> Effect[HttpResult[List[String]]] by v: Visitor {
+    Accepted(body)
+  }
+}
