@@ -3,7 +3,7 @@
 
 import * as vscode from "vscode";
 
-import { projectRootFor } from "./projectRoots";
+import { isWorkspaceRoot, projectRootFor } from "./projectRoots";
 import {
   projectOf,
   scopeSuiteId,
@@ -180,12 +180,17 @@ export async function requestedRoots(ctrl: vscode.TestController, request: vscod
   return [...roots.values()];
 }
 
-/** The Bynk projects in the workspace: the directory of every `bynk.toml`. */
+/** The Bynk projects in the workspace: the directory of every `bynk.toml`,
+ *  except a Bynk workspace root's. A `[workspace]` manifest groups projects and is
+ *  not one itself: `bynk test --format ndjson` refuses to run there ("streams one
+ *  project — run it inside a member"), and its members are found here on their
+ *  own, so it would only add a failing run to "Run All". */
 export async function workspaceRoots(): Promise<vscode.Uri[]> {
   const manifests = await vscode.workspace.findFiles("**/bynk.toml", "**/node_modules/**");
   const roots = new Map<string, vscode.Uri>();
   for (const m of manifests) {
     const root = vscode.Uri.joinPath(m, "..");
+    if (await isWorkspaceRoot(root)) continue;
     roots.set(root.toString(), root);
   }
   // A project opened from outside the workspace folders is still the editor's own.
