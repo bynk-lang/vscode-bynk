@@ -32,6 +32,7 @@ import {
   type TestTarget,
 } from "./scenarioTargetsCore";
 import { projectRootFor } from "./projectRoots";
+import { RouteCache } from "./routeCache";
 import {
   appendStep,
   isSensitiveHeader,
@@ -69,8 +70,8 @@ interface RouteSet {
 }
 
 class RouteIndex implements vscode.Disposable {
-  private generation = 0;
-  private readonly cache = new Map<string, { generation: number; set: Promise<RouteSet> }>();
+  /** Never keeps an incomplete set; see `routeCache.ts`. */
+  private readonly cache = new RouteCache<RouteSet>();
   private readonly emitter = new vscode.EventEmitter<void>();
   /** Fires when a `.bynk` file changes, so the contract the scenarios are
    *  checked against may have. */
@@ -79,7 +80,7 @@ class RouteIndex implements vscode.Disposable {
 
   constructor(private readonly hub: ViewRefresh) {
     const bump = (): void => {
-      this.generation++;
+      this.cache.invalidate();
       this.emitter.fire();
     };
     const watcher = vscode.workspace.createFileSystemWatcher("**/*.bynk");
@@ -91,17 +92,16 @@ class RouteIndex implements vscode.Disposable {
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (e.document.languageId === "bynk" && e.contentChanges.length > 0) bump();
       }),
+      // A set built before the server had analysed the project was "can't say
+      // yet"; once a round commits, it may say, so the scenarios look again.
+      hub.onDidCommitRound(() => {
+        if (this.cache.roundCommitted()) this.emitter.fire();
+      }),
     );
   }
 
   routes(root: vscode.Uri): Promise<RouteSet> {
-    const key = root.toString();
-    const hit = this.cache.get(key);
-    if (hit && hit.generation === this.generation) return hit.set;
-    const generation = this.generation;
-    const set = this.build(root);
-    this.cache.set(key, { generation, set });
-    return set;
+    return this.cache.get(root.toString(), () => this.build(root));
   }
 
   private async build(root: vscode.Uri): Promise<RouteSet> {
@@ -112,7 +112,9 @@ class RouteIndex implements vscode.Disposable {
     const routes: RouteInfo[] = [];
     for (const file of files) {
       try {
-        routes.push(...(await this.fileRoutes(client, file)));
+        const got = await this.fileRoutes(client, file);
+        routes.push(...got.routes);
+        if (!got.complete) complete = false;
       } catch {
         complete = false;
       }
@@ -120,14 +122,23 @@ class RouteIndex implements vscode.Disposable {
     return { routes, complete };
   }
 
-  private async fileRoutes(client: LanguageClient, file: vscode.Uri): Promise<RouteInfo[]> {
+  /** A file's routes, and whether the server could answer for all of it. */
+  private async fileRoutes(client: LanguageClient, file: vscode.Uri): Promise<{ routes: RouteInfo[]; complete: boolean }> {
     const doc = await vscode.workspace.openTextDocument(file);
-    const handlers = handlerSymbols(await this.hub.documentSymbols(doc)).filter((h) => isHttpHandler(doc, h.symbol.range));
+    const symbols = await this.hub.documentSymbols(doc);
+    // A Bynk file always declares something: no symbols means the server
+    // could not answer yet, not that the file serves nothing.
+    if (symbols.length === 0 && doc.getText().trim() !== "") return { routes: [], complete: false };
+    const handlers = handlerSymbols(symbols).filter((h) => isHttpHandler(doc, h.symbol.range));
     const out: RouteInfo[] = [];
+    let complete = true;
     for (const h of handlers) {
       const position = h.symbol.selectionRange.start;
       const wc = await requestWireContract(client, { uri: doc.uri.toString(), position: { line: position.line, character: position.character } });
       const kind = wc?.model.kind;
+      // An HTTP handler (by its header) with no wire contract yet: the server
+      // has not analysed the project. Say so rather than drop the route.
+      if (!wc) complete = false;
       if (wc && kind?.kind === "Http") {
         const r = h.symbol.range;
         const header = doc.getText(new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character)).split("{", 1)[0];
@@ -138,7 +149,7 @@ class RouteIndex implements vscode.Disposable {
         out.push({ unit: wc.model.unit, method: kind.method, path: kind.path, model: wc.model, service: wc.model.service, responses: wc.model.responses, actors, identities });
       }
     }
-    return out;
+    return { routes: out, complete };
   }
 
   dispose(): void {

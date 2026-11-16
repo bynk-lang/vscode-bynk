@@ -53,6 +53,13 @@ export class ViewRefresh implements vscode.Disposable {
    *  reacts to each change exactly once. */
   readonly onDidChangeSource = this.sourceEmitter.event;
 
+  private readonly roundEmitter = new vscode.EventEmitter<void>();
+  /** Fires on every analysis round the server commits (coalesced), armed or
+   *  not. Unlike {@link onDidRefresh} it does not wait for a save or an edit,
+   *  so it also reports the first analysis of a project nobody has touched: a
+   *  consumer that asked too early (and got "can't say yet") asks again. */
+  readonly onDidCommitRound = this.roundEmitter.event;
+
   private readonly clientEmitter = new vscode.EventEmitter<void>();
   /** Fires when a (re)started language client is ready (#2097's tree reloads). */
   readonly onDidStartClient = this.clientEmitter.event;
@@ -77,6 +84,7 @@ export class ViewRefresh implements vscode.Disposable {
     this.scheduler.setMode(readMode());
     this.disposables.push(
       this.emitter,
+      this.roundEmitter,
       this.sourceEmitter,
       this.clientEmitter,
       vscode.workspace.onDidChangeConfiguration((e) => {
@@ -185,6 +193,7 @@ export class ViewRefresh implements vscode.Disposable {
     this.roundTimer = setTimeout(() => {
       this.roundTimer = undefined;
       this.scheduler.onRoundCommitted();
+      this.roundEmitter.fire();
     }, ROUND_COALESCE_MS);
   }
 
@@ -226,9 +235,16 @@ export class ViewRefresh implements vscode.Disposable {
       // `children`/`selectionRange`; only the hierarchical form is usable here.
       .then((result) => (result ?? []).filter((s) => "selectionRange" in s) as SymbolLike[]);
     this.symbols.set(uri, { version: doc.version, symbols });
-    symbols.then(undefined, () => {
+    // Don't keep a failure, or an empty answer: a Bynk file always declares
+    // something, so no symbols means the server could not answer yet (asked
+    // as it starts), and the next ask should go to it again rather than reuse
+    // "nothing" for as long as the document is unedited.
+    const drop = (): void => {
       if (this.symbols.get(uri)?.symbols === symbols) this.symbols.delete(uri);
-    });
+    };
+    symbols.then((s) => {
+      if (s.length === 0) drop();
+    }, drop);
     return symbols;
   }
 

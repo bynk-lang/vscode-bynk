@@ -14,6 +14,7 @@ version).
 
 ### Fixed
 
+- A request scenario opened while the language server was still analysing its project no longer stays stuck on "No handler serves …" (and **Promote Scenario to Test Suite** no longer keeps refusing with "No step resolves to a route") until a `.bynk` file is edited. The extension took the server's early, empty answer as the project's final list of routes and kept it. It now treats that answer as "not known yet" and asks again when the server finishes an analysis round. This was also the intermittent failure of the promote integration test.
 - In a Bynk workspace (a root `bynk.toml` with `[workspace]`, such as
   bynk-lang/showcase), **Run All Tests** no longer also runs the tests at the
   workspace root itself. Every member's tests ran and passed, but the extra run at
