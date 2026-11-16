@@ -74,7 +74,7 @@ export interface LiveViewSpec<P> {
   /** The bundle under `out/` and the global it reads its payload from. */
   script: string;
   /** Bundles under `out/` loaded before `script`, in order: the shared
-   *  `mermaid.js` for the views that still draw with Mermaid. */
+   *  `elk.js` for the views that lay out with ELK (model-diagrams slice 6). */
   vendorScripts?: string[];
   globalName: string;
   bodyCss?: string;

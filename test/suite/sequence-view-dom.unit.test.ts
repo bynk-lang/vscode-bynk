@@ -58,7 +58,6 @@ describe("sequence view (jsdom)", () => {
 
   it("draws one element per model id, without Mermaid", async () => {
     await open();
-    assert.strictEqual(dom.mermaid.calls.length, 0);
     assert.ok(dom.root.querySelector("svg.bynk-seq"));
     for (const id of ["p0", "p1", "p2", "m0", "m1", "m2", "b0", "b0.0", "b0.1", "n0", "n1"]) el(id);
     assert.strictEqual(el("p2").querySelector(".bynk-name")?.textContent, "Clock");

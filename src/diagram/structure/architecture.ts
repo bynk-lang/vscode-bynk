@@ -18,6 +18,7 @@
 // actors or events.
 
 import type { ArchLoc, ArchMember, ArchModel, ArchNode } from "../../webview/architectureTypes";
+import { type ArchMarks, edgeKey, MARK_SIGN, memberKey } from "../../webview/diffMarks";
 import type { StructDiagram, StructEdge, StructEdgeKind, StructNode } from "./ir";
 
 export interface ArchitectureOptions {
@@ -25,6 +26,13 @@ export interface ArchitectureOptions {
   expanded: ReadonlySet<string>;
   /** Draw events and their emit/subscribe edges. */
   events: boolean;
+  /** Slice 6: a model diff's marks over the merged before-and-after model.
+   *  A marked element is drawn in its mark's colour; a removed one is a
+   *  ghost that opens nothing (its source is not in the working tree). */
+  marks?: ArchMarks;
+  /** Whether elements open their source. `false` between two revisions of a
+   *  model diff, where nothing is in the working tree. */
+  linked?: boolean;
 }
 
 export const ids = {
@@ -122,6 +130,53 @@ function memberNode(m: ArchMember, expanded: ReadonlySet<string>, units: Readonl
   return ids.unit(m.unit);
 }
 
+/** Slice 6, on a model diff's drawing: no unit opens its component view
+ *  (there is none for another revision); an edge touching a removed element
+ *  opens nothing (its source was in a revision's scratch checkout); and
+ *  between two revisions (`linked` false) nothing opens at all. */
+function unlink(nodes: StructNode[], edges: StructEdge[], linked: boolean): void {
+  const ghosts = new Set<string>();
+  const walk = (ns: StructNode[]): void => {
+    for (const n of ns) {
+      n.opens = false;
+      if (n.diff === "removed") ghosts.add(n.ref.id);
+      if (!linked) n.ref = { ...n.ref, loc: null };
+      walk(n.children);
+    }
+  };
+  walk(nodes);
+  for (const e of edges) {
+    if (!linked || ghosts.has(e.source) || ghosts.has(e.target)) e.ref = { ...e.ref, loc: null };
+  }
+}
+
+/** Slice 6: put a model diff's marks on the units and their members. */
+function markNodes(nodes: StructNode[], marks: ArchMarks): void {
+  const kinds: Record<string, "service" | "agent" | "capability" | "provider"> = {
+    svc: "service",
+    agent: "agent",
+    cap: "capability",
+    prov: "provider",
+  };
+  const walk = (ns: StructNode[]): void => {
+    for (const n of ns) {
+      const id = n.ref.id;
+      let mark = undefined as (typeof marks.nodes)[string] | undefined;
+      if (id.startsWith("u:")) mark = marks.nodes[id.slice(2)];
+      else {
+        const m = /^(svc|agent|cap|prov):(.*)\/([^/]*)$/.exec(id);
+        if (m) mark = marks.members[memberKey(m[2], kinds[m[1]], m[3])];
+      }
+      if (mark) {
+        n.diff = mark;
+        if (mark === "removed") n.ref = { ...n.ref, loc: null };
+      }
+      walk(n.children);
+    }
+  };
+  walk(nodes);
+}
+
 /** The units on a `consumes` cycle, and the edges inside one (Tarjan's
  *  strongly connected components). */
 export function consumesCycles(model: ArchModel): { units: Set<string>; edges: Set<number> } {
@@ -186,23 +241,34 @@ export function toArchitectureDiagram(model: ArchModel, opts: ArchitectureOption
   const outside: StructNode[] = [];
   const edges: StructEdge[] = [];
   const seen = new Map<string, StructEdge>();
-  const edge = (kind: StructEdgeKind, source: string, target: string, label: string | null, loc: ArchLoc | null, cycle = false): void => {
+  const edge = (kind: StructEdgeKind, source: string, target: string, label: string | null, loc: ArchLoc | null, cycle = false): StructEdge => {
     const key = `${kind}|${source}|${target}`;
     const had = seen.get(key);
     if (had) {
       // Merge labels of parallel edges of one kind.
       if (label && had.label && !had.label.split(", ").includes(label)) had.label = `${had.label}, ${label}`;
-      return;
+      return had;
     }
     const e: StructEdge = { ref: { id: `e${edges.length}`, loc }, kind, source, target, label, cycle };
     seen.set(key, e);
     edges.push(e);
+    return e;
   };
 
   // `consumes` between project units.
   model.edges.forEach((e, i) => {
     if (!units.has(e.from) || !units.has(e.to)) return;
-    edge("consumes", ids.unit(e.from), ids.unit(e.to), e.capabilities.length > 0 ? e.capabilities.join(", ") : null, e.loc, cycles.edges.has(i));
+    const mark = opts.marks?.edges[edgeKey(e)];
+    const label = e.capabilities.length > 0 ? e.capabilities.join(", ") : null;
+    const drawn = edge(
+      "consumes",
+      ids.unit(e.from),
+      ids.unit(e.to),
+      mark ? `${MARK_SIGN[mark]}${label ? ` ${label}` : ""}` : label,
+      mark === "removed" ? null : e.loc,
+      cycles.edges.has(i),
+    );
+    if (mark) drawn.diff = mark;
   });
 
   // Capabilities bound from outside the project (the `bynk` surface): the
@@ -273,5 +339,8 @@ export function toArchitectureDiagram(model: ArchModel, opts: ArchitectureOption
     expanded: true,
     cycle: false,
   };
+  if (opts.marks) markNodes(inside, opts.marks);
+  const all = [...outside, boundary];
+  if (opts.marks || opts.linked === false) unlink(all, edges, opts.linked !== false);
   return { nodes: [...outside.filter((n) => n.kind === "actor"), boundary, ...outside.filter((n) => n.kind !== "actor")], edges };
 }

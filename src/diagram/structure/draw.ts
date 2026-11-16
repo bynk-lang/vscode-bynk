@@ -19,19 +19,24 @@ const EDGE_WORD: Record<StructEdge["kind"], string> = {
   delegates: "delegates to",
   assembly: "is wired to",
   invokes: "calls",
+  transition: "moves to",
 };
 
-function identify(el: SVGElement, ref: StructRef, description: string): void {
+const MARK_WORD = { added: "added", changed: "changed", removed: "removed" } as const;
+
+function identify(el: SVGElement, ref: StructRef, description: string, note?: string): void {
   el.setAttribute("data-bynk-ref", ref.id);
+  const more = note ? `\n${note}` : "";
   if (!ref.loc) {
     el.setAttribute("aria-label", description);
+    if (note) svgTitle(`${description}${more}`, el);
     return;
   }
   el.setAttribute("data-bynk-focusable", "");
   el.setAttribute("tabindex", "-1");
   el.setAttribute("role", "button");
   el.setAttribute("aria-label", description);
-  svgTitle(`${description}\nClick to show the source.`, el);
+  svgTitle(`${description}${more}\nClick to show the source.`, el);
 }
 
 function describe(n: StructNode): string {
@@ -39,7 +44,9 @@ function describe(n: StructNode): string {
   const extra = n.detail ? `, ${n.detail}` : "";
   const folded = n.expandable ? (n.expanded ? ", open" : ", closed") : "";
   const cycle = n.cycle ? ", on a consumes cycle" : "";
-  return `${what}${extra}${folded}${cycle}`;
+  const dimmed = n.dimmed ? ", unreachable from the initial state" : "";
+  const diff = n.diff ? `, ${MARK_WORD[n.diff]}` : "";
+  return `${what}${extra}${folded}${cycle}${dimmed}${diff}`;
 }
 
 export interface StructDrawOptions {
@@ -87,8 +94,32 @@ function drawNode(p: PlacedStructNode, parent: Element): void {
   const n = p.node;
   const { x, y, w, h } = p.box;
   const g = svg("g", {
-    class: `bynk-snode bynk-snode--${n.kind}${n.cycle ? " bynk-cycle" : ""}${n.expanded ? " bynk-snode--open" : ""}${n.muted ? " bynk-muted" : ""}`,
+    class: [
+      "bynk-snode",
+      `bynk-snode--${n.kind}`,
+      n.cycle ? "bynk-cycle" : "",
+      n.expanded ? "bynk-snode--open" : "",
+      n.muted ? "bynk-muted" : "",
+      n.dimmed ? "bynk-dimmed" : "",
+      n.diff ? `bynk-diff-${n.diff}` : "",
+    ].filter(Boolean).join(" "),
   }, parent);
+  if (n.kind === "initial") {
+    // UML's initial pseudo-state: a filled dot.
+    svg("circle", { class: "bynk-initial", cx: px(x + w / 2), cy: px(y + h / 2), r: Math.min(w, h) / 2 }, g);
+    identify(g, n.ref, "The initial state", n.note);
+    return;
+  }
+  if (n.kind === "note") {
+    const f = 8;
+    svg("path", {
+      class: "bynk-snode-box bynk-note-shape",
+      d: `M${px(x)},${px(y)} H${px(x + w - f)} L${px(x + w)},${px(y + f)} V${px(y + h)} H${px(x)} Z M${px(x + w - f)},${px(y)} V${px(y + f)} H${px(x + w)}`,
+    }, g);
+    svgText(n.name, { class: "bynk-detail", x: px(x + 10), y: px(y + h / 2 + 4) }, g);
+    identify(g, n.ref, `Note: ${n.name}`, n.note);
+    return;
+  }
   if (n.kind === "actor") {
     const cx = px(x + w / 2);
     svg("circle", { class: "bynk-figure", cx, cy: y + 9, r: 7 }, g);
@@ -106,7 +137,7 @@ function drawNode(p: PlacedStructNode, parent: Element): void {
     identify(g, n.ref, "The system boundary");
     return;
   }
-  const rx = n.kind === "event" ? Math.min(h / 2, 14) : 3;
+  const rx = n.kind === "event" ? Math.min(h / 2, 14) : n.kind === "state" || n.kind === "computed" ? 10 : 3;
   svg("rect", { class: "bynk-snode-box", x: px(x), y: px(y), width: px(w), height: px(h), rx }, g);
   if (n.kind === "context" || n.kind === "adapter") {
     // The UML component icon, top right.
@@ -131,7 +162,7 @@ function drawNode(p: PlacedStructNode, parent: Element): void {
       "text-anchor": anchor,
     }, g);
   });
-  identify(g, n.ref, describe(n));
+  identify(g, n.ref, describe(n), n.note);
   if (items.length > 0) {
     const ruleY = y + 10 + lines.length * 16 + 4;
     svg("path", { class: "bynk-compartment-rule", d: `M${px(x)},${px(ruleY)} H${px(x + w)}` }, g);
@@ -224,7 +255,17 @@ function drawPort(p: PlacedPort, owner: StructNode, parent: Element): void {
 function drawEdge(p: PlacedStructEdge, names: Map<string, string>, parent: Element): void {
   const e = p.edge;
   if (p.points.length < 2) return;
-  const g = svg("g", { class: `bynk-sedge bynk-sedge--${e.kind}${e.cycle ? " bynk-cycle" : ""}` }, parent);
+  const g = svg("g", {
+    class: [
+      "bynk-sedge",
+      `bynk-sedge--${e.kind}`,
+      e.cycle ? "bynk-cycle" : "",
+      e.flag ? `bynk-flag-${e.flag.toLowerCase()}` : "",
+      e.diff ? `bynk-diff-${e.diff}` : "",
+    ].filter(Boolean).join(" "),
+  }, parent);
+  // JSON, not a joined string: a tag (a handler's name) is the model's text.
+  if (e.tags && e.tags.length > 0) g.setAttribute("data-bynk-tags", JSON.stringify(e.tags));
   const d = p.points.map((pt, i) => `${i === 0 ? "M" : "L"}${px(pt.x)},${px(pt.y)}`).join(" ");
   svg("path", { class: "bynk-hit", d }, g);
   // An assembly connector is a plain line: the ball and socket say which way.
@@ -239,5 +280,6 @@ function drawEdge(p: PlacedStructEdge, names: Map<string, string>, parent: Eleme
   const to = names.get(e.target) ?? e.target;
   const what = e.label ? `: ${e.label}` : "";
   const cycle = e.cycle ? " (a consumes cycle)" : "";
-  identify(g, e.ref, `${from} ${EDGE_WORD[e.kind]} ${to}${what}${cycle}`);
+  const diff = e.diff ? ` (${MARK_WORD[e.diff]})` : "";
+  identify(g, e.ref, `${from} ${EDGE_WORD[e.kind]} ${to}${what}${cycle}${diff}`, e.note);
 }

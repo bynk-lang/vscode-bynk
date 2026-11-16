@@ -4,12 +4,17 @@
 // node_modules but the code wasn't bundled, so `vscode-languageserver-protocol`
 // (a transitive dep of vscode-languageclient) was missing at activation.
 //
+// It also holds the desktop bundles to their size budgets (model-diagrams
+// slice 6): each webview page, the one shared copy of ELK, the extension, and
+// the total. Mermaid left the extension in that slice; `out/mermaid.js` coming
+// back, or a page bundling its own ELK, fails here.
+//
 // With `--web` it checks the web extension (#2102) instead: the browser entry
 // may require only `vscode`, the worker nothing at all (a browser has no Node
 // builtins to fall back on), and the two bundles and the wasm module stay within
 // their size budgets (DECISION C).
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
 
 const out = (file) => new URL(`../out/${file}`, import.meta.url);
@@ -32,6 +37,40 @@ function checkNode() {
   }
 
   console.log("Bundle OK — only Node builtins + `vscode` are external.");
+  checkDesktopBudgets();
+}
+
+// Desktop budgets in bytes, minified. Raise one deliberately, in the PR that
+// needs it. A page is small because ELK is shared: a page over budget is
+// usually one that bundled its own copy (see `sharedElk` in build.mjs).
+const DESKTOP_BUDGETS = {
+  page: 256 * 1024,
+  "elk.js": 1792 * 1024, // elkjs 0.12 is ~1.45 MiB
+  "extension.js": 1024 * 1024,
+  total: 3584 * 1024,
+};
+
+function checkDesktopBudgets() {
+  let failed = false;
+  const fail = (msg) => {
+    console.error(msg);
+    failed = true;
+  };
+  if (existsSync(out("mermaid.js"))) {
+    fail("out/mermaid.js exists: Mermaid is no longer part of the extension (model-diagrams slice 6). Delete it, or find what builds it.");
+  }
+  const files = readdirSync(out("")).filter((f) => f.endsWith(".js"));
+  let total = 0;
+  for (const file of files.sort()) {
+    const size = statSync(out(file)).size;
+    total += size;
+    const budget = DESKTOP_BUDGETS[file] ?? DESKTOP_BUDGETS.page;
+    if (size > budget) fail(`over budget — out/${file}: ${(size / 1024).toFixed(0)} KiB (budget ${(budget / 1024).toFixed(0)} KiB)`);
+  }
+  const line = `desktop bundles: ${(total / 1024).toFixed(0)} KiB in ${files.length} files (budget ${(DESKTOP_BUDGETS.total / 1024).toFixed(0)} KiB)`;
+  if (total > DESKTOP_BUDGETS.total) fail(`over budget — ${line}`);
+  if (failed) process.exit(1);
+  console.log(line);
 }
 
 // Budgets in bytes. The bundles are minified; the wasm is a `--release` build.

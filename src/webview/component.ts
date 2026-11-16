@@ -20,8 +20,9 @@ import { canvasMeasurer, type TextMeasurer } from "../diagram/measure";
 import { ids } from "../diagram/structure/architecture";
 import { type ComponentLinks, toComponentDiagram } from "../diagram/structure/component";
 import { drawStructure } from "../diagram/structure/draw";
-import type { StructDiagram, StructNode } from "../diagram/structure/ir";
+
 import { layoutStructure } from "../diagram/structure/layout";
+import { locsOf } from "../diagram/structure/locs";
 import { ensureDiagramStyles } from "../diagram/style";
 import { buildToolbar } from "../diagram/toolbar";
 import type { Drawing } from "../diagram/viewport";
@@ -81,21 +82,6 @@ function open(ref: string): void {
   const unit = links.components.get(id);
   const loc = unit ? payload?.model.nodes.find((n) => n.name === unit)?.loc : undefined;
   if (loc) post({ type: "openComponent", uri: loc.uri, range: loc.range });
-}
-
-function locsOf(diagram: StructDiagram): Map<string, ArchLoc> {
-  const out = new Map<string, ArchLoc>();
-  const walk = (ns: StructNode[]): void => {
-    for (const n of ns) {
-      if (n.ref.loc) out.set(n.ref.id, n.ref.loc);
-      for (const i of n.items ?? []) if (i.ref.loc) out.set(i.ref.id, i.ref.loc);
-      for (const p of n.ports ?? []) if (p.ref.loc) out.set(p.ref.id, p.ref.loc);
-      walk(n.children);
-    }
-  };
-  walk(diagram.nodes);
-  for (const e of diagram.edges) if (e.ref.loc) out.set(e.ref.id, e.ref.loc);
-  return out;
 }
 
 /** Mark the part the editor's cursor is in. */

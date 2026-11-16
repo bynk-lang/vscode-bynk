@@ -3,20 +3,33 @@
 // webview's browser context.
 //
 // Renders the `AgentStatePayload` the host embeds as
-// `window.__BYNK_AGENT_STATE__`: for the selected state field, a Mermaid
-// `stateDiagram-v2` (`state-gen.ts`) and the handler x state table, which is
-// the exact record (track §3.4). Everything links to source: table cells to
-// their edge, handler names to the handler, diagram states and transitions
-// through `state-map.ts`. The host reports the handler under the cursor as
-// the view's `focus`; its row and transitions are highlighted without
-// re-requesting the model.
+// `window.__BYNK_AGENT_STATE__`: for the selected state field, its state
+// machine and the handler x state table, which is the exact record (track
+// §3.4). Everything links to source: table cells to their edge, handler names
+// to the handler, states to the field and transitions to their write. The
+// host reports the handler under the cursor as the view's `focus`; its row
+// and transitions are highlighted without re-requesting the model.
+//
+// Model-diagrams slice 6: the machine is drawn by the diagram engine in UML
+// state machine notation (`diagram/structure/stateMachine.ts`, laid out top
+// to bottom by ELK), not Mermaid. It sits in the shared viewport (zoom, pan)
+// with the shared toolbar: Copy as Mermaid (`state-gen.ts`, now an
+// exporter), Save as SVG or PNG. Colours are CSS over `--vscode-*`, so a
+// theme switch needs no redraw.
 
-import mermaid from "mermaid";
-
+import { focusedRef, initTabOrder, restoreFocus, wireInteraction } from "../diagram/interact";
+import { canvasMeasurer, type TextMeasurer } from "../diagram/measure";
+import { drawStructure } from "../diagram/structure/draw";
+import { layoutStructure } from "../diagram/structure/layout";
+import { locsOf } from "../diagram/structure/locs";
+import { toStateDiagram } from "../diagram/structure/stateMachine";
+import { ensureDiagramStyles } from "../diagram/style";
+import { buildToolbar } from "../diagram/toolbar";
+import type { Drawing } from "../diagram/viewport";
+import { DiagramViewport } from "../diagram/viewport";
+import type { ArchLoc } from "./architectureTypes";
 import { type LiveView, startLiveView, type ViewState, type VsCodeApi } from "./live";
-import { watchTheme } from "./theme";
-import { cellEdges, cellText, toMermaidState, type TransitionGroup, violationsFrom, writeText } from "./state-gen";
-import { alignLabels, stateNode, transitionLabels } from "./state-map";
+import { cellEdges, cellText, toMermaidState, violationsFrom, writeText } from "./state-gen";
 import type { AgentStatePayload, StateMachine } from "./stateTypes";
 import type { Range, RevealMessage } from "./types";
 
@@ -30,9 +43,11 @@ let selectedField: string | undefined;
 let showUnchanged = false;
 let effectsOpen = false;
 let focus: string | undefined;
-let mermaidReady = false;
-let renderSeq = 0;
 let current: AgentStatePayload | null = null;
+let machineShown: StateMachine | undefined;
+let drawing: Drawing | undefined;
+/** Sources by IR id for the current drawing, refilled on each render. */
+const locs = new Map<string, ArchLoc>();
 /** The shared render queue: controls re-render through it (#2206 review). */
 let live: LiveView | undefined;
 
@@ -49,30 +64,30 @@ function clickable(el: Element, uri: string, range: Range): void {
   });
 }
 
-function vscodeCssVar(name: string, fallback: string): string {
-  const value = getComputedStyle(document.body).getPropertyValue(name).trim();
-  return value || fallback;
+function fontFamily(): string {
+  const value = getComputedStyle(document.body).getPropertyValue("--vscode-font-family").trim();
+  return value || "sans-serif";
 }
 
-function mermaidThemeVariables(): Record<string, string> {
-  const editorBg = vscodeCssVar("--vscode-editor-background", "#1e1e1e");
-  const editorFg = vscodeCssVar("--vscode-editor-foreground", "#cccccc");
-  const panelBorder = vscodeCssVar("--vscode-panel-border", editorFg);
-  const selectionBg = vscodeCssVar("--vscode-editor-inactiveSelectionBackground", editorBg);
-  return {
-    background: editorBg,
-    primaryColor: selectionBg,
-    primaryTextColor: editorFg,
-    primaryBorderColor: panelBorder,
-    lineColor: editorFg,
-    textColor: editorFg,
-    edgeLabelBackground: editorBg,
-    labelBackgroundColor: editorBg,
-    noteBkgColor: editorBg,
-    noteTextColor: editorFg,
-    noteBorderColor: panelBorder,
-  };
+let measurer: { font: string; measure: TextMeasurer } | undefined;
+function measurerFor(font: string): TextMeasurer {
+  if (measurer?.font !== font) measurer = { font, measure: canvasMeasurer(font) };
+  return measurer.measure;
 }
+
+const viewport = new DiagramViewport(document);
+viewport.element.classList.add("bynk-viewport--inline");
+const actionsBar = buildToolbar({
+  viewport,
+  post: (m) => vscodeApi.postMessage(m),
+  mermaid: () => (machineShown ? toMermaidState(machineShown, { showUnchanged }).text : null),
+  drawing: () =>
+    drawing && current && machineShown
+      ? { drawing, name: `${current.model.agent}-${machineShown.field}` }
+      : null,
+  fontFamily,
+});
+let wired = false;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, cls?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -186,59 +201,39 @@ function controls(root: HTMLElement, payload: AgentStatePayload, machine: StateM
   root.append(bar);
 }
 
-async function diagram(root: HTMLElement, payload: AgentStatePayload, machine: StateMachine): Promise<HTMLElement[]> {
-  const holder = el("div", undefined, "diagram");
-  root.append(holder);
-  const { text, edgeOrder, hasInitial, stateIds } = toMermaidState(machine, { showUnchanged });
-  let svg: string;
+/** The machine, drawn by the engine into the shared viewport. */
+async function diagram(
+  root: HTMLElement,
+  payload: AgentStatePayload,
+  machine: StateMachine,
+  keep: string | null,
+): Promise<void> {
+  ensureDiagramStyles(document);
+  const font = fontFamily();
+  const structure = toStateDiagram(machine, { uri: payload.uri, showUnchanged });
   try {
-    ({ svg } = await mermaid.render(`bynk-agent-state-${renderSeq++}`, text));
+    const scene = await layoutStructure(structure, measurerFor(font), { direction: "DOWN" });
+    drawing = drawStructure(scene, { title: `States of ${payload.model.agent}.${machine.field}`, fontFamily: font });
   } catch (err) {
-    holder.textContent = `Failed to render diagram: ${String(err)}`;
-    return [];
+    drawing = undefined;
+    root.append(el("div", `Failed to render diagram: ${String(err)}`, "diagram"));
+    return;
   }
-  holder.innerHTML = svg;
-
-  // States link to the field's declaration (a state has no single source
-  // location of its own); `?` stands for computed writes and links nowhere.
-  const nodes = [...holder.querySelectorAll("g.node")];
-  for (const [id, name] of stateIds) {
-    const node = stateNode(nodes, id);
-    if (node && name !== "?") clickable(node, payload.uri, machine.fieldRange);
+  machineShown = machine;
+  locs.clear();
+  for (const [id, loc] of locsOf(structure)) locs.set(id, loc);
+  root.append(actionsBar, viewport.element);
+  if (!viewport.minimapElement.isConnected) document.body.appendChild(viewport.minimapElement);
+  if (!wired) {
+    wired = true;
+    wireInteraction<ArchLoc>(viewport.element, locs, {
+      reveal: (loc) => reveal(loc.uri, loc.range),
+      hover: (loc) => vscodeApi.postMessage({ type: "highlight", uri: loc?.uri ?? "", range: loc?.range ?? null }),
+    });
   }
-
-  // Transitions link to their first edge's write. Labels skip the label-less
-  // `[*] --> initial` (`alignLabels`); paths include it, numbered first.
-  const labels = alignLabels(
-    transitionLabels([...holder.querySelectorAll(".edgeLabel .label[data-id]")]),
-    edgeOrder.length,
-    hasInitial,
-  );
-  const paths = transitionLabels([...holder.querySelectorAll("path.transition[data-id]")]).slice(
-    hasInitial ? 1 : 0,
-  );
-  const marked: HTMLElement[] = [];
-  edgeOrder.forEach((group: TransitionGroup, i) => {
-    const label = labels[i] as HTMLElement | undefined;
-    if (!label) return;
-    clickable(label, payload.uri, group.edges[0].range);
-    label.dataset.handlers = group.handlers.join(" ");
-    const lines = group.edges.map((e) =>
-      [e.handler + "()", ...e.guards.map((g) => `when ${g}`)].join(" "),
-    );
-    // #2197: a transition a `transition` would refuse — red when known, amber
-    // when a computed write only may land badly.
-    if (group.flag) {
-      const cls = group.flag === "Known" ? "flag-known" : "flag-possible";
-      label.classList.add(cls);
-      paths[i]?.classList.add(cls);
-      const verb = group.flag === "Known" ? "violates" : "may violate";
-      lines.push(`${verb} ${group.violated.join(", ")} at commit`);
-    }
-    label.title = lines.join("\n");
-    marked.push(label);
-  });
-  return marked;
+  viewport.show(drawing);
+  initTabOrder(viewport.element);
+  restoreFocus(viewport.element, keep);
 }
 
 function table(root: HTMLElement, payload: AgentStatePayload, machine: StateMachine): void {
@@ -337,21 +332,33 @@ function legend(root: HTMLElement, payload: AgentStatePayload, machine: StateMac
   root.append(box);
 }
 
-let transitions: HTMLElement[] = [];
+/** A drawn transition's handlers (`data-bynk-tags`, a JSON array). */
+function tagsOf(el: Element): string[] {
+  try {
+    const tags: unknown = JSON.parse(el.getAttribute("data-bynk-tags") ?? "[]");
+    return Array.isArray(tags) ? tags.filter((t): t is string => typeof t === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 function applyFocus(root: HTMLElement): void {
   for (const row of root.querySelectorAll<HTMLElement>("tr[data-handler], .effects[data-handler]")) {
     row.classList.toggle("focus", row.dataset.handler === focus);
   }
-  for (const label of transitions) {
-    const hs = (label.dataset.handlers ?? "").split(" ");
-    label.classList.toggle("focus", focus !== undefined && hs.includes(focus));
+  // The handler's transitions in the machine.
+  for (const edge of viewport.element.querySelectorAll("[data-bynk-tags]")) {
+    edge.classList.toggle("bynk-current", focus !== undefined && tagsOf(edge).includes(focus));
   }
 }
 
 async function renderPayload(root: HTMLElement, payload: AgentStatePayload | null): Promise<void> {
   current = payload;
+  // Before the page is cleared, while the viewport is still attached.
+  const keep = focusedRef(viewport.element);
   root.textContent = "";
+  machineShown = undefined;
+  drawing = undefined;
   if (!payload) {
     root.textContent = "No agent at the cursor.";
     return;
@@ -365,18 +372,8 @@ async function renderPayload(root: HTMLElement, payload: AgentStatePayload | nul
   const machine = machines.find((m) => m.field === selectedField) ?? machines[0];
   selectedField = machine.field;
 
-  if (!mermaidReady) {
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      theme: "base",
-      themeVariables: mermaidThemeVariables(),
-    });
-    mermaidReady = true;
-  }
-
   controls(root, payload, machine);
-  transitions = await diagram(root, payload, machine);
+  await diagram(root, payload, machine, keep);
   legend(root, payload, machine);
   table(root, payload, machine);
   // #2198: the per-handler effects, collapsed below the machine.
@@ -397,11 +394,4 @@ live = startLiveView<AgentStatePayload>(vscodeApi, "__BYNK_AGENT_STATE__", rende
   focus = view.focus;
   const root = document.getElementById("root");
   if (root) applyFocus(root);
-});
-
-// Mermaid snapshots the theme's colours into its configuration and SVG, so a
-// theme switch re-initialises it and redraws.
-watchTheme(() => {
-  mermaidReady = false;
-  live?.rerender();
 });

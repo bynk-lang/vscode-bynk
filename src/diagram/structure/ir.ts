@@ -1,9 +1,10 @@
 // The structure-diagram part of the diagram IR (model-diagrams track §4.2,
-// slices 4 and 5): nested nodes and typed edges, for the architecture map and
-// the component view. Identity and UML meaning, no coordinates; ELK
+// slices 4–6): nested nodes and typed edges, for the architecture map, the
+// component view and the agent state machine. Identity and UML meaning, no coordinates; ELK
 // lays it out (`layout.ts`).
 
 import type { ArchLoc } from "../../webview/architectureTypes";
+import type { DiffMark } from "../../webview/diffMarks";
 
 /** An element's identity: a stable id within one diagram, and the source it
  *  stands for (`null` when it has none: the system boundary, an actor). */
@@ -24,7 +25,15 @@ export type StructNodeKind =
   | "service"
   | "agent"
   | "capability"
-  | "provider";
+  | "provider"
+  /** State machine (slice 6): a state of the field. */
+  | "state"
+  /** The initial pseudo-state (UML's filled dot). */
+  | "initial"
+  /** `?`: where a computed write lands (ADR 0536's dashed state). */
+  | "computed"
+  /** A note, attached to nothing (a truncated handler). */
+  | "note";
 
 export interface StructNode {
   ref: StructRef;
@@ -51,6 +60,12 @@ export interface StructNode {
   /** Offer to open this node in its own, more detailed view (the map's units
    *  open their component view). */
   opens?: boolean;
+  /** Drawn faded: a state unreachable from the initial one. */
+  dimmed?: boolean;
+  /** How it differs from the other revision, on a model diff's drawing. */
+  diff?: DiffMark;
+  /** More to say in its tooltip, under its description. */
+  note?: string;
 }
 
 /** One line of a node's compartment. */
@@ -85,7 +100,9 @@ export type StructEdgeKind =
   /** Component view: an outside component wired to a port (ball in socket). */
   | "assembly"
   /** Component view: one part calling another (a service calling an agent). */
-  | "invokes";
+  | "invokes"
+  /** State machine: a handler moving the field from one state to another. */
+  | "transition";
 
 export interface StructEdge {
   ref: StructRef;
@@ -94,6 +111,15 @@ export interface StructEdge {
   target: string;
   label: string | null;
   cycle: boolean;
+  /** A transition a `transition` declaration refuses at commit: `Known`
+   *  always, `Possible` when a computed write may land there. */
+  flag?: "Known" | "Possible";
+  /** How it differs from the other revision, on a model diff's drawing. */
+  diff?: DiffMark;
+  /** Names it answers to (the handlers on a transition), for highlighting. */
+  tags?: string[];
+  /** More to say in its tooltip, under its description. */
+  note?: string;
 }
 
 export interface StructDiagram {

@@ -229,10 +229,16 @@ export class DiagramViewport {
     for (const fn of this.listeners) fn();
   }
 
-  /** Fill the panel below the viewport's top. */
+  /** Fill the panel below the viewport's top. An inline viewport (one
+   *  diagram among other content, `bynk-viewport--inline`) is as tall as its
+   *  drawing instead, and the page scrolls. */
   private fitHeight(): void {
     const win = this.doc.defaultView;
     if (!win || !this.element.isConnected) return;
+    if (this.element.classList.contains("bynk-viewport--inline")) {
+      this.element.style.height = "";
+      return;
+    }
     const top = this.element.getBoundingClientRect().top;
     const h = Math.max(200, win.innerHeight - top - 12);
     this.element.style.height = `${Math.round(h)}px`;

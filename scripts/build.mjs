@@ -19,18 +19,19 @@ if (views.length === 0) throw new Error("no `// @webview-entry` files in src/web
 
 const common = { absWorkingDir: root, bundle: true, minify: !watch, sourcemap: watch };
 
-// Model-diagrams slice 0: the views that still draw with Mermaid share the one
-// copy in `out/mermaid.js` (the `mermaid` entry, `src/webview/vendor-mermaid.ts`)
-// instead of bundling their own. Their `import mermaid from "mermaid"` resolves
-// to the global that script sets; the host loads it first (`vendorScripts` in
-// `livePanel.ts`).
-const SHARED_MERMAID = new Set(["state", "model-diff"]);
-const sharedMermaid = {
-  name: "shared-mermaid",
+// Model-diagrams slice 6: the pages that lay out with ELK share the one copy
+// in `out/elk.js` (the `elk` entry, `src/webview/vendor-elk.ts`) instead of
+// bundling their own. Their `import ELK from "elkjs/lib/elk.bundled.js"`
+// resolves to the global that script sets; the host loads it first
+// (`vendorScripts` in `livePanel.ts`, and the model diff's page). Mermaid is no
+// longer a dependency: the views draw with the diagram engine, and "Copy as
+// Mermaid" only writes text.
+const sharedElk = {
+  name: "shared-elk",
   setup(build) {
-    build.onResolve({ filter: /^mermaid$/ }, () => ({ path: "mermaid", namespace: "bynk-shared-mermaid" }));
-    build.onLoad({ filter: /.*/, namespace: "bynk-shared-mermaid" }, () => ({
-      contents: "export default globalThis.__BYNK_MERMAID__;",
+    build.onResolve({ filter: /^elkjs\/lib\/elk\.bundled\.js$/ }, () => ({ path: "elk", namespace: "bynk-shared-elk" }));
+    build.onLoad({ filter: /.*/, namespace: "bynk-shared-elk" }, () => ({
+      contents: "export default globalThis.__BYNK_ELK__;",
       loader: "js",
     }));
   },
@@ -52,7 +53,7 @@ const builds = [
     format: "iife",
     platform: "browser",
     target: "es2022",
-    plugins: SHARED_MERMAID.has(name) ? [sharedMermaid] : [],
+    plugins: name === "elk" ? [] : [sharedElk],
   })),
 ];
 

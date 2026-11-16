@@ -62,10 +62,10 @@ export interface ModelDiffPage {
   /** #153: the bundle (`out/model-diff.js`) that draws `graphs` and handles row
    *  clicks, and what it draws. Without them the page is the tables alone. */
   scriptUri?: string;
-  /** The shared Mermaid bundle (`out/mermaid.js`), loaded before `scriptUri`:
-   *  the bundle draws with it (model-diagrams slice 0). Needed whenever
-   *  `scriptUri` is set. */
-  mermaidUri?: string;
+  /** The shared ELK bundle (`out/elk.js`), loaded before `scriptUri`: the
+   *  bundle lays its diagrams out with it (model-diagrams slice 6). Needed
+   *  whenever `scriptUri` is set. */
+  elkUri?: string;
   graphs?: DiffGraphs;
 }
 
@@ -90,9 +90,9 @@ function graphSections(g: DiffGraphs): string {
 function script(page: ModelDiffPage): string {
   if (page.scriptUri) {
     const json = JSON.stringify(page.graphs ?? { architecture: null, agents: [] }).replace(/</g, "\\u003c");
-    const mermaid = page.mermaidUri ? `<script nonce="${page.nonce}" src="${escapeHtml(page.mermaidUri)}"></script>\n` : "";
+    const elk = page.elkUri ? `<script nonce="${page.nonce}" src="${escapeHtml(page.elkUri)}"></script>\n` : "";
     return `<script nonce="${page.nonce}">window.__BYNK_MODEL_DIFF__ = ${json};</script>
-${mermaid}<script nonce="${page.nonce}" src="${escapeHtml(page.scriptUri)}"></script>`;
+${elk}<script nonce="${page.nonce}" src="${escapeHtml(page.scriptUri)}"></script>`;
   }
   return `<script nonce="${page.nonce}">
   const vscode = acquireVsCodeApi();

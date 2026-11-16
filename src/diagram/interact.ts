@@ -142,9 +142,12 @@ export function focusedRef(root: ParentNode): string | null {
 
 /** Give focus back to the element for `id` after a redraw, if it still exists. */
 export function restoreFocus(root: Element, id: string | null): void {
-  // IR ids are letters, digits and dots, so they quote safely in a selector.
-  if (!id || !/^[\w.]+$/.test(id)) return;
-  const el = root.querySelector<SVGElement>(`[data-bynk-focusable][data-bynk-ref="${id}"]`);
+  // Matched by value, not built into a selector: a structure diagram's ids
+  // carry `:`, `/` and model names (review of #178).
+  if (!id) return;
+  const el = [...root.querySelectorAll<SVGElement>("[data-bynk-focusable]")].find(
+    (e) => e.getAttribute("data-bynk-ref") === id,
+  );
   if (!el) return;
   for (const other of root.querySelectorAll<SVGElement>("[data-bynk-focusable]")) {
     other.setAttribute("tabindex", other === el ? "0" : "-1");
