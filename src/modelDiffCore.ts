@@ -13,6 +13,7 @@
 import type { ArchLoc, ArchModel } from "./webview/architectureTypes";
 import type { CdModel } from "./webview/contractDiffTypes";
 import type { AgentStateModel } from "./webview/stateTypes";
+import { diffWire, WIRE_NOTE, type WireHandler } from "./wireDiffCore";
 
 // ---------------------------------------------------------------- git side
 
@@ -189,6 +190,9 @@ export interface ModelSnapshot {
   contracts: CdModel | null;
   /** Each agent's state model, keyed by `agentKey`. */
   agents: Record<string, AgentStateModel>;
+  /** #154: each handler's wire contract, keyed by `wireHandlerKey`. Absent when
+   *  the revision's handlers could not be read. */
+  wire?: Record<string, WireHandler>;
 }
 
 export type ChangeKind = "added" | "removed" | "changed";
@@ -207,7 +211,7 @@ export interface DiffEntry {
   loc: ArchLoc | null;
 }
 
-export type SectionId = "architecture" | "contracts" | "agents" | "capabilities";
+export type SectionId = "architecture" | "contracts" | "wire" | "agents" | "capabilities";
 
 export interface DiffSection {
   id: SectionId;
@@ -498,12 +502,21 @@ export function diffSnapshots(before: ModelSnapshot, after: ModelSnapshot): Mode
     () => diffContracts(before.contracts!, after.contracts!),
   );
   contracts.note = CONTRACTS_NOTE;
+  const wire = section(
+    "wire",
+    "Wire contracts",
+    !!before.wire && !!after.wire,
+    "the handlers' wire contracts of one of the revisions could not be read",
+    () => diffWire(before.wire!, after.wire!),
+  );
+  wire.note = WIRE_NOTE;
   return {
     sections: [
       section("architecture", "Architecture", arch, archReason, () =>
         diffArchitecture(before.architecture!, after.architecture!),
       ),
       contracts,
+      wire,
       section("agents", "Agent states", arch, archReason, () => {
         const out: DiffEntry[] = [];
         const locs = new Map<string, ArchLoc>();

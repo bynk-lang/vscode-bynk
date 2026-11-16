@@ -83,6 +83,13 @@ describe("compare model with a git revision (#147)", () => {
     );
     assert.ok(added[0].loc?.uri.startsWith(vscode.Uri.file(repo).toString()), "an added row links to the working tree");
 
+    // Each handler's wire contract is compared: the second commit's route is new.
+    const wire = diff.sections.find((s) => s.id === "wire")!;
+    assert.ok(
+      wire.entries.some((e) => e.change === "added" && e.verdict === "compatible" && e.name.includes("GET /second")),
+      `the added handler is a compatible wire change: ${JSON.stringify(wire)}`,
+    );
+
     // The map is drawn from the merged model: the added service is marked.
     assert.strictEqual(
       diff.graphs.architecture?.marks.members["md\u0000service\u0000second"],
