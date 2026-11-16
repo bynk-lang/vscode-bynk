@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+## [0.614.4] - 2026-11-16
+
+Built against `bynk` v0.614.0. Fixes Run All Tests in a Bynk workspace.
+
 ### Fixed
 
 - In a Bynk workspace (a root `bynk.toml` with `[workspace]`, such as
