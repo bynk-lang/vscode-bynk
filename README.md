@@ -264,8 +264,8 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   headers other than a redirect's `Location` (a test cannot read them), `exists`
   and `contains` checks and list-index paths (they need the field's type), a
   query string, and a step that reads any of these, which is left out. The suite
-  is compiled with your unsaved buffers first and nothing is written if it does
-  not check. It is a one-way copy: the scenario and the suite are not kept in
+  is checked with `bynk check` first, in a scratch copy of the project that
+  includes your unsaved buffers, and nothing is written if it does not check. It is a one-way copy: the scenario and the suite are not kept in
   sync.
   **Run against…** (the lens, or **Bynk: Run Scenario Against…**) runs the
   scenario against a deployment instead: it offers `dev` and the targets under

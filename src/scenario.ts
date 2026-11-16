@@ -10,11 +10,13 @@
 // each handler's header line, to ask the server about HTTP handlers only (as
 // the Send request lens does).
 
+import * as path from "node:path";
+
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
-import { checkInProject } from "./chatCheck";
 import { devServerState } from "./devServer";
+import { checkSuiteInCopy } from "./promoteCheck";
 import { describeDiagnostic } from "./richDiagnostics";
 import { handlerSymbols } from "./refreshScheduler";
 import { pickTarget } from "./testTargetPicker";
@@ -131,7 +133,9 @@ class RouteIndex implements vscode.Disposable {
         const header = doc.getText(new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character)).split("{", 1)[0];
         // `by u: User`, `by Visitor`: the actors the handler admits.
         const actors = [...header.matchAll(/\bby\s+(?:[a-z_]\w*\s*:\s*)?([A-Z]\w*)/g)].map((m) => m[1]);
-        out.push({ unit: wc.model.unit, method: kind.method, path: kind.path, model: wc.model, service: wc.model.service, responses: wc.model.responses, actors });
+        const identities: Record<string, string> = {};
+        for (const a of doc.getText().matchAll(/\bactor\s+([A-Z]\w*)\s*\{[^}]*?\bidentity\s*=\s*([A-Z]\w*)/g)) identities[a[1]] = a[2];
+        out.push({ unit: wc.model.unit, method: kind.method, path: kind.path, model: wc.model, service: wc.model.service, responses: wc.model.responses, actors, identities });
       }
     }
     return out;
@@ -599,10 +603,12 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
       if (actor === "Visitor") {
         chosen = "Visitor";
       } else {
+        const identityType = routes.map((r) => r.identities?.[actor!]).find((t) => t !== undefined);
         const identity = await vscode.window.showInputBox({
           title: `Promote: the identity ${actor} runs as`,
-          prompt: `A Bynk expression for ${actor}'s identity, such as "ada". It is written into the suite as by ${actor}(…).`,
-          value: '"ada"',
+          prompt: `A Bynk expression for ${actor}'s identity. It is written into the suite as by ${actor}(…).`,
+          // An identity is a sealed type, built with `.of` (which fails the case if it is refused).
+          value: identityType && identityType !== "String" ? `${identityType}.of("ada")?` : '"ada"',
           ignoreFocusOut: true,
         });
         if (identity === undefined || identity.trim() === "") return undefined;
@@ -636,7 +642,7 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
     // The compiler checks the suite before it is offered; nothing is written otherwise.
     const verdict = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: "Checking the generated suite…", cancellable: true },
-      (_p, token) => checkInProject(target, result.text, token, (f) => projectRootFor(f)),
+      (_p, token) => checkSuiteInCopy(root.fsPath, path.join("tests", `${base}.bynk`), result.text, token),
     );
     if (verdict.kind !== "ok") {
       output.appendLine(`── promote ${vscode.workspace.asRelativePath(uri, false)} ──`);

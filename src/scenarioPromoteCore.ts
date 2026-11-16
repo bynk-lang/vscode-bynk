@@ -356,7 +356,7 @@ export function promote(scenario: Scenario, resolved: readonly (Resolved | undef
     ...head,
     `suite ${unit} as system {`,
     `\tcase ${quote(caseName)} {`,
-    ...body.map((l) => (l === "" ? "" : `\t\t${l}`)),
+    ...body.slice(0, body.at(-1) === "" ? -1 : undefined).map((l) => (l === "" ? "" : `\t\t${l}`)),
     "\t}",
     "}",
     "",
@@ -519,7 +519,8 @@ function makeStep(
   if (!status && !bind) {
     lines.push(`let r_${step.name} <- ${call}`);
   } else if (variant && info && info.payload !== "tuple") {
-    const pattern = bind ? `${variant}(${variable})` : bindable ? `${variant}(_)` : variant;
+    // A bare variant name is a binding, not a pattern: qualify it.
+    const pattern = bind ? `${variant}(${variable})` : bindable ? `${variant}(_)` : `HttpResult.${variant}`;
     lines.push(`let ${pattern} <- ${call} else { expect false }`);
   } else if (variant && info) {
     return { skip: `it answers ${variant}, which carries a raw body` };
@@ -559,6 +560,8 @@ function assertion(e: Expectation, variable: string, variant: string | undefined
   // A body expectation.
   if (payload === "none") return { why: "the answer carries no body" };
   if (payload === "location") return { why: "a redirect's answer is its Location, not a body" };
+  // These need the field's type, which `bynk/wireContract` does not carry for a
+  // response yet (bynk-lang/bynk#3609, with vscode-bynk#160): listed until it does.
   if (e.op === "exists" || e.op === "absent" || e.op === "contains") return { why: `\`${e.op}\` has no typed spelling without the field's type` };
   const target = payload === "message" ? (s.path.length === 1 && s.path[0] === "error" ? variable : undefined) : pathExpr(variable, s.path);
   if (!target) return { why: "that path has no typed spelling (a list index, or a message's other fields)" };

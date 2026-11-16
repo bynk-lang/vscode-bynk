@@ -714,6 +714,8 @@ export interface RouteInfo {
   responses?: WcModel["responses"];
   /** The actors the handler's header names (`by u: User`): what a case may run as. */
   actors?: string[];
+  /** Each actor's identity type, from its declaration (`actor User { …, identity = UserId }`). */
+  identities?: Record<string, string>;
 }
 
 /** Whether a scenario path (its `{{…}}` segments stand for anything) is a

@@ -186,6 +186,16 @@ GET /ping
     assert.match((variantFor({ ...PING, responses: undefined }, 200) as { why: string }).why, /did not give/);
   });
 
+  it("qualifies a variant with no payload, and ends the case without a blank line", () => {
+    const gone = route({ method: "DELETE", path: "/items/:id", model: { envelope: { kind: "Bare", param: "id", shape: { kind: "Named", name: "ItemId" } }, types: [ITEM, ITEM_ID], instantiations: [] }, responses: responses([200, "Ok", true], [204, "NoContent"]) });
+    const sc = parseScenario("@context shop\n\n### drop\nDELETE /items/a\n\n? status == 204\n");
+    const r = promote(sc, [{ route: gone }], opts);
+    assert.ok(r.ok);
+    // A bare variant name is a binding, not a pattern.
+    assert.ok(r.text.includes('let HttpResult.NoContent <- api.DELETE("/items/:id", ItemId.unsafe("a")) by Visitor else { expect false }'), r.text);
+    assert.ok(r.text.endsWith("\t\tlet HttpResult.NoContent <- api.DELETE(\"/items/:id\", ItemId.unsafe(\"a\")) by Visitor else { expect false }\n\t}\n}\n"), r.text);
+  });
+
   it("matches a redirect's Location as its payload", () => {
     const redirect = route({ method: "GET", path: "/go", responses: responses([302, "Found"]) });
     const { sc } = resolveAll(`@context shop

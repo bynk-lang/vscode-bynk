@@ -198,7 +198,7 @@ Authorization: Bearer {{env.PROMO_TOKEN}}
 
 ? header content-type == "application/json"
 `;
-    const stdin = () => path.join(dir, ".promote-stdin.json");
+    const kept = () => path.join(dir, ".promote-suite.bynk");
 
     async function promote(answer: string | undefined) {
       const pick = vscode.window.showQuickPick;
@@ -216,13 +216,13 @@ Authorization: Bearer {{env.PROMO_TOKEN}}
     }
 
     after(() => {
-      delete process.env.BYNK_FAKE_COMPILE;
-      delete process.env.BYNK_FAKE_COMPILE_STDIN;
+      delete process.env.BYNK_FAKE_CHECK;
+      delete process.env.BYNK_FAKE_CHECK_SUITE;
     });
 
-    it("checks the suite with the compiler, lists what it cannot express and writes nothing secret", async function () {
+    it("checks the suite with the compiler in a scratch copy, lists what it cannot express and writes nothing secret", async function () {
       this.timeout(60_000);
-      process.env.BYNK_FAKE_COMPILE_STDIN = stdin();
+      process.env.BYNK_FAKE_CHECK_SUITE = kept();
       const target = await promote("Write suite");
       assert.ok(target, "the suite was written");
       assert.strictEqual(target.fsPath, path.join(dir, "tests", "promo.bynk"));
@@ -232,19 +232,18 @@ Authorization: Bearer {{env.PROMO_TOKEN}}
       assert.ok(text.includes("// Not expressed (1 of 2 expectations"), text);
       assert.ok(text.includes("content-type"), text);
       assert.ok(!/PROMO_TOKEN|Bearer/.test(text), text);
-      // What the compiler was given was this text, as an unsaved new file under tests/.
-      const sent = JSON.parse(fs.readFileSync(stdin(), "utf8")) as Record<string, string>;
-      assert.strictEqual(sent[target.fsPath], text);
+      // What the compiler checked was this text, at its path in a scratch copy of the project.
+      assert.strictEqual(fs.readFileSync(kept(), "utf8"), text);
       fs.rmSync(target.fsPath);
     });
 
     it("writes nothing when the compiler refuses the suite", async function () {
       this.timeout(60_000);
-      process.env.BYNK_FAKE_COMPILE = "errors";
+      process.env.BYNK_FAKE_CHECK = "errors";
       try {
         assert.strictEqual(await promote("Write suite"), undefined);
       } finally {
-        delete process.env.BYNK_FAKE_COMPILE;
+        delete process.env.BYNK_FAKE_CHECK;
       }
       assert.ok(!fs.existsSync(path.join(dir, "tests", "promo.bynk")));
     });
