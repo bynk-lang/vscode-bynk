@@ -100,7 +100,8 @@ export function toMermaid(model: SequenceModel): MermaidResult {
     // The principal renders as an `actor` (stick figure); everyone else is a
     // `participant` box.
     const keyword = p.kind === "Actor" ? "actor" : "participant";
-    lines.push(`    ${keyword} P${p.id} as ${escapeLabel(p.name)}`);
+    const key = p.kind === "Agent" && p.key ? `[${p.key}]` : "";
+    lines.push(`    ${keyword} P${p.id} as ${escapeLabel(p.name + key)}`);
   }
 
   const emitMessage = (m: Message): void => {
@@ -135,7 +136,8 @@ export function toMermaid(model: SequenceModel): MermaidResult {
       emitNote(block, "nested branching — click to view source");
       return;
     }
-    const keyword = block.branches.length <= 1 ? "opt" : "alt";
+    // Model-diagrams slice 3: a `?`'s early return is a Mermaid `break`.
+    const keyword = block.kind === "Break" ? "break" : block.branches.length <= 1 ? "opt" : "alt";
     block.branches.forEach((branch, branchIndex) => {
       lines.push(`    ${branchIndex === 0 ? keyword : "else"} ${escapeLabel(branch.label)}`);
       const branchMessages = branch.messageIds

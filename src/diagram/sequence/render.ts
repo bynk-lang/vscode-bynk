@@ -117,6 +117,21 @@ export interface SequenceRender {
   ranges: Map<string, Range>;
   hidden: Map<string, string>;
   folded: Set<string>;
+  /** Each `ref` link (by its IR id, `<message id>.ref`) and where it leads. */
+  callees: Map<string, { uri: string; range: Range }>;
+}
+
+/** Every located callee's drill-down link, by link id. */
+export function calleesOf(diagram: SequenceDiagram): Map<string, { uri: string; range: Range }> {
+  const out = new Map<string, { uri: string; range: Range }>();
+  const walk = (events: SequenceEvent[]): void => {
+    for (const e of events) {
+      if (e.type === "message" && e.callee) out.set(`${e.ref.id}.ref`, e.callee.location);
+      if (e.type === "fragment") for (const op of e.operands) walk(op.events);
+    }
+  };
+  walk(diagram.events);
+  return out;
 }
 
 /** Lay out and draw `model`, with `overrides` (fragment id → folded) applied
@@ -133,5 +148,5 @@ export function renderSequence(
     title: entry ? `Sequence diagram of ${entry.name}` : "Sequence diagram",
     fontFamily: opts.fontFamily,
   });
-  return { drawing, diagram, ranges: rangesOf(diagram), hidden: hiddenBy(diagram, folded), folded };
+  return { drawing, diagram, ranges: rangesOf(diagram), hidden: hiddenBy(diagram, folded), folded, callees: calleesOf(diagram) };
 }

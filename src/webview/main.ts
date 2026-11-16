@@ -199,6 +199,11 @@ function render(root: HTMLElement, next: SequencePayload | null): void {
       reveal,
       toggleFold,
       hover: (range) => post({ type: "highlight", uri: payload?.uri ?? "", range }),
+      // Model-diagrams slice 3: a `ref` link opens the callee's own diagram.
+      open: (id) => {
+        const to = current?.callees.get(id);
+        if (to) post({ type: "openSequence", uri: to.uri, range: to.range });
+      },
     });
   }
   viewport.show(result.drawing);

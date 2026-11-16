@@ -25,6 +25,9 @@ export interface DiagramHost {
   toggleFold?(id: string): void;
   /** The source of the element under the pointer or focus; `null` when none. */
   hover?(range: Range | null): void;
+  /** Open what an element marked `data-bynk-open` (IR id `id`) leads to:
+   *  the callee's own diagram, for a `ref` link. */
+  open?(id: string): void;
 }
 
 /** Put the first element in the tab order (after a redraw replaced them). */
@@ -45,7 +48,12 @@ export function wireInteraction(root: Element, ranges: ReadonlyMap<string, Range
     (event.target as Element | null)?.closest?.<SVGElement>("[data-bynk-focusable]") ?? null;
 
   const reveal = (el: SVGElement): void => {
-    const range = ranges.get(el.getAttribute("data-bynk-ref") ?? "");
+    const id = el.getAttribute("data-bynk-ref") ?? "";
+    if (el.hasAttribute("data-bynk-open")) {
+      host.open?.(id);
+      return;
+    }
+    const range = ranges.get(id);
     if (range) host.reveal(range);
   };
 

@@ -12,6 +12,7 @@
 import type { FontRole, TextMeasurer } from "../measure";
 import type {
   ArrowKind,
+  CalleeLink,
   FragmentEvent,
   Lifeline,
   LifelineKind,
@@ -62,6 +63,11 @@ export interface PlacedMessage {
   /** Where the label's text is anchored (it sits above the line). */
   labelX: number;
   labelAnchor: "middle" | "start";
+  /** A found message (model-diagrams slice 3): it starts at a filled dot at
+   *  `x1`, not at a lifeline; `from` is meaningless. */
+  found?: boolean;
+  /** The drill-down link to the callee's own diagram, placed after the label. */
+  callee?: CalleeLink & { x: number; y: number };
 }
 
 export interface PlacedNote {
@@ -147,6 +153,8 @@ const M = {
   actOverhang: 10,
   maxLabel: 64,
   foldW: 14,
+  foundMin: 70,
+  calleeW: 16,
   foldedBody: 24,
 };
 
@@ -206,7 +214,8 @@ export function layoutSequence(diagram: SequenceDiagram, measure: TextMeasurer, 
           if (e.from < n - 1) constraints.push({ a: e.from, b: e.from + 1, need: need + headW[e.from + 1] / 2 });
           else rightExtra = Math.max(rightExtra, need);
         } else {
-          constraints.push({ a: Math.min(e.from, e.to), b: Math.max(e.from, e.to), need: lw + M.labelPad });
+          const link = e.callee ? M.calleeW : 0;
+          constraints.push({ a: Math.min(e.from, e.to), b: Math.max(e.from, e.to), need: lw + M.labelPad + 2 * link });
         }
       } else if (e.type === "fragment") {
         for (const op of e.operands) collect(op.events);
@@ -264,6 +273,7 @@ export function layoutSequence(diagram: SequenceDiagram, measure: TextMeasurer, 
             type: "message", ref: e.ref, arrow: e.arrow, label: l, from: e.from, to: e.to,
             x1, x2, y, self: false, labelX: (x1 + x2) / 2, labelAnchor: "middle",
           };
+          if (e.callee) m.callee = { ...e.callee, x: (x1 + x2) / 2 + lw / 2 + 8, y: y - 6 };
           items.push(m);
           messages.push(m);
           grow(ext, Math.min(x1, x2), Math.max(x1, x2));
@@ -366,6 +376,19 @@ export function layoutSequence(diagram: SequenceDiagram, measure: TextMeasurer, 
     }
     return ext;
   };
+  if (diagram.found) {
+    // A found message into the entry: from a dot to its left.
+    const l = label(diagram.found.label);
+    const len = Math.max(M.foundMin, w(l.text, "label") + M.labelPad);
+    const x2 = xs[entry];
+    const m: PlacedMessage = {
+      type: "message", ref: diagram.found.ref, arrow: "sync", label: l, from: entry, to: entry,
+      x1: x2 - len, x2, y, self: false, labelX: x2 - len / 2, labelAnchor: "middle", found: true,
+    };
+    items.push(m);
+    messages.push(m);
+    y += M.msgRow;
+  }
   place(diagram.events);
   const lastY = y - M.msgRow / 2;
 
@@ -407,7 +430,8 @@ export function layoutSequence(diagram: SequenceDiagram, measure: TextMeasurer, 
       continue;
     }
     const dir = Math.sign(m.x2 - m.x1);
-    if (activeAt(m.from, m.y)) m.x1 += (dir * M.actW) / 2;
+    // A found message starts at its dot, not at a lifeline.
+    if (!m.found && activeAt(m.from, m.y)) m.x1 += (dir * M.actW) / 2;
     if (activeAt(m.to, m.y)) m.x2 -= (dir * M.actW) / 2;
   }
 
@@ -451,6 +475,7 @@ export function layoutSequence(diagram: SequenceDiagram, measure: TextMeasurer, 
       it.x1 += dx;
       it.x2 += dx;
       it.labelX += dx;
+      if (it.callee) it.callee.x += dx;
     } else if (it.type === "note") {
       shift(it.box);
     } else {

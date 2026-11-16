@@ -18,8 +18,9 @@ import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
-import { fileStem, isCopyText, isHighlight, isPageError, isSaveFile, type HighlightMessage, type SaveFileMessage } from "./sequenceMessages";
+import { fileStem, isCopyText, isHighlight, isOpenSequence, isPageError, isSaveFile, type HighlightMessage, type SaveFileMessage } from "./sequenceMessages";
 import type { ViewRefresh } from "./viewRefresh";
+import { revealLocation } from "./webviewHost";
 import type { SequenceModel, SequencePayload } from "./webview/types";
 
 interface SequenceModelParams {
@@ -64,6 +65,13 @@ export function registerSequenceDiagram(
         showHighlight(highlight, message);
       } else if (isSaveFile(message)) {
         void saveFile(message);
+      } else if (isOpenSequence(message)) {
+        // A `ref` link: show the callee's handler in the editor (so a
+        // cursor-following view agrees), then its diagram (so a pinned one
+        // moves too).
+        void revealLocation(message.uri, message.range).then(() =>
+          view.show({ uri: message.uri, position: message.range.start }),
+        );
       } else if (isPageError(message)) {
         void vscode.window.showErrorMessage(`Bynk: ${message.message}`);
       }
