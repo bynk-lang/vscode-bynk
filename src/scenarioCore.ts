@@ -586,6 +586,9 @@ export interface RunHost {
   prepare(step: Step): Prepared | { error: string };
   send(request: { method: string; url: string; headers: [string, string][]; body?: string }): Promise<Sent | { error: string }>;
   env: Readonly<Record<string, string | undefined>>;
+  /** Variables whose values are hidden from every result even when no step
+   *  mentions them, such as the secrets a deployed target declares. */
+  redactEnv?: readonly string[];
   cancelled(): boolean;
 }
 
@@ -628,6 +631,10 @@ export async function runSteps(steps: readonly Step[], host: RunHost, only?: Rea
 
 async function runStep(step: Step, host: RunHost, outcomes: Map<string, Outcome>): Promise<StepResult> {
   const secrets: Secrets = new Map();
+  for (const name of host.redactEnv ?? []) {
+    const v = host.env[name];
+    if (v) secrets.set(v, name);
+  }
   const skip = (message: string): StepResult => ({ step: step.name, state: "skipped", message: redact(message, secrets), checks: [] });
   const fail = (message: string, request?: string): StepResult => ({
     step: step.name,

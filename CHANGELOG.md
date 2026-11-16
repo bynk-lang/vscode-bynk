@@ -15,9 +15,6 @@ version).
 ### Added
 
 - **Bynk: Promote Scenario to Test Suite** (`bynk.scenario.promote`, and a `Promote to test suite` CodeLens on a scenario) writes a `.bynk-http` scenario as a `system`-tier suite under `tests/` (#158). Each step becomes a typed call (`api.PUT("/items/:id", "abc", Item { … }) by Visitor`) in one case; a `{{step.body.field}}` capture is the earlier answer's typed value, and `? status == N` is the `HttpResult` variant that carries it. Credentials are the case's `by <Actor>` (you pick the actor), never a header, and an environment value is never written into the suite. What a suite cannot express (response headers other than a redirect's `Location`, `exists`/`contains` and list-index paths, query strings, a step that reads one of those) is listed at the top of the suite and in a summary you confirm before anything is written; a step that cannot be a call is left out with the steps that read it. The suite is compiled with the project's unsaved buffers before it is offered, and nothing is written if it does not check. It is a one-way copy.
-
-### Added
-
 - **Bynk: Compare Model with…** now draws the differences on the architecture map
   and the agent state diagrams, not only in the tables (#153). Added contexts,
   members, `consumes` edges, states and transitions are green, changed ones amber
@@ -26,6 +23,7 @@ version).
   carries a `+`, `~` or `−` so it does not rely on colour. The map keeps its
   expandable boxes; a state diagram is drawn for each agent, present in both
   revisions, whose state machine differs.
+- **Bynk: Run Scenario Against…** (`bynk.scenario.runAgainst`, and a `Run against…` CodeLens on a scenario) runs a `.bynk-http` scenario against a `[test.targets]` target from `bynk.toml`, using the same target picker as **Run System Tests Against…** (#159). Each step goes to the target's `url.<worker>` for its context; a context the target doesn't serve is reported on that step and nothing is sent for it. A run against a deployed target is confirmed first. A target marked `production = true` is refused (and not offered), as `bynk test --against` refuses it; against a target only *named* `prod`, `production` or `live`, a run that sends `POST`, `PUT`, `PATCH` or `DELETE` asks you to type the target's name instead. Credentials come from the environment only: a literal `Authorization`/token header in the file is refused against a target, a URL carrying credentials is refused, and the target's declared `secrets` are hidden from results along with every `{{env.…}}` value.
 
 ## [0.614.2] - 2026-11-15
 

@@ -593,6 +593,12 @@
         "icon": "$(beaker)"
       },
       {
+        "command": "bynk.scenario.runAgainst",
+        "title": "Run Scenario Against…",
+        "category": "Bynk",
+        "icon": "$(cloud)"
+      },
+      {
         "command": "bynk.scenario.showOutput",
         "title": "Show Scenario Output",
         "category": "Bynk"
@@ -967,6 +973,10 @@
         },
         {
           "command": "bynk.scenario.promote",
+          "when": "editorLangId == bynk-http && !isWeb"
+        },
+        {
+          "command": "bynk.scenario.runAgainst",
           "when": "editorLangId == bynk-http && !isWeb"
         },
         {
