@@ -98,6 +98,12 @@ export interface LiveViewSpec<P> {
   /** #67: a page message the panel does not handle itself, with a way to
    *  answer the page that sent it. */
   onMessage?(message: { type: string }, post: (message: unknown) => void): void;
+  /** Model-diagrams slice 2: post the editor's cursor to the page
+   *  (`{type: "cursor", uri, position}`) as it moves in a Bynk file, pinned or
+   *  not, so the page can mark the element under it. Needs `followsCursor`. */
+  reportsCursor?: boolean;
+  /** The panel closed: undo anything the view did outside it (a decoration). */
+  onDispose?(): void;
   /** #67: the payload the page now shows, after each render (`null` when it
    *  shows nothing) — not a request's answer, which may be dropped as stale. */
   onRender?(payload: P | null): void;
@@ -279,13 +285,26 @@ export class LivePanel<P> implements vscode.Disposable {
   }
 
   private onSelection(editor: vscode.TextEditor): void {
-    if (!this.panel || this.target?.pinned) return;
-    if (editor.document.languageId !== "bynk") return;
+    if (!this.panel || editor.document.languageId !== "bynk") return;
+    this.postCursor(editor);
+    if (this.target?.pinned) return;
     if (this.followTimer !== undefined) clearTimeout(this.followTimer);
     this.followTimer = setTimeout(() => {
       this.followTimer = undefined;
       void this.follow(editor);
     }, FOLLOW_DEBOUNCE_MS);
+  }
+
+  /** Tell a `reportsCursor` page where the editor's cursor is. */
+  private postCursor(editor: vscode.TextEditor | undefined): void {
+    if (!this.spec.reportsCursor || !this.panel?.visible || !editor) return;
+    if (editor.document.languageId !== "bynk") return;
+    const p = editor.selection.active;
+    void this.panel.webview.postMessage({
+      type: "cursor",
+      uri: editor.document.uri.toString(),
+      position: { line: p.line, character: p.character },
+    });
   }
 
   /** Retarget to the handler under the cursor, if it is a different one. A
@@ -384,6 +403,7 @@ export class LivePanel<P> implements vscode.Disposable {
     panel.onDidDispose(() => {
       if (this.panel !== panel) return;
       this.panel = undefined;
+      this.spec.onDispose?.();
       this.flow.closed();
       this.lastJson = undefined;
       this.pageLoaded = false;
@@ -437,6 +457,7 @@ export class LivePanel<P> implements vscode.Disposable {
     } else {
       this.postView();
     }
+    this.postCursor(vscode.window.activeTextEditor);
   }
 
   private viewState(): ViewState {

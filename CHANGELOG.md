@@ -12,6 +12,15 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- The sequence diagram has reading aids (model-diagrams track, slice 2):
+  - **Pinned lifelines:** the lifeline heads stay at the top while you scroll a long diagram.
+  - **Folding:** fold an `alt`/`opt` fragment from the triangle on its tab (or Space on the tab) to a one-line summary. Fragments nested three deep start folded, and your folds are kept as the diagram refreshes.
+  - **Zoom and pan:** **−**, **+**, **Fit** and **100%** in the toolbar, Ctrl/Cmd + scroll (around the pointer) or the `+`, `-` and `0` keys; drag the background to pan. A minimap appears for diagrams much larger than the panel.
+  - **Cursor sync:** the element under the editor's cursor is marked in the diagram and scrolled into view (a folded fragment stands in for what it hides). Pointing at or focusing an element marks its source in the editor.
+  - **Save as SVG… / Save as PNG…** save the diagram in the current theme's colours.
+
 ### Changed
 
 - The sequence diagram is drawn by the extension's own diagram engine instead of Mermaid, in UML notation: a call is a solid arrow with a filled head, a reply a dashed arrow with an open head, and a send a solid arrow with an open head. Lifelines show their stereotype (`«capability»`, `«context»`, `«agent»`), and activation bars show when each one is executing. Every element links to its source by identity, so clicks no longer depend on how Mermaid lays out its SVG. The diagram follows the colour theme as you switch, and you can move between its elements with the arrow keys and open one with Enter. **Copy as Mermaid** puts the diagram on the clipboard as Mermaid text, for Markdown (model-diagrams track, slice 1).

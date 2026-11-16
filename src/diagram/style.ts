@@ -4,7 +4,8 @@
 // browser: a theme switch, high contrast included, restyles the diagram with no
 // redraw. Nothing is baked into the SVG.
 
-const CSS = `
+/** The drawing's own rules, static: what an export inlines (`export.ts`). */
+export const DIAGRAM_CSS = `
 .bynk-diagram { font-size: 12px; overflow: visible; }
 .bynk-diagram text { fill: var(--vscode-editor-foreground); }
 .bynk-diagram .bynk-name { font-size: 13px; font-weight: 600; }
@@ -52,6 +53,22 @@ const CSS = `
 }
 .bynk-diagram .bynk-guard { fill: var(--vscode-descriptionForeground); }
 
+.bynk-diagram .bynk-frag-summary { font-size: 11px; font-style: italic; fill: var(--vscode-descriptionForeground); }
+.bynk-diagram .bynk-fold-hit { fill: transparent; }
+.bynk-diagram .bynk-fold-glyph { fill: var(--vscode-editor-foreground); }
+.bynk-diagram .bynk-frag--folded .bynk-frag-box { stroke-dasharray: 2 3; }
+
+body.vscode-high-contrast .bynk-diagram .bynk-head-box,
+body.vscode-high-contrast .bynk-diagram .bynk-note-box,
+body.vscode-high-contrast .bynk-diagram .bynk-frag-box { stroke: var(--vscode-contrastBorder); }
+
+`;
+
+/** The drawing's interactive rules: pointer, hover, focus and the cursor's
+ *  current element. Not exported: they mean nothing in a static file. */
+const INTERACTIVE_CSS = `
+.bynk-diagram .bynk-fold:hover .bynk-fold-glyph { fill: var(--vscode-focusBorder); }
+.bynk-diagram .bynk-fold { cursor: pointer; }
 .bynk-diagram [data-bynk-focusable] { cursor: pointer; outline: none; }
 .bynk-diagram [data-bynk-focusable]:hover .bynk-msg-line,
 .bynk-diagram [data-bynk-focusable]:hover .bynk-head-box,
@@ -66,11 +83,40 @@ const CSS = `
 .bynk-diagram [data-bynk-focusable]:focus-visible > text,
 .bynk-diagram text[data-bynk-focusable]:focus-visible { fill: var(--vscode-textLink-activeForeground, var(--vscode-focusBorder)); text-decoration: underline; }
 
-body.vscode-high-contrast .bynk-diagram .bynk-head-box,
-body.vscode-high-contrast .bynk-diagram .bynk-note-box,
-body.vscode-high-contrast .bynk-diagram .bynk-frag-box { stroke: var(--vscode-contrastBorder); }
+.bynk-diagram .bynk-current .bynk-msg-line,
+.bynk-diagram .bynk-current .bynk-note-box,
+.bynk-diagram .bynk-current.bynk-frag-tab .bynk-frag-tab-box,
+.bynk-diagram .bynk-current .bynk-head-box { stroke: var(--vscode-editorCursor-foreground, var(--vscode-focusBorder)); stroke-width: 2.5; }
+.bynk-diagram .bynk-current > text,
+.bynk-diagram text.bynk-current { font-weight: 600; }
+`;
 
-.bynk-diagram-actions { display: flex; gap: 6px; margin: 0 0 6px; font-size: 0.85em; }
+/** The page around the drawing: viewport, sticky heads, minimap, toolbar. */
+const PAGE_CSS = `
+#root .bynk-viewport svg { max-width: none; display: block; }
+.bynk-viewport { position: relative; overflow: auto; height: 70vh; outline: none; cursor: default; }
+.bynk-viewport.bynk-panning { cursor: grabbing; user-select: none; }
+.bynk-sticky-head {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--vscode-panel-border, transparent);
+}
+.bynk-minimap {
+  position: fixed; right: 16px; bottom: 16px; z-index: 2; width: 120px; overflow: hidden;
+  max-height: 60vh; cursor: pointer; opacity: 0.85;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, transparent));
+}
+.bynk-minimap svg { display: block; pointer-events: none; }
+.bynk-minimap-view {
+  position: absolute; pointer-events: none;
+  background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
+  border: 1px solid var(--vscode-focusBorder);
+}
+
+.bynk-diagram-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 0.85em; }
+.bynk-diagram-actions .bynk-sep { width: 1px; align-self: stretch; background: var(--vscode-panel-border, transparent); margin: 0 2px; }
+.bynk-diagram-actions .bynk-zoom-label { min-width: 3.5em; text-align: center; color: var(--vscode-descriptionForeground); }
 .bynk-diagram-actions button {
   background: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);
@@ -84,6 +130,6 @@ export function ensureDiagramStyles(doc: Document): void {
   if (doc.getElementById("bynk-diagram-style")) return;
   const style = doc.createElement("style");
   style.id = "bynk-diagram-style";
-  style.textContent = CSS;
+  style.textContent = DIAGRAM_CSS + INTERACTIVE_CSS + PAGE_CSS;
   doc.head.appendChild(style);
 }
