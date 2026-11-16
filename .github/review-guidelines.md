@@ -13,12 +13,18 @@ already report, since CI runs it.
 
 ## What matters most
 
-- **Webviews.** Every webview's page comes from `renderWebviewHtml` in
-  `webviewHost.ts`, or, for the CLI's action panels, `renderActionHtml` in
-  `cliView.ts`. Both set a strict Content Security Policy with a fresh nonce
-  per render. Text from a project, the CLI or the server reaches HTML only
-  through `escapeHtml`, or as data in the payload. Flag a webview that builds
-  its own page, loosens the CSP, or interpolates unescaped text.
+- **Webviews.** Every page sets a strict Content Security Policy with a
+  fresh nonce per render, as `renderWebviewHtml` (`webviewHost.ts`),
+  `renderActionHtml` (`cliView.ts`) and `renderModelDiffHtml`
+  (`modelDiffHtml.ts`) do. Text from a project, the CLI or the server reaches
+  HTML only through `escapeHtml`, or as data in the payload. Flag a page that
+  loosens the CSP, or interpolates unescaped text.
+- **Messages from webviews.** A webview's page is less trusted than the host,
+  so the host checks every message before acting on it: `isRevealMessage`
+  and `allowedPageUri` before opening a file or a range, `isActionMessage`
+  before running an action, and `openExternalHref`, which opens only `http`
+  and `https` links. Flag a new message handler that acts on a message
+  without such a check.
 - **Running processes.** The extension runs `bynk` with argument lists, never
   a shell string, and a long-lived child (the dev server and the like) goes
   through `proc.ts`, which stops its whole process tree. Flag a
@@ -32,8 +38,9 @@ already report, since CI runs it.
 - **The server and the CLI.** The extension works with any `bynk-lsp` from
   `bynkServerMinVersion` up to `bynkServerVersion` in `package.json`. A change
   that calls a request or reads a field newer than the minimum must raise the
-  minimum, by hand, or degrade when it's missing. `release.yml` moves
-  `bynkServerVersion`, so a pull request shouldn't.
+  minimum, by hand, or degrade when it's missing. `pin-bump.yml` moves
+  `bynkServerVersion` (and the extension's `version`) in its own pull request,
+  so another change shouldn't touch it.
 - **The editor contract.** Keywords, semantic tokens, snippets and the CLI's
   JSON shapes are checked against the compiler's published contract
   (`npm run check:contract`). A grammar, token or snippet change should keep
@@ -79,7 +86,7 @@ already report, since CI runs it.
 
 ## Severity here
 
-- **Blocking:** a webview or process hole, code run from an untrusted
+- **Blocking:** a webview, message or process hole, code run from an untrusted
   workspace, a crash on activation, a broken web build, the minimum server
   version not raised when it must be, or the contract check broken.
 - **Should fix:** a missing test for changed behaviour, an error dropped or

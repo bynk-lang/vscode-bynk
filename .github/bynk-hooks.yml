@@ -2,9 +2,9 @@
 # (bynk-lang/github-hooks: docs/settings.md). Every feature is off unless it's
 # turned on here, and the App reads this file from the default branch.
 
-# Issue triage: Claude Haiku 5.5 suggests labels for each new issue, and a
-# maintainer approves or declines them in Mine. Only the labels that say what
-# an issue is about are offered; the rest are left to people.
+# Issue triage: Claude suggests labels for each new issue, and a maintainer
+# approves or declines them in Mine. Only the labels that say what an issue is
+# about are offered; the rest are left to people.
 triage:
   enabled: true
   labels: [bug, enhancement, documentation, question]
@@ -17,8 +17,8 @@ nudges:
   after_days: 3
 
 # Release notes drafts: when a GitHub release is published with an empty
-# description, or only GitHub's generated list, Claude Opus 5.5 drafts the
-# notes, and a maintainer approves or declines them in Mine.
+# description, or only GitHub's generated list, Claude drafts the notes, and a
+# maintainer approves or declines them in Mine.
 release_notes:
   enabled: true
 
@@ -26,10 +26,10 @@ release_notes:
 # turns it on: a second repository would propose a second summary each week.
 
 # Pull request reviews: when a member's pull request becomes ready for review,
-# Claude Opus 5.5 reviews it with read-only tools, and the App posts the
-# review at once as inline threads, with no approval in Mine. A later review
-# resolves the App's own threads the change has addressed, but never a
-# blocking one. The guidelines are the maintainers' notes for this repository.
+# Claude reviews it with read-only tools, and the App posts the review at once
+# as inline threads, with no approval in Mine. A later review resolves the
+# App's own threads the change has addressed, but never a blocking one. The
+# guidelines are the maintainers' notes for this repository.
 review:
   enabled: true
   guidelines: .github/review-guidelines.md
