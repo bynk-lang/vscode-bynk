@@ -63,7 +63,14 @@ describe("Promote a scenario against the real toolchain (#158)", () => {
     const pick = vscode.window.showQuickPick;
     const input = vscode.window.showInputBox;
     const info = vscode.window.showInformationMessage;
+    const error = vscode.window.showErrorMessage;
     let summary = "";
+    // Why Promote refused, if it did: without this a timeout says only "undefined".
+    const refusals: string[] = [];
+    (vscode.window as { showErrorMessage: unknown }).showErrorMessage = async (m: string) => {
+      refusals.push(m);
+      return undefined;
+    };
     (vscode.window as { showQuickPick: unknown }).showQuickPick = async (items: readonly string[]) => items[0];
     // The identity the promote prompt offers is the one the actor's type needs.
     (vscode.window as { showInputBox: unknown }).showInputBox = async (o: vscode.InputBoxOptions) => o.value;
@@ -78,8 +85,12 @@ describe("Promote a scenario against the real toolchain (#158)", () => {
         (t) => t !== undefined,
         "the promoted suite to be written",
         120_000,
-      );
+      ).catch((e: unknown) => {
+        const last = refusals[refusals.length - 1];
+        throw new Error(`${String(e)}${last ? `; Promote last said: ${last}` : "; Promote showed no error"}`);
+      });
     } finally {
+      (vscode.window as { showErrorMessage: unknown }).showErrorMessage = error;
       (vscode.window as { showQuickPick: unknown }).showQuickPick = pick;
       (vscode.window as { showInputBox: unknown }).showInputBox = input;
       (vscode.window as { showInformationMessage: unknown }).showInformationMessage = info;
