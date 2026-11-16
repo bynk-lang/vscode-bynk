@@ -2,6 +2,7 @@
 // are DOM-free and unit-tested (`contract-diff-render.unit.test.ts`); the DOM
 // construction below them is not, for the reason `wire-render.ts` gives.
 
+import { applyFilter, filterLabel, hiddenSentence, isActive } from "../contractDiffFilter";
 import type { CdChange, CdLedgerState, CdLoc, CdLockState, CdModel, CdPayload, CdService, Range } from "./contractDiffTypes";
 
 /** `orders.Cart` -> `orders.Cart`; kept as a function so the label has one
@@ -173,11 +174,24 @@ function clickable(node: HTMLElement, loc: CdLoc | null, reveal: Reveal): void {
   node.addEventListener("click", () => reveal(loc.uri, loc.range));
 }
 
-export function renderContractDiff(root: HTMLElement, payload: CdPayload, reveal: Reveal): void {
-  const model = payload.model;
+export function renderContractDiff(root: HTMLElement, payload: CdPayload, reveal: Reveal, onClearFilter?: () => void): void {
+  const { model, hiddenChanges, hiddenServices } = applyFilter(payload.model, payload.filter);
   root.replaceChildren();
-  root.append(el("h1", undefined, "Contract Diff"), el("p", "cd-summary", summarySentence(model)));
+  root.append(el("h1", undefined, "Contract Diff"));
+  if (isActive(payload.filter)) {
+    const chip = el("p", "cd-filter");
+    chip.append(el("span", "cd-filter-label", filterLabel(payload.filter)), document.createTextNode(" · "));
+    const clear = el("button", "cd-filter-clear", "Show all");
+    clear.title = "Remove the filter and show the whole project's contract diff";
+    clear.addEventListener("click", () => onClearFilter?.());
+    chip.append(clear);
+    const hidden = hiddenSentence(hiddenChanges, hiddenServices);
+    if (hidden) chip.append(el("span", "cd-muted", ` ${hidden}`));
+    root.append(chip);
+  }
+  root.append(el("p", "cd-summary", payload.filter && isActive(payload.filter) && model.services.length === 0 && model.ledger === "read" ? "No service contract in this scope differs from the live record." : summarySentence(model)));
 
+  const filtered = isActive(payload.filter);
   const changes = el("section", "cd-card");
   changes.append(el("h2", undefined, "Events and agents — against bynk.schema.lock"));
   const lockNote = lockSentence(model.lock);
@@ -199,7 +213,7 @@ export function renderContractDiff(root: HTMLElement, payload: CdPayload, reveal
     }
     changes.append(table);
   }
-  root.append(changes);
+  if (!filtered) root.append(changes);
 
   const services = el("section", "cd-card");
   services.append(el("h2", undefined, "Services — against bynk.deploy.lock"));

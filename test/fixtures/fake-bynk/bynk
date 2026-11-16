@@ -454,6 +454,16 @@ if (args[0] === "book") {
 } else if (args[0] === "check") {
   // `bynk check . --format short`: a clean project, or under
   // `BYNK_FAKE_DEV=rebuilds` the error the failing rebuild reported.
+  // #158: a promoted suite is checked in a scratch copy of the project.
+  // `BYNK_FAKE_CHECK_SUITE` names a file to copy the suite into, and
+  // `BYNK_FAKE_CHECK=errors` refuses it.
+  if (process.env.BYNK_FAKE_CHECK_SUITE && fs.existsSync(`${args[1]}/tests/promo.bynk`)) {
+    fs.copyFileSync(`${args[1]}/tests/promo.bynk`, process.env.BYNK_FAKE_CHECK_SUITE);
+  }
+  if (process.env.BYNK_FAKE_CHECK === "errors") {
+    process.stderr.write("tests/promo.bynk:4:3: error[bynk.fake.suite]: the fake compiler refuses this suite\n");
+    process.exit(1);
+  }
   if (process.env.BYNK_FAKE_DEV === "rebuilds") {
     // `BYNK_FAKE_APPROVE=pending`: the compile also refuses an unapproved
     // npm requirement (#2473).

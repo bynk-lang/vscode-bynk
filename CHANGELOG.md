@@ -15,7 +15,92 @@ version).
 ### Changed
 
 - The sequence diagram is drawn by the extension's own diagram engine instead of Mermaid, in UML notation: a call is a solid arrow with a filled head, a reply a dashed arrow with an open head, and a send a solid arrow with an open head. Lifelines show their stereotype (`«capability»`, `«context»`, `«agent»`), and activation bars show when each one is executing. Every element links to its source by identity, so clicks no longer depend on how Mermaid lays out its SVG. The diagram follows the colour theme as you switch, and you can move between its elements with the arrow keys and open one with Enter. **Copy as Mermaid** puts the diagram on the clipboard as Mermaid text, for Markdown (model-diagrams track, slice 1).
-- The architecture map and agent state view share one copy of Mermaid instead of bundling one each, and redraw when you switch colour theme. With the sequence diagram's own engine, the packaged extension carries one copy of Mermaid rather than three, about 11 MB less (model-diagrams track, slice 0).
+- The architecture map, the agent state view and Compare Model's diagrams share one copy of Mermaid instead of bundling one each. The architecture map and agent state view also redraw when you switch colour theme. With the sequence diagram's own engine, the packaged extension carries one copy of Mermaid rather than three, about 11 MB less (model-diagrams track, slice 0).
+
+### Fixed
+
+- In a Bynk workspace (a root `bynk.toml` with `[workspace]`, such as
+  bynk-lang/showcase), **Run All Tests** no longer also runs the tests at the
+  workspace root itself. Every member's tests ran and passed, but the extra run at
+  the root failed with "`--format ndjson` streams one project — run it inside a
+  member of this workspace". A workspace root groups projects and is not one
+  itself, so the extension no longer treats it as a project: Run All runs only the
+  members, and a command that needs a project, with no `.bynk` file open, no longer
+  falls back to the workspace root.
+
+## [0.614.3] - 2026-11-16
+
+Built against `bynk` v0.614.0. Compare Model draws its differences and compares
+two revisions or a pull request; request scenarios run against test targets and
+become `system` test suites; the Contract Diff panel can be filtered.
+
+### Added
+
+- **Bynk: Promote Scenario to Test Suite** (`bynk.scenario.promote`, and a `Promote to test suite` CodeLens on a scenario) writes a `.bynk-http` scenario as a `system`-tier suite under `tests/` (#158). Each step becomes a typed call (`api.PUT("/items/:id", "abc", Item { … }) by Visitor`) in one case; a `{{step.body.field}}` capture is the earlier answer's typed value, and `? status == N` is the `HttpResult` variant that carries it. Credentials are the case's `by <Actor>` (you pick the actor), never a header, and an environment value is never written into the suite. What a suite cannot express (response headers other than a redirect's `Location`, `exists`/`contains` and list-index paths, query strings, a step that reads one of those) is listed at the top of the suite and in a summary you confirm before anything is written; a step that cannot be a call is left out with the steps that read it. The suite is checked with `bynk check` before it is offered, in a scratch copy of the project that includes unsaved buffers (`bynk compile --sources-stdin` does not type-check a suite), and nothing is written if it does not check. It is a one-way copy.
+- **Bynk: Compare Model with…** now draws the differences on the architecture map
+  and the agent state diagrams, not only in the tables (#153). Added contexts,
+  members, `consumes` edges, states and transitions are green, changed ones amber
+  and removed ones dashed ghosts (struck through on a transition) that do not
+  link anywhere, since their source is not in the working tree; every mark also
+  carries a `+`, `~` or `−` so it does not rely on colour. The map keeps its
+  expandable boxes; a state diagram is drawn for each agent, present in both
+  revisions, whose state machine differs.
+- **Contract Diff filter** (#157): **Show Contract Diff** on a context in the
+  Environments view now opens the panel scoped to that context and environment,
+  with a "Showing shop.payment in staging · Show all" chip that clears the
+  filter. A filtered view hides the project-wide event and agent changes (they
+  belong to no context or environment) and says how many it hid.
+  `bynk.showContractDiff` takes an optional second argument,
+  `{ context?, environment? }`; the existing `(uri)` form is unchanged.
+- **Bynk: Run Scenario Against…** (`bynk.scenario.runAgainst`, and a `Run against…` CodeLens on a scenario) runs a `.bynk-http` scenario against a `[test.targets]` target from `bynk.toml`, using the same target picker as **Run System Tests Against…** (#159). Each step goes to the target's `url.<worker>` for its context; a context the target doesn't serve is reported on that step and nothing is sent for it. A run against a deployed target is confirmed first. A target marked `production = true` is refused (and not offered), as `bynk test --against` refuses it; against a target only *named* `prod`, `production` or `live`, a run that sends `POST`, `PUT`, `PATCH` or `DELETE` asks you to type the target's name instead. Credentials come from the environment only: a literal `Authorization`/token header in the file is refused against a target, a URL carrying credentials is refused, and the target's declared `secrets` are hidden from results along with every `{{env.…}}` value.
+- **Bynk: Compare Model with…** classifies each handler's wire contract
+  (`bynk/wireContract`) between the two revisions as compatible or breaking
+  (#154), in a new Wire contracts section: a handler added is compatible, one
+  removed or whose boundary changed breaking, and a changed contract is judged
+  as a caller built against the earlier revision would meet the later one — the
+  language server's rules for service contracts (a field added to a request must
+  be optional or defaulted, a response variant added is breaking, a refinement
+  tightened is breaking), applied by the extension to each revision's wire
+  contract, with each reason named. Where unsure it says breaking. Agent
+  invariants are not compared: `bynk/agentStateModel` does not expose them.
+- **Bynk: Compare Model Between Revisions…** compares two revisions (or a
+  revision and the working tree), not only a revision with the working tree
+  (#155); `bynk.compareModel` also takes a second ref. A pull request in the
+  GitHub Pull Requests view gets **Compare Bynk Model for Pull Request**: what
+  the pull request changes (the merge base with its base branch) against its
+  head, or against the working tree when it is checked out. That extension has
+  no documented API or menu for this, so the entry reads its pull request item's
+  `pullRequestModel.base` and `.head`; if that shape changes it falls back to
+  asking for the revisions. A revision whose `bynk.lock` dependencies are not in
+  the store (`bynk fetch` fills it; the compiler and the editor never fetch) is
+  analysed without them, and the page now says so instead of leaving its model
+  quietly incomplete.
+
+## [0.614.2] - 2026-11-15
+
+Built against `bynk` v0.614.0. New views of where a project is deployed, how it
+has changed since a git revision, and saved request scenarios.
+
+### Added
+
+- **Environments view** (#150): a second view in the Bynk sidebar with one node
+  per environment recorded in `bynk.deploy.lock`. Each lists its contexts with
+  the contract hash of every deployed service, marks the contexts whose service
+  contracts differ from the working tree (compatible or breaking, from the
+  contract diff), and lists the agent classes whose floor or stored versions lag
+  the current one (`bynk migrate status`). The environment's actions are Show
+  Deploy Plan, Deploy…, Tail Logs and Sweep Migrations…, each the existing
+  command with the environment preset, so their confirmations are unchanged;
+  a context has Show Contract Diff. It reads local files and the offline report
+  only. The ledger records no deploy time, so the view does not show one.
+- **Bynk: Compare Model with…** (`bynk.compareModel`, also on the Source Control
+  title bar) compares the project's model with a git revision (#147): pick a ref,
+  defaulting to the merge base with the default branch, and a view lists the
+  architecture (contexts, adapters, `consumes` edges, services, agents),
+  contract, agent-state and capability differences against the working tree, each
+  linking to its working-tree source. The other revision is read from a temporary
+  `git worktree` analysed by the language server.
+- Request scenarios: `.bynk-http` files, ordered HTTP requests you can rerun and share. **Save to scenario…** in **Bynk: Send Request** appends the form to one (under `<project>/scenarios/` by default; credential headers are saved as `{{env.NAME}}`). A step captures values from earlier responses (`{{create.body.id}}`), expects a status, body path or header (`? status == 201`), and is checked against the wire contract: an unknown or ambiguous route (name it with `@context`), a body that doesn't match the handler's type and a capture of a later step show as diagnostics, including after a contract change. `Run scenario` and `Run step` CodeLenses (and **Bynk: Run Scenario**) run it on the dev server with the results inline; a step that reads a failed or missing value is skipped and the run continues. Environment values never appear in results (#149).
 
 ## [0.614.1] - 2026-11-15
 

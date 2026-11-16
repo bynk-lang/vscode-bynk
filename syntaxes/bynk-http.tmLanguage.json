@@ -1,0 +1,77 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Bynk HTTP Scenario",
+  "scopeName": "source.bynk-http",
+  "patterns": [
+    { "include": "#step" },
+    { "include": "#context" },
+    { "include": "#comment" },
+    { "include": "#expectation" },
+    { "include": "#request" },
+    { "include": "#header" },
+    { "include": "#reference" },
+    { "include": "#json" }
+  ],
+  "repository": {
+    "step": {
+      "match": "^(###)\\s*(\\w*)",
+      "captures": {
+        "1": { "name": "punctuation.definition.heading.bynk-http" },
+        "2": { "name": "entity.name.section.bynk-http" }
+      }
+    },
+    "context": {
+      "match": "^(@context)\\s+(\\S+)",
+      "captures": {
+        "1": { "name": "keyword.control.directive.bynk-http" },
+        "2": { "name": "entity.name.namespace.bynk-http" }
+      }
+    },
+    "comment": {
+      "match": "^#(?!##).*$",
+      "name": "comment.line.number-sign.bynk-http"
+    },
+    "request": {
+      "match": "^(GET|POST|PUT|PATCH|DELETE)\\s+(\\S+)",
+      "captures": {
+        "1": { "name": "keyword.other.http-method.bynk-http" },
+        "2": {
+          "name": "string.unquoted.url.bynk-http",
+          "patterns": [{ "include": "#reference" }, { "match": ":\\w+", "name": "variable.parameter.bynk-http" }]
+        }
+      }
+    },
+    "header": {
+      "match": "^([!#$%&'*+.^_`|~0-9A-Za-z-]+)(:)\\s*(.*)$",
+      "captures": {
+        "1": { "name": "support.type.property-name.header.bynk-http" },
+        "2": { "name": "punctuation.separator.key-value.bynk-http" },
+        "3": { "patterns": [{ "include": "#reference" }] }
+      }
+    },
+    "expectation": {
+      "match": "^(\\?)\\s+(status|body\\S*|header\\s+\\S+)\\s+(==|!=|exists|absent|contains)(?:\\s+(.*))?$",
+      "captures": {
+        "1": { "name": "keyword.operator.expectation.bynk-http" },
+        "2": { "name": "variable.other.subject.bynk-http" },
+        "3": { "name": "keyword.operator.comparison.bynk-http" },
+        "4": { "patterns": [{ "include": "#json" }] }
+      }
+    },
+    "reference": {
+      "match": "\\{\\{([^{}]*)\\}\\}",
+      "name": "meta.interpolation.bynk-http",
+      "captures": {
+        "0": { "name": "variable.other.capture.bynk-http" }
+      }
+    },
+    "json": {
+      "patterns": [
+        { "match": "\"(?:[^\"\\\\]|\\\\.)*\"", "name": "string.quoted.double.json.bynk-http", "patterns": [{ "include": "#reference" }] },
+        { "match": "\\b(?:true|false|null)\\b", "name": "constant.language.json.bynk-http" },
+        { "match": "-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?", "name": "constant.numeric.json.bynk-http" },
+        { "include": "#reference" }
+      ]
+    }
+  }
+}

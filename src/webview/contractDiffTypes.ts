@@ -75,6 +75,13 @@ export interface CdModel {
 export interface CdPayload {
   model: CdModel;
   uri: string;
+  /** #157: scope to one context and/or environment; absent means everything. */
+  filter?: { context?: string; environment?: string };
+}
+
+/** #157: the chip's "Show all". */
+export interface CdClearFilterMessage {
+  type: "clearFilter";
 }
 
 export interface CdRevealMessage {

@@ -10,6 +10,7 @@ import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
+import { type ContractDiffFilter, parseFilter } from "./contractDiffFilter";
 import { projectRootFor } from "./projectRoots";
 import type { ViewRefresh } from "./viewRefresh";
 import type { CdModel, CdPayload } from "./webview/contractDiffTypes";
@@ -57,6 +58,11 @@ export function registerContractDiff(
   context: vscode.ExtensionContext,
   hub: ViewRefresh,
 ): LivePanel<CdPayload> {
+  // #157: the scope the panel was last opened with. Held here rather than in
+  // the view target so a refresh keeps it; "Show all" clears it. It is not
+  // restored after a window reload, which shows everything (never a silently
+  // narrowed view).
+  let filter: ContractDiffFilter | undefined;
   const view = new LivePanel<CdPayload>(context, {
     viewType: "bynkContractDiff",
     commandLabel: "Show Contract Diff",
@@ -67,15 +73,26 @@ export function registerContractDiff(
     title: () => "Bynk Contract Diff",
     request: async (client: LanguageClient, target: ViewTarget, h: ViewRefresh, fresh: boolean) => {
       const model = await requestContractDiff(client, h, target.uri, fresh);
-      return model ? { model, uri: target.uri } : null;
+      return model ? { model, uri: target.uri, ...(filter ? { filter } : {}) } : null;
+    },
+    onMessage: (message) => {
+      if (message.type === "clearFilter") {
+        filter = undefined;
+        void view.refresh();
+      }
     },
     missMessage:
       "Bynk: no contract diff for this project (not a project file, or no committed analysis yet).",
   }, hub);
   context.subscriptions.push(
     view,
-    vscode.commands.registerCommand("bynk.showContractDiff", (uriArg?: unknown) => {
-      const target = commandTarget(uriArg, undefined, false);
+    // `(uri?, { context?, environment? }?)`: the second argument is optional,
+    // so the older `(uri)` callers are unchanged. A first argument that is
+    // itself `{ uri, context, environment }` is accepted too.
+    vscode.commands.registerCommand("bynk.showContractDiff", (uriArg?: unknown, filterArg?: unknown) => {
+      const opts = uriArg && typeof uriArg === "object" && !(uriArg instanceof vscode.Uri) ? (uriArg as { uri?: unknown }) : undefined;
+      filter = parseFilter(filterArg ?? opts);
+      const target = commandTarget(opts ? opts.uri : uriArg, undefined, false);
       if (!target) {
         void vscode.window.showErrorMessage(
           "Bynk: Show Contract Diff needs a .bynk file open (to resolve the project).",

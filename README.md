@@ -186,6 +186,13 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   creates or sets, required secrets, orphans), and only then runs `bynk deploy`
   in a terminal, where the driver asks you to confirm. The extension never passes
   `--yes` or `--prune`, and never handles a secret value.
+- **Environments** — the sidebar's **Environments** view has one node per
+  environment in `bynk.deploy.lock`: each context's deployed service contract
+  hashes, which contexts differ from the working tree (compatible or breaking),
+  and the agent classes whose state version lags (`bynk migrate status`). Inline
+  actions run Show Deploy Plan, Deploy…, Tail Logs and Sweep Migrations… for the
+  environment with their usual confirmations (never `--yes`), and Show Contract
+  Diff for a context. Everything is read locally; nothing contacts Cloudflare.
 - **State migrations** — the sidebar's **State Migrations** node shows
   `bynk migrate status` for each agent class (version, floor, live and
   retirable `migrate` steps, environments) and links to its agent state view.
@@ -202,6 +209,81 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   what you typed per route, and offers to start the dev server when none is
   running. The request is sent by the extension, only ever to the URL the dev
   server reports for the handler's context.
+- **Request scenarios** — a `.bynk-http` file is an ordered list of requests you
+  can rerun after every change and share in the repository. **Save to
+  scenario…** in the Send Request panel appends the form to one (by default
+  under `<project>/scenarios/`; any `**/*.bynk-http` in a project is found),
+  with the last response's status as an expectation. Credential headers
+  (`Authorization`, `Cookie`, tokens) are saved as `{{env.NAME}}`, never as typed.
+  Each step is a `###` block, so a diff shows only what changed:
+
+  ```
+  @context shop            # the context serving the routes (or one per step)
+
+  ### create
+  POST /items
+  Content-Type: application/json
+
+  { "name": "widget", "qty": 2 }
+
+  ? status == 201
+  ? body.id exists
+
+  ### fetch
+  GET /items/{{create.body.id}}
+  Authorization: Bearer {{env.TOKEN}}
+  ? body.name == "widget"
+  ? header content-type contains "json"
+  ```
+
+  `{{step.status}}`, `{{step.body.a.b[0]}}` and `{{step.header.location}}` read
+  an earlier step's response; `{{env.NAME}}` reads an environment variable, and
+  its value never appears in the results (every occurrence of it is hidden, so a very short value such as `1` would also hide those characters elsewhere; prefer real secrets). An expectation is `? status == 201`,
+  `? body.path exists | absent | == | != | contains <json>` or `? header name
+  … <json>`; values are always JSON. The editor checks each step against the
+  wire contract, asking the language server for the project's HTTP handlers:
+  the route must exist (name the `@context` when several contexts serve it),
+  a JSON body must match the handler's `body` type, and captures must name an
+  earlier step. A contract change shows up as a diagnostic. A `Run scenario`
+  CodeLens runs every step on the dev server, `Run step` runs one with the
+  steps it reads, and the results appear inline (status, timing and each
+  expectation) and in the **Bynk Scenario** output channel. A step that reads a
+  failed or missing value is skipped, not sent, and the run carries on with the
+  steps that don't depend on it.
+
+  **Promote to test suite** (the lens, or **Bynk: Promote Scenario to Test
+  Suite**) turns a scenario into a `system`-tier suite under `tests/`, so
+  exploring becomes a regression test. The suite is one case of typed calls, as
+  a `system` case writes them: the route's pattern and typed arguments rather
+  than JSON, `{{create.body.id}}` as the earlier answer's value, and
+  `? status == 201` as the `HttpResult` variant that carries it
+  (`let Created(item) <- api.PUT(…) else { expect false }`). Credentials are the
+  case's `by <Actor>`, which you pick; a suite never carries a header credential
+  or an environment value. Whatever a suite cannot express is listed at the top
+  of the file and in the summary you confirm before it is written: response
+  headers other than a redirect's `Location` (a test cannot read them), `exists`
+  and `contains` checks and list-index paths (they need the field's type), a
+  query string, and a step that reads any of these, which is left out. The suite
+  is checked with `bynk check` first, in a scratch copy of the project that
+  includes your unsaved buffers, and nothing is written if it does not check. It is a one-way copy: the scenario and the suite are not kept in
+  sync.
+  **Run against…** (the lens, or **Bynk: Run Scenario Against…**) runs the
+  scenario against a deployment instead: it offers `dev` and the targets under
+  `[test.targets]` in `bynk.toml`, as **Run System Tests Against…** does, and
+  sends each step to the target's `url.<worker>` for the step's context
+  (`shop.orders` is `shop-orders`). A context the target doesn't serve is
+  reported on its step and nothing is sent for it. A run against a deployed
+  target is confirmed first. A target marked `production = true` is refused and
+  not offered, as `bynk test --against` refuses it: scenarios send real writes,
+  so they follow the same rule, and running against production would be a
+  change to that shared policy in `bynk-lang/bynk`, not an editor setting. A
+  target only *named* `prod`, `production` or `live` is allowed, but a run that
+  sends a `POST`, `PUT`, `PATCH` or `DELETE` to it asks you to type the
+  target's name. Credentials come from
+  the environment only: against a target a literal `Authorization` or token
+  header in the file is refused (write `{{env.NAME}}`), a URL with credentials
+  in `bynk.toml` is refused, and the target's declared `secrets` are hidden from
+  the results like every `{{env.…}}` value.
 - **Export OpenAPI** — **Bynk: Export OpenAPI…** writes an OpenAPI 3.1 document
   for the project's `from http` services with `bynk openapi`, as JSON or YAML by
   the file name you choose. It needs a `bynk` that has the command, and offers to
@@ -364,8 +446,12 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Architecture Map** | A whole-project map of contexts and adapters, their `consumes` edges, and what each one binds. |
 | **Bynk: Show Wire Contract** | The JSON wire shape of the service handler at the cursor. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Send Request** | Send the HTTP handler at the cursor a request on the dev server: path parameters, headers and a JSON body pre-filled from its type, then the response. Follows the cursor into other handlers unless pinned. |
+| **Bynk: Run Scenario** | Run the `.bynk-http` scenario in the active editor on the dev server, with the results inline. Also a `Run scenario` / `Run step` CodeLens in the file. |
+| **Bynk: Promote Scenario to Test Suite** | Write the scenario as a `system`-tier test suite under `tests/`, listing what a suite cannot express, after the compiler has checked it. Also a `Promote to test suite` CodeLens. |
+| **Bynk: Run Scenario Against…** | Run the scenario against `dev` or a `[test.targets]` target from `bynk.toml`, confirming a deployed target first, refusing one marked `production = true`, and asking for the name of a production-named target before a write. Also a `Run against…` CodeLens. |
 | **Bynk: Show Agent State** | The state machines of the agent at the cursor: for each `store` Cell of an enum or sum type, a state diagram generated from its handlers and a handler × state table of what each handler does from each state, with moves a `transition` would refuse at commit marked ⚠, and each handler's effects — what it writes, reads and calls on each path (shown instead for an agent with no state field). Follows the cursor from agent to agent, highlighting the handler under it. |
 | **Bynk: Show Contract Diff** | Boundary changes since `bynk.schema.lock` and service contracts that differ from `bynk.deploy.lock`'s live record, each marked compatible or breaking. Refreshes when either lock changes. |
+| **Bynk: Compare Model with…** | Pick a git ref (the first choice is the merge base with the default branch) and see what changed in the project's model against the working tree: contexts, adapters, `consumes` edges, services and agents added, removed or changed; boundary and service-contract changes, classified compatible or breaking where the language server classifies them; a compatible or breaking verdict, with reasons, for each handler's wire contract; agent states, handlers and transitions; and capabilities and their providers. Each row opens its source in the working tree, and the differences are also drawn on the architecture map and on the state diagram of each agent whose states changed: added elements green, changed amber, removed ones as dashed ghosts. **Bynk: Compare Model Between Revisions…** compares any two refs (or a ref and the working tree), and a pull request in the GitHub Pull Requests view has **Compare Bynk Model for Pull Request**. A revision whose locked dependencies were never fetched (`bynk fetch`) is analysed without them, and the page says so. Also on the Source Control view's title bar. |
 | **Bynk: Show Compiled Output** | The TypeScript the compiler emits for the active file, read-only, beside it. Compiled from your unsaved buffers through `bynk compile`; the cursor in either editor highlights the matching lines in the other, and the output follows your edits. |
 | **Bynk: Explain Diagnostic Code…** | The installed compiler's explanation of a diagnostic code, in a panel, offline: pick a code from the Problems panel or type one. The **Explain** quick fix on a diagnostic opens the same panel. |
 | **Bynk: Explore Refined Type** | Opened by the **Try values…** link in a refined type's hover: example values from the type's domain (fixed seed, so they stay put) and a box that checks a value you type against the predicate, naming each clause that fails. Runs none of your project's code. |
@@ -414,6 +500,7 @@ its own, and is restored after **Developer: Reload Window**.
 | `bynk.views.refresh` | `onSave` | When open model views re-request their model: `onSave`, `onType` (about 500 ms after the last edit), or `manual` (the view's Refresh button). A hidden view catches up when shown. |
 | `bynk.client.check` | `true` | Warn in the status bar when the generated TypeScript client of a project with `[build.client]` in `bynk.toml` is stale or missing. Runs `bynk client --check` after a save that could change it (not under `bynk.views.refresh` = `manual`), and skips a project that has errors. The status item offers **Regenerate** (when the extension has that command) and **Show difference**; **Bynk: Check Generated Client** checks on demand. |
 | `bynk.viewsCodeLens` | `false` | Show a `Wire contract` CodeLens above each service and agent handler, beside the `Show Sequence` lens. |
+| `bynk.scenario.codeLens` | `true` | Show `Run scenario` and `Run step` CodeLenses, and each step's last result, in `.bynk-http` scenario files. |
 | `bynk.sendRequest.codeLens` | `true` | Show a `Send request` CodeLens above each `from http` handler, opening **Bynk: Send Request**. |
 | `bynk.fileDecorations.contextBadge` | `auto` | Two-letter Explorer badge naming each file's context (and each test file's), with the full name in the tooltip. Commons and adapters carry none. |
 | `bynk.fileDecorations.failedTests` | `true` | Tint a file red in the Explorer (and its folders) when a test in it failed in the last run. |

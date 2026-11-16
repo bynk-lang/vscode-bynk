@@ -245,6 +245,25 @@ describe("renderContractDiff (jsdom)", () => {
     assert.strictEqual(services.querySelectorAll("tr").length, 2);
   });
 
+  it("shows a clearable filter chip, only the matching services and no change table (#157)", () => {
+    const { renderContractDiff } = dom.load<typeof import("../../src/webview/contract-diff-render")>("contract-diff-render");
+    const payload = diffPayload();
+    payload.filter = { context: "c", environment: "prod" };
+    let cleared = 0;
+    renderContractDiff(dom.root, payload, () => undefined, () => cleared++);
+    const chip = dom.root.querySelector(".cd-filter");
+    assert.ok(chip?.textContent?.startsWith("Showing c in prod · Show all"));
+    assert.match(chip?.textContent ?? "", /Hidden by the filter: 1 other service contract and 2 event and agent changes/);
+    assert.strictEqual(dom.root.querySelectorAll("table").length, 1);
+    assert.strictEqual(dom.root.querySelectorAll("table tr").length, 1);
+    dom.root.querySelector<HTMLElement>(".cd-filter-clear")?.click();
+    assert.strictEqual(cleared, 1);
+  });
+
+  it("shows no chip without a filter (#157)", () => {
+    assert.strictEqual(render(diffPayload()).querySelector(".cd-filter"), null);
+  });
+
   it("folds reasons past the limit behind a details element", () => {
     const root = render(diffPayload());
     const row = root.querySelectorAll("table")[1].querySelector("tr");

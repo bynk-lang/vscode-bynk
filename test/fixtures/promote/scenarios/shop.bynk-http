@@ -1,0 +1,43 @@
+@context shop
+
+### create
+POST /items
+Content-Type: application/json
+
+{ "id": "a", "name": "x", "qty": 2 }
+
+? status == 201
+? body.name == "x"
+
+### fetch
+GET /items/{{create.body.id}}
+
+? status == 200
+? body.qty == 1
+
+### go
+GET /go
+
+? status == 302
+? header location == "/items/a"
+? header content-type == "text/html"
+
+### clash
+PUT /items/a
+Content-Type: application/json
+
+{ "id": "a", "name": "x", "qty": 2 }
+
+? status == 409
+? body.error == "exists"
+
+### drop
+DELETE /items/a
+
+? status == 204
+
+### me
+GET /me
+Authorization: Bearer {{env.SHOP_TOKEN}}
+
+? status == 200

@@ -2,7 +2,7 @@
   "name": "bynk-vscode",
   "displayName": "Bynk",
   "description": "Language support for Bynk (.bynk) source files.",
-  "version": "0.614.1",
+  "version": "0.614.3",
   "publisher": "bynk-lang",
   "license": "MIT OR Apache-2.0",
   "icon": "assets/bynk-icon.png",
@@ -23,6 +23,7 @@
   ],
   "activationEvents": [
     "onLanguage:bynk",
+    "onLanguage:bynk-http",
     "workspaceContains:bynk.toml",
     "onWebviewPanel:bynkSequenceDiagram",
     "onWebviewPanel:bynkDocumentation",
@@ -46,6 +47,17 @@
           ".bynk"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "bynk-http",
+        "aliases": [
+          "Bynk HTTP Scenario",
+          "bynk-http"
+        ],
+        "extensions": [
+          ".bynk-http"
+        ],
+        "configuration": "./syntaxes/bynk-http-language-configuration.json"
       }
     ],
     "themes": [
@@ -67,6 +79,11 @@
       }
     ],
     "grammars": [
+      {
+        "language": "bynk-http",
+        "scopeName": "source.bynk-http",
+        "path": "./syntaxes/bynk-http.tmLanguage.json"
+      },
       {
         "language": "bynk",
         "scopeName": "source.bynk",
@@ -564,10 +581,51 @@
         "icon": "$(send)"
       },
       {
+        "command": "bynk.scenario.run",
+        "title": "Run Scenario",
+        "category": "Bynk",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "bynk.scenario.promote",
+        "title": "Promote Scenario to Test Suite",
+        "category": "Bynk",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "bynk.scenario.runAgainst",
+        "title": "Run Scenario Against…",
+        "category": "Bynk",
+        "icon": "$(cloud)"
+      },
+      {
+        "command": "bynk.scenario.showOutput",
+        "title": "Show Scenario Output",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.showContractDiff",
         "title": "Show Contract Diff",
         "category": "Bynk",
         "icon": "$(diff)"
+      },
+      {
+        "command": "bynk.compareModel",
+        "title": "Compare Model with…",
+        "category": "Bynk",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "bynk.compareModelBetween",
+        "title": "Compare Model Between Revisions…",
+        "category": "Bynk",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "bynk.compareModelPullRequest",
+        "title": "Compare Bynk Model for Pull Request",
+        "category": "Bynk",
+        "icon": "$(git-compare)"
       },
       {
         "command": "bynk.showAgentState",
@@ -766,9 +824,52 @@
         "command": "bynk.chat.applyFix",
         "title": "Apply @bynk Fix",
         "category": "Bynk"
+      },
+      {
+        "command": "bynk.environments.refresh",
+        "title": "Refresh Environments",
+        "category": "Bynk",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "bynk.environments.showPlan",
+        "title": "Show Deploy Plan",
+        "category": "Bynk",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "bynk.environments.deploy",
+        "title": "Deploy…",
+        "category": "Bynk",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "bynk.environments.tail",
+        "title": "Tail Logs",
+        "category": "Bynk",
+        "icon": "$(output)"
+      },
+      {
+        "command": "bynk.environments.sweep",
+        "title": "Sweep Migrations…",
+        "category": "Bynk",
+        "icon": "$(versions)"
+      },
+      {
+        "command": "bynk.environments.showContractDiff",
+        "title": "Show Contract Diff",
+        "category": "Bynk",
+        "icon": "$(diff)"
       }
     ],
     "menus": {
+      "scm/title": [
+        {
+          "command": "bynk.compareModel",
+          "when": "scmProvider == git && !isWeb",
+          "group": "navigation@90"
+        }
+      ],
       "commandPalette": [
         {
           "command": "bynk.copyPlaygroundLink",
@@ -879,8 +980,36 @@
           "when": "editorLangId == bynk && !isWeb"
         },
         {
+          "command": "bynk.scenario.run",
+          "when": "editorLangId == bynk-http && !isWeb"
+        },
+        {
+          "command": "bynk.scenario.promote",
+          "when": "editorLangId == bynk-http && !isWeb"
+        },
+        {
+          "command": "bynk.scenario.runAgainst",
+          "when": "editorLangId == bynk-http && !isWeb"
+        },
+        {
+          "command": "bynk.scenario.showOutput",
+          "when": "editorLangId == bynk-http && !isWeb"
+        },
+        {
           "command": "bynk.showContractDiff",
           "when": "editorLangId == bynk && !isWeb"
+        },
+        {
+          "command": "bynk.compareModel",
+          "when": "!isWeb"
+        },
+        {
+          "command": "bynk.compareModelBetween",
+          "when": "!isWeb"
+        },
+        {
+          "command": "bynk.compareModelPullRequest",
+          "when": "false"
         },
         {
           "command": "bynk.showAgentState",
@@ -1001,6 +1130,30 @@
         {
           "command": "bynk.chat.applyFix",
           "when": "false"
+        },
+        {
+          "command": "bynk.environments.showPlan",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.deploy",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.tail",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.sweep",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.showContractDiff",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.refresh",
+          "when": "!isWeb"
         }
       ],
       "testing/item/context": [
@@ -1123,9 +1276,19 @@
           "command": "bynk.addDependency",
           "when": "view == bynk.project && !isWeb",
           "group": "navigation@3"
+        },
+        {
+          "command": "bynk.environments.refresh",
+          "when": "view == bynk.environments && !isWeb",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
+        {
+          "command": "bynk.compareModelPullRequest",
+          "when": "view == pr:github && viewItem =~ /^pullrequest/ && !isWeb",
+          "group": "9_bynk@1"
+        },
         {
           "command": "bynk.addDependency",
           "when": "view == bynk.project && viewItem == bynkDependencies && !isWeb",
@@ -1190,6 +1353,31 @@
           "command": "bynk.project.sendRequest",
           "when": "view == bynk.project && viewItem == bynkHttpHandler && !isWeb",
           "group": "bynk@3"
+        },
+        {
+          "command": "bynk.environments.showPlan",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvironment",
+          "group": "inline@1"
+        },
+        {
+          "command": "bynk.environments.deploy",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvironment",
+          "group": "inline@2"
+        },
+        {
+          "command": "bynk.environments.tail",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvironment",
+          "group": "inline@3"
+        },
+        {
+          "command": "bynk.environments.sweep",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvironment",
+          "group": "inline@4"
+        },
+        {
+          "command": "bynk.environments.showContractDiff",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvContext",
+          "group": "inline"
         }
       ]
     },
@@ -1207,6 +1395,12 @@
         {
           "id": "bynk.project",
           "name": "Project",
+          "when": "bynk.hasProject && !isWeb",
+          "contextualTitle": "Bynk"
+        },
+        {
+          "id": "bynk.environments",
+          "name": "Environments",
           "when": "bynk.hasProject && !isWeb",
           "contextualTitle": "Bynk"
         }
@@ -1551,6 +1745,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show a `Send request` CodeLens above each `from http` handler. It opens **Bynk: Send Request**, which sends the handler a request on the dev server."
+        },
+        "bynk.scenario.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show `Run scenario` and `Run step` CodeLenses, and each step's last result, in `.bynk-http` scenario files."
         },
         "bynk.dependencies.upgradeLenses": {
           "type": "boolean",

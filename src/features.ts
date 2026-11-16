@@ -33,13 +33,16 @@ import { registerDeploy } from "./deploy";
 import { registerDevServer } from "./devServer";
 import { registerDoctor } from "./doctor";
 import { registerEmittedOutput } from "./emittedOutput";
+import { registerEnvironments } from "./environmentsView";
 import { registerExplainView } from "./explainView";
 import { registerFileDecorations } from "./fileDecorations";
 import { registerInlineDocRendering } from "./inlineDocRendering";
 import { registerLmTools } from "./lmTools";
+import { registerModelDiff } from "./modelDiff";
 import { registerOpenapi } from "./openapi";
 import { registerPlaygroundCommands } from "./playgroundCommands";
 import { registerRefinedExplorer } from "./refinedExplorer";
+import { registerScenario } from "./scenario";
 import { registerTasks } from "./tasks";
 import { registerTomlRecommendation } from "./tomlRecommendation";
 import { registerToolchain } from "./toolchain";
@@ -85,6 +88,8 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context }) => registerDoctor(context),
   // #2471: "Show Compiled Output", highlighted both ways through the source map.
   ({ context, viewRefresh }) => registerEmittedOutput(context, viewRefresh),
+  // #150: the Environments view: deployed, drift and migrations per environment.
+  ({ context, viewRefresh, client }) => registerEnvironments(context, viewRefresh, client),
   // #2098: "Explain Diagnostic Code…" and the server's "Explain …" quick fix.
   ({ context, client }) => registerExplainView(context, client),
   // #2478: Explorer badges for each file's context, tints for failed tests and breaks.
@@ -93,12 +98,16 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context }) => registerInlineDocRendering(context),
   // #2463: the toolchain's answers as language-model tools.
   ({ context, client, viewRefresh }) => registerLmTools(context, client, viewRefresh),
+  // #147: "Bynk: Compare Model with…", the model against a git revision.
+  ({ context, client, viewRefresh }) => registerModelDiff(context, viewRefresh, client),
   // #16: "Bynk: Export OpenAPI", a wrapper over `bynk openapi`.
   ({ context }) => registerOpenapi(context),
   // #2480: share a selection or a single-file program as a playground link.
   ({ context }) => registerPlaygroundCommands(context),
   // #2470: the "Refined Type" explorer.
   ({ context, client }) => registerRefinedExplorer(context, client),
+  // #149: request scenarios (`.bynk-http`), checked against the wire contract.
+  ({ context, viewRefresh }) => registerScenario(context, viewRefresh),
   // B-2: the `bynkc: check` build task (errors → Problems via `$bynkc`).
   ({ context }) => registerTasks(context),
   // #2096: suggest a TOML extension, once, if none is installed.
