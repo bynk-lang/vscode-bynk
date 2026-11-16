@@ -98,7 +98,7 @@ async function drawArchitecture(root: HTMLElement, g: NonNullable<Graphs["archit
     root.textContent = "No contexts found in this project.";
     return;
   }
-  const diagram = toArchitectureDiagram(g.model, { expanded, events: false, marks: g.marks });
+  const diagram = toArchitectureDiagram(g.model, { expanded, events: false, marks: g.marks, linked });
   await drawInto(root, diagram, "Architecture map, compared", {}, (id) => {
     if (!id.startsWith("u:")) return;
     const name = id.slice(2);

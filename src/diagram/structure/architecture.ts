@@ -30,6 +30,9 @@ export interface ArchitectureOptions {
    *  A marked element is drawn in its mark's colour; a removed one is a
    *  ghost that opens nothing (its source is not in the working tree). */
   marks?: ArchMarks;
+  /** Whether elements open their source. `false` between two revisions of a
+   *  model diff, where nothing is in the working tree. */
+  linked?: boolean;
 }
 
 export const ids = {
@@ -127,6 +130,26 @@ function memberNode(m: ArchMember, expanded: ReadonlySet<string>, units: Readonl
   return ids.unit(m.unit);
 }
 
+/** Slice 6, on a model diff's drawing: no unit opens its component view
+ *  (there is none for another revision); an edge touching a removed element
+ *  opens nothing (its source was in a revision's scratch checkout); and
+ *  between two revisions (`linked` false) nothing opens at all. */
+function unlink(nodes: StructNode[], edges: StructEdge[], linked: boolean): void {
+  const ghosts = new Set<string>();
+  const walk = (ns: StructNode[]): void => {
+    for (const n of ns) {
+      n.opens = false;
+      if (n.diff === "removed") ghosts.add(n.ref.id);
+      if (!linked) n.ref = { ...n.ref, loc: null };
+      walk(n.children);
+    }
+  };
+  walk(nodes);
+  for (const e of edges) {
+    if (!linked || ghosts.has(e.source) || ghosts.has(e.target)) e.ref = { ...e.ref, loc: null };
+  }
+}
+
 /** Slice 6: put a model diff's marks on the units and their members. */
 function markNodes(nodes: StructNode[], marks: ArchMarks): void {
   const kinds: Record<string, "service" | "agent" | "capability" | "provider"> = {
@@ -218,17 +241,18 @@ export function toArchitectureDiagram(model: ArchModel, opts: ArchitectureOption
   const outside: StructNode[] = [];
   const edges: StructEdge[] = [];
   const seen = new Map<string, StructEdge>();
-  const edge = (kind: StructEdgeKind, source: string, target: string, label: string | null, loc: ArchLoc | null, cycle = false): void => {
+  const edge = (kind: StructEdgeKind, source: string, target: string, label: string | null, loc: ArchLoc | null, cycle = false): StructEdge => {
     const key = `${kind}|${source}|${target}`;
     const had = seen.get(key);
     if (had) {
       // Merge labels of parallel edges of one kind.
       if (label && had.label && !had.label.split(", ").includes(label)) had.label = `${had.label}, ${label}`;
-      return;
+      return had;
     }
     const e: StructEdge = { ref: { id: `e${edges.length}`, loc }, kind, source, target, label, cycle };
     seen.set(key, e);
     edges.push(e);
+    return e;
   };
 
   // `consumes` between project units.
@@ -236,7 +260,7 @@ export function toArchitectureDiagram(model: ArchModel, opts: ArchitectureOption
     if (!units.has(e.from) || !units.has(e.to)) return;
     const mark = opts.marks?.edges[edgeKey(e)];
     const label = e.capabilities.length > 0 ? e.capabilities.join(", ") : null;
-    edge(
+    const drawn = edge(
       "consumes",
       ids.unit(e.from),
       ids.unit(e.to),
@@ -244,7 +268,7 @@ export function toArchitectureDiagram(model: ArchModel, opts: ArchitectureOption
       mark === "removed" ? null : e.loc,
       cycles.edges.has(i),
     );
-    if (mark) edges[edges.length - 1].diff = mark;
+    if (mark) drawn.diff = mark;
   });
 
   // Capabilities bound from outside the project (the `bynk` surface): the
@@ -316,5 +340,7 @@ export function toArchitectureDiagram(model: ArchModel, opts: ArchitectureOption
     cycle: false,
   };
   if (opts.marks) markNodes(inside, opts.marks);
+  const all = [...outside, boundary];
+  if (opts.marks || opts.linked === false) unlink(all, edges, opts.linked !== false);
   return { nodes: [...outside.filter((n) => n.kind === "actor"), boundary, ...outside.filter((n) => n.kind !== "actor")], edges };
 }

@@ -176,9 +176,37 @@ describe("architecture diff marks (adapter)", () => {
     assert.deepStrictEqual([removed?.diff, removed?.label, removed?.ref.loc], ["removed", "−", null]);
   });
 
-  it("draws an unmarked model exactly as before", () => {
+  it("opens no component view on a diff, and nothing from an edge that touches a ghost", () => {
+    const b: ArchModel = {
+      nodes: [node("shop"), node("gone", { services: [{ ...svc("web", 1), protocol: "http", actors: ["Visitor"] }] })],
+      edges: [],
+    };
+    const a: ArchModel = { nodes: [node("shop")], edges: [] };
+    const { model, marks } = mergeArchitecture(b, a);
+    const d = toArchitectureDiagram(model, { expanded: new Set(), events: false, marks });
+    const all: StructNode[] = [];
+    const walk = (ns: StructNode[]): void => ns.forEach((n) => (all.push(n), walk(n.children)));
+    walk(d.nodes);
+    assert.ok(all.every((n) => !n.opens), "no ↗ on a diff's map");
+    const call = d.edges.find((e) => e.source === "actor:Visitor" && e.target === "u:gone");
+    assert.ok(call, "the removed unit's caller is still drawn");
+    assert.strictEqual(call.ref.loc, null, "its edge opens nothing: the source was in a scratch checkout");
+  });
+
+  it("opens nothing at all between two revisions", () => {
+    const { model, marks } = mergeArchitecture(before, after);
+    const d = toArchitectureDiagram(model, { expanded: new Set(["shop"]), events: false, marks, linked: false });
+    const all: StructNode[] = [];
+    const walk = (ns: StructNode[]): void => ns.forEach((n) => (all.push(n), walk(n.children)));
+    walk(d.nodes);
+    assert.ok(all.every((n) => n.ref.loc === null));
+    assert.ok(d.edges.every((e) => e.ref.loc === null));
+  });
+
+  it("draws an unmarked model as before, but for the component-view links a diff never offers", () => {
     const plain = toArchitectureDiagram(after, { expanded: new Set(), events: false });
     const marked = toArchitectureDiagram(after, { expanded: new Set(), events: false, marks: { nodes: {}, members: {}, edges: {} } });
-    assert.deepStrictEqual(marked, plain);
+    const strip = (d: StructDiagram): unknown => JSON.parse(JSON.stringify(d, (k, v: unknown) => (k === "opens" ? undefined : v)));
+    assert.deepStrictEqual(strip(marked), strip(plain));
   });
 });

@@ -365,6 +365,22 @@ describe("state view (jsdom, model-diagrams slice 6)", function () {
     ]);
   });
 
+  it("keeps keyboard focus on the same state across a live update", async () => {
+    await open();
+    (byRef("state:Paid") ?? byRef("state:Closed"))?.dispatchEvent(new dom.window.FocusEvent("focus"));
+    const target = byRef("state:Closed") as SVGElement;
+    target.focus();
+    assert.strictEqual(dom.document.activeElement?.getAttribute("data-bynk-ref"), "state:Closed");
+    dom.post({ type: "update", payload: statePayload(), view: { target: { uri: "file:///agent.bynk" }, followsCursor: true } });
+    await settle();
+    for (let i = 0; i < 300 && byRef("state:Closed") === target; i++) await new Promise((r) => setTimeout(r, 10));
+    for (let i = 0; i < 100 && dom.document.activeElement?.getAttribute("data-bynk-ref") !== "state:Closed"; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.notStrictEqual(byRef("state:Closed"), target, "the machine was redrawn");
+    assert.strictEqual(dom.document.activeElement?.getAttribute("data-bynk-ref"), "state:Closed");
+  });
+
   it("redraws through the shared queue when the field is switched", async () => {
     await open();
     const select = q("select") as HTMLSelectElement;
@@ -622,11 +638,17 @@ describe("model diff page (jsdom, model-diagrams slice 6)", function () {
     assert.ok(!byRef(`u:old${HOSTILE}`)?.hasAttribute("data-bynk-focusable"));
   });
 
-  it("opens nothing between two revisions", async () => {
+  it("opens nothing between two revisions, and offers nothing either", async () => {
     await open(false);
     click(byRef("u:shop"));
     click(byRef("state:Open"));
     assert.ok(!dom.posted.some((m) => (m as { type: string }).type === "reveal"));
+    assert.strictEqual(dom.document.querySelectorAll("[data-bynk-focusable]").length, 0, "no element claims to open its source");
+  });
+
+  it("offers no component view from the compared map", async () => {
+    await open();
+    assert.ok(!byRef("u:shop.open"), "no ↗ on the map's units");
   });
 });
 

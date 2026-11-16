@@ -202,9 +202,13 @@ function controls(root: HTMLElement, payload: AgentStatePayload, machine: StateM
 }
 
 /** The machine, drawn by the engine into the shared viewport. */
-async function diagram(root: HTMLElement, payload: AgentStatePayload, machine: StateMachine): Promise<void> {
+async function diagram(
+  root: HTMLElement,
+  payload: AgentStatePayload,
+  machine: StateMachine,
+  keep: string | null,
+): Promise<void> {
   ensureDiagramStyles(document);
-  const keep = focusedRef(viewport.element);
   const font = fontFamily();
   const structure = toStateDiagram(machine, { uri: payload.uri, showUnchanged });
   try {
@@ -350,6 +354,8 @@ function applyFocus(root: HTMLElement): void {
 
 async function renderPayload(root: HTMLElement, payload: AgentStatePayload | null): Promise<void> {
   current = payload;
+  // Before the page is cleared, while the viewport is still attached.
+  const keep = focusedRef(viewport.element);
   root.textContent = "";
   machineShown = undefined;
   drawing = undefined;
@@ -367,7 +373,7 @@ async function renderPayload(root: HTMLElement, payload: AgentStatePayload | nul
   selectedField = machine.field;
 
   controls(root, payload, machine);
-  await diagram(root, payload, machine);
+  await diagram(root, payload, machine, keep);
   legend(root, payload, machine);
   table(root, payload, machine);
   // #2198: the per-handler effects, collapsed below the machine.
