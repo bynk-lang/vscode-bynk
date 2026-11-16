@@ -3,7 +3,8 @@
 // Issues the `bynk/sequenceModel` custom LSP request (this server's first
 // non-standard request — see `bynk-lsp/src/sequence_request.rs`) for the
 // handler at the invoking CodeLens/command position, renders the result as
-// a Mermaid sequence diagram, and handles click-to-code: the webview posts
+// a UML sequence diagram (the first-party engine in `src/diagram/`,
+// model-diagrams slice 1), and handles click-to-code: the webview posts
 // plain JSON `{uri, range}` (never real VS Code instances — a webview has
 // no access to the `vscode` module), hydrated here into a real
 // `vscode.Uri`/`Range` and revealed — the same hydration posture
@@ -37,6 +38,13 @@ export function registerSequenceDiagram(
     followsCursor: true,
     title: () => "Bynk Sequence Diagram",
     request: requestSequence,
+    onMessage: (message) => {
+      if (isCopyText(message)) {
+        void vscode.env.clipboard.writeText(message.text).then(() =>
+          vscode.window.setStatusBarMessage("Bynk: copied the sequence diagram as Mermaid.", 3000),
+        );
+      }
+    },
     missMessage: "Bynk: no handler found at the cursor.",
   }, hub);
   context.subscriptions.push(
@@ -69,4 +77,18 @@ async function requestSequence(
   };
   const model = await client.sendRequest<SequenceModel | null>("bynk/sequenceModel", params);
   return model ? { model, uri: target.uri } : null;
+}
+
+/** A page's request to put diagram text on the clipboard ("Copy as Mermaid").
+ *  The page is untrusted, so the shape and size are checked. */
+interface CopyTextMessage {
+  type: "copyText";
+  text: string;
+}
+
+const MAX_COPY = 1_000_000;
+
+export function isCopyText(message: unknown): message is CopyTextMessage {
+  const m = message as { type?: unknown; text?: unknown } | null | undefined;
+  return m?.type === "copyText" && typeof m.text === "string" && m.text.length <= MAX_COPY;
 }

@@ -12,6 +12,11 @@ version).
 
 ## [Unreleased]
 
+### Changed
+
+- The sequence diagram is drawn by the extension's own diagram engine instead of Mermaid, in UML notation: a call is a solid arrow with a filled head, a reply a dashed arrow with an open head, and a send a solid arrow with an open head. Lifelines show their stereotype (`«capability»`, `«context»`, `«agent»`), and activation bars show when each one is executing. Every element links to its source by identity, so clicks no longer depend on how Mermaid lays out its SVG. The diagram follows the colour theme as you switch, and you can move between its elements with the arrow keys and open one with Enter. **Copy as Mermaid** puts the diagram on the clipboard as Mermaid text, for Markdown (model-diagrams track, slice 1).
+- The architecture map and agent state view share one copy of Mermaid instead of bundling one each, and redraw when you switch colour theme. With the sequence diagram's own engine, the packaged extension carries one copy of Mermaid rather than three, about 11 MB less (model-diagrams track, slice 0).
+
 ## [0.614.1] - 2026-11-15
 
 Built against `bynk` v0.614.0. Editor support for v0.607–v0.614's `bynk client`
