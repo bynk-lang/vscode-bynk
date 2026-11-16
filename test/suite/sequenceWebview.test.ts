@@ -1,18 +1,12 @@
 // #852: end-to-end coverage for the sequence-diagram webview's participant
-// click-to-code zip. The unit tests (`mermaid-gen.unit.test.ts`) only pin the
-// generated Mermaid *text*; the bug this guards lives one layer later, in how
-// `main.ts` maps the *rendered* SVG's elements back to participants. Mermaid 11
-// emits several `.actor`-classed nodes per participant (see
-// `src/webview/participant-map.ts`), so the old `querySelectorAll(".actor")[i]`
-// walk mapped participant `i` to an unrelated node.
-//
-// Verifying that needs a real Mermaid render, i.e. a real webview browser
-// context — out of reach for a pure unit test. So this drives the actual
-// bundle (`out/webview.js`) inside a live VS Code webview with a known payload,
-// sets the `__BYNK_SEQUENCE_DEBUG__` seam so `main.ts` reports the label its
-// zip landed on for each participant, and asserts every participant's element
-// really is its own box (rendered label === declared name). Under the old zip
-// the reported labels are empty/shuffled and this fails.
+// click-to-code. #852 was a bug in mapping Mermaid's rendered SVG back to
+// participants by DOM order. Since model-diagrams slice 1 the view draws with
+// the first-party engine, and each element carries its model id
+// (`data-bynk-ref`), so the mapping is a lookup by id. This test still drives
+// the real bundle (`out/webview.js`) in a live VS Code webview, so it checks
+// the shipped page: `main.ts`, with `__BYNK_SEQUENCE_DEBUG__` set, reports the
+// name drawn on each participant's element, and every one must be its own.
+// The mix of a principal `Actor` (a stick figure) and boxes is kept from #852.
 
 import * as assert from "assert";
 
@@ -28,14 +22,13 @@ const R = (line: number) => ({
   end: { line, character: 4 },
 });
 
-// Five participants with distinct, single-word names so a mis-zip (element for
-// participant `i` belonging to some other participant, or to a label-less
-// `rect`) surfaces as a label≠name mismatch. Deliberately MIXED: a principal
-// `Actor` (stick-figure → `.actor-man`) at slot 0, an `Entry` (box, no range —
-// not clickable but still rendered), and `Capability` boxes. Mermaid emits the
-// stick-figure nodes at the END of DOM order and the boxes regrouped out of
-// declaration order, so this only passes if the zip recovers declaration order
-// across BOTH element kinds (the crux of #852, now that #876 ships actors).
+// Five participants with distinct, single-word names, so an element that
+// belongs to some other participant surfaces as a label≠name mismatch.
+// Deliberately MIXED: a principal `Actor` (a stick figure) at slot 0, an
+// `Entry` (a box with no range: drawn but not clickable), and `Capability`
+// boxes. Under Mermaid this mix was the crux of #852 (Mermaid emitted the
+// stick figures last and the boxes out of order); the engine draws both kinds
+// with the same identity attribute, and this keeps it honest.
 const MODEL: SequenceModel = {
   participants: [
     { id: 0, kind: "Actor", name: "Caller", range: R(0) },
@@ -151,8 +144,8 @@ describe("sequence-diagram webview participant wiring (#852)", () => {
 
   // #2093 (DECISION C): a live refresh posts `{type: "update"}` into the
   // running page instead of replacing its HTML. The page must re-render in
-  // place, with a fresh Mermaid render id (a reused id finds the previous
-  // SVG), and the participant zip must hold for the new model.
+  // place, and every participant's element must still be its own for the new
+  // model.
   it("re-renders in place on an update message", async function () {
     this.timeout(60_000);
 

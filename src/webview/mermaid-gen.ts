@@ -13,15 +13,12 @@
 // messages and child blocks are merged and ordered by source position
 // (`range.start`).
 //
-// Mermaid's `click` directive support for `sequenceDiagram` is inconsistent
-// across versions and does not cover every element kind this renders (an
-// `alt`/`opt` header, a `note`), so click-to-code is wired by zipping these
-// orderings against the rendered SVG in `main.ts` rather than via embedded
-// `click` statements. `messageOrder`/`noteOrder` are emission order and zip
-// 1:1 against `.messageText`/`.noteText` (which appear in that order);
-// `participantOrder` is declaration order but does NOT zip against raw
-// `.actor` nodes (Mermaid emits several per participant, regrouped) — the
-// caller recovers one element per participant via `participant-map.ts`.
+// Since model-diagrams slice 1 the sequence view draws with the first-party
+// engine (`src/diagram/`), and this module is the "Copy as Mermaid" exporter:
+// it produces text to paste into Markdown, and the bundle carries no Mermaid
+// runtime. `participantOrder`, `messageOrder` and `noteOrder` date from when
+// click-to-code zipped them against Mermaid's rendered SVG. They remain part
+// of the result and its tests, but nothing in the extension reads them now.
 
 import type { AltBlock, Message, Participant, Range, SequenceModel } from "./types";
 

@@ -132,10 +132,11 @@ describe("diff graphs and page (#153)", () => {
     const a = snap(["A", "B"]);
     a.architecture = { nodes: [node("<script>")], edges: [] };
     const html = renderModelDiffHtml(diffSnapshots(b, a), {
-      against: "main", nonce: "N", cspSource: "csp", scriptUri: "vscode-resource://x/model-diff.js", graphs: buildGraphs(b, a),
+      against: "main", nonce: "N", cspSource: "csp", scriptUri: "vscode-resource://x/model-diff.js",
+      mermaidUri: "vscode-resource://x/mermaid.js", graphs: buildGraphs(b, a),
     });
     assert.match(html, /id="diff-architecture"/);
-    assert.match(html, /<script nonce="N" src="vscode-resource:\/\/x\/model-diff\.js">/);
+    assert.match(html, /<script nonce="N" src="vscode-resource:\/\/x\/mermaid\.js"><\/script>\n<script nonce="N" src="vscode-resource:\/\/x\/model-diff\.js">/);
     assert.ok(!html.includes("<script>\""), "payload does not break out of its script");
     assert.ok(html.includes("\\u003cscript>"));
     assert.ok(!html.includes("acquireVsCodeApi"), "the bundle, not the page, acquires the API");

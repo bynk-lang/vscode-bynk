@@ -62,6 +62,10 @@ export interface ModelDiffPage {
   /** #153: the bundle (`out/model-diff.js`) that draws `graphs` and handles row
    *  clicks, and what it draws. Without them the page is the tables alone. */
   scriptUri?: string;
+  /** The shared Mermaid bundle (`out/mermaid.js`), loaded before `scriptUri`:
+   *  the bundle draws with it (model-diagrams slice 0). Needed whenever
+   *  `scriptUri` is set. */
+  mermaidUri?: string;
   graphs?: DiffGraphs;
 }
 
@@ -86,8 +90,9 @@ function graphSections(g: DiffGraphs): string {
 function script(page: ModelDiffPage): string {
   if (page.scriptUri) {
     const json = JSON.stringify(page.graphs ?? { architecture: null, agents: [] }).replace(/</g, "\\u003c");
+    const mermaid = page.mermaidUri ? `<script nonce="${page.nonce}" src="${escapeHtml(page.mermaidUri)}"></script>\n` : "";
     return `<script nonce="${page.nonce}">window.__BYNK_MODEL_DIFF__ = ${json};</script>
-<script nonce="${page.nonce}" src="${escapeHtml(page.scriptUri)}"></script>`;
+${mermaid}<script nonce="${page.nonce}" src="${escapeHtml(page.scriptUri)}"></script>`;
   }
   return `<script nonce="${page.nonce}">
   const vscode = acquireVsCodeApi();

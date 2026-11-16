@@ -305,7 +305,7 @@ export function registerModelDiff(
   getClient: () => LanguageClient | undefined,
 ): void {
   let panel: vscode.WebviewPanel | undefined;
-  const show = (html: (nonce: string, cspSource: string, scriptUri: string) => string): void => {
+  const show = (html: (nonce: string, cspSource: string, scriptUri: string, mermaidUri: string) => string): void => {
     if (!panel) {
       panel = vscode.window.createWebviewPanel(
         "bynkModelDiff",
@@ -321,7 +321,10 @@ export function registerModelDiff(
     const scriptUri = panel.webview
       .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "out", "model-diff.js"))
       .toString();
-    panel.webview.html = html(getNonce(), panel.webview.cspSource, scriptUri);
+    const mermaidUri = panel.webview
+      .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "out", "mermaid.js"))
+      .toString();
+    panel.webview.html = html(getNonce(), panel.webview.cspSource, scriptUri, mermaidUri);
     panel.reveal(undefined, false);
   };
 
@@ -434,8 +437,8 @@ export function registerModelDiff(
       graphs.linked = false;
     }
     if (warnings.length > 0) result = { ...result, warnings };
-    show((nonce, cspSource, scriptUri) =>
-      renderModelDiffHtml(result, { against: from.label, to: to?.label, nonce, cspSource, scriptUri, graphs }),
+    show((nonce, cspSource, scriptUri, mermaidUri) =>
+      renderModelDiffHtml(result, { against: from.label, to: to?.label, nonce, cspSource, scriptUri, mermaidUri, graphs }),
     );
     // For tests; the palette ignores it.
     return { ...result, graphs };

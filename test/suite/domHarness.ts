@@ -21,6 +21,7 @@ const GLOBALS = [
   "HTMLInputElement",
   "HTMLDetailsElement",
   "MessageEvent",
+  "MutationObserver",
   "getComputedStyle",
 ] as const;
 
@@ -54,6 +55,10 @@ export interface Dom {
 export function setupDom(globals: Record<string, unknown> = {}): Dom {
   const jsdom = new JSDOM('<!doctype html><body><div id="bynk-toolbar"></div><div id="root"></div></body>');
   const win = jsdom.window as unknown as Dom["window"];
+  // jsdom has no canvas, and says so on every `getContext` call. The diagram
+  // engine's text measurer (`src/diagram/measure.ts`) falls back to fixed
+  // widths when there is no context, so answer `null` quietly.
+  (win as unknown as { HTMLCanvasElement: { prototype: { getContext: () => null } } }).HTMLCanvasElement.prototype.getContext = () => null;
   const saved = new Map<string, PropertyDescriptor | undefined>();
   const install = (name: string, value: unknown): void => {
     saved.set(name, Object.getOwnPropertyDescriptor(globalThis, name));

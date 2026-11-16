@@ -415,6 +415,18 @@ describe("architecture view (jsdom)", () => {
     assert.ok(dom.mermaid.calls[0].text.includes("Other"));
   });
 
+  it("redraws when VS Code switches colour theme", async () => {
+    await open();
+    assert.strictEqual(dom.mermaid.calls.length, 1);
+    dom.document.body.className = "vscode-dark";
+    await settle();
+    assert.strictEqual(dom.mermaid.calls.length, 2);
+    // An attribute change that is not a theme switch draws nothing new.
+    dom.document.body.setAttribute("data-other", "x");
+    await settle();
+    assert.strictEqual(dom.mermaid.calls.length, 2);
+  });
+
   it("says so when the project has no contexts", async () => {
     await open({ model: { nodes: [], edges: [] } });
     assert.strictEqual(dom.mermaid.calls.length, 0);

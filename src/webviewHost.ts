@@ -116,6 +116,8 @@ export async function openExternalHref(href: string): Promise<void> {
 export function renderWebviewHtml(opts: {
   webview: vscode.Webview;
   scriptUri: vscode.Uri;
+  /** Scripts loaded before `scriptUri`, in order (a shared vendor bundle). */
+  vendorScriptUris?: vscode.Uri[];
   nonce: string;
   title: string;
   /** The `window.<globalName>` the bundle reads its payload from. */
@@ -127,7 +129,10 @@ export function renderWebviewHtml(opts: {
   /** Extra CSS for the page body (beyond the shared base). */
   bodyCss?: string;
 }): string {
-  const { webview, scriptUri, nonce, title, globalName, payload, view, bodyCss } = opts;
+  const { webview, scriptUri, vendorScriptUris, nonce, title, globalName, payload, view, bodyCss } = opts;
+  const vendorTags = (vendorScriptUris ?? [])
+    .map((uri) => `<script nonce="${nonce}" src="${uri.toString()}"></script>\n`)
+    .join("");
   const payloadJson = JSON.stringify(payload).replace(/</g, "\\u003c");
   const viewJson = JSON.stringify(view ?? null).replace(/</g, "\\u003c");
   return `<!doctype html>
@@ -151,7 +156,7 @@ ${bodyCss ?? ""}
 <div id="bynk-toolbar"></div>
 <div id="root">Loading…</div>
 <script nonce="${nonce}">window.${globalName} = ${payloadJson}; window.__BYNK_VIEW__ = ${viewJson};</script>
-<script nonce="${nonce}" src="${scriptUri.toString()}"></script>
+${vendorTags}<script nonce="${nonce}" src="${scriptUri.toString()}"></script>
 </body>
 </html>`;
 }
