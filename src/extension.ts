@@ -304,7 +304,10 @@ async function startServerNow(
         // directory and publishes diagnostics for it; they are not the
         // user's, and must not reach the Problems panel or what reads it.
         if (isModelDiffScratch(uri.path)) {
-          // #155: keep what says a dependency was not fetched, for the page.
+          // #155: the diagnostics are dropped for the Problems panel, but one
+          // that says a dependency of the revision was not fetched (the compiler
+          // and the editor never fetch) means its model is incomplete. Capture
+          // those here, before they are dropped, so the diff page can say so.
           scratchProblems.note(uri.path, diagnostics);
           return;
         }

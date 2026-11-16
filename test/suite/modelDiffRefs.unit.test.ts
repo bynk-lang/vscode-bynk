@@ -8,6 +8,9 @@ import {
   diffSnapshots,
   firstResolvable,
   headRev,
+  isSafeRef,
+  resolveRev,
+  withRevisionTree,
   mergeBase,
   pullRequestRefs,
   ScratchProblems,
@@ -53,15 +56,15 @@ describe("pull request refs from the GitHub Pull Requests extension (#155)", () 
 
   it("finds the first candidate git knows, and the merge base and HEAD", async () => {
     const git = fakeGit({
-      "rev-parse --verify --quiet origin/main^{commit}": "111",
-      "merge-base 111 222": "000",
-      "rev-parse --verify --quiet HEAD^{commit}": "222",
+      "rev-parse --verify --quiet origin/main^{commit}": "1111111111111111111111111111111111111111",
+      "merge-base 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222": "0000000000000000000000000000000000000000",
+      "rev-parse --verify --quiet HEAD^{commit}": "2222222222222222222222222222222222222222",
     });
-    assert.strictEqual(await firstResolvable(git, "/r", ["aaa", "origin/main", "main"]), "111");
+    assert.strictEqual(await firstResolvable(git, "/r", ["aaa", "origin/main", "main"]), "1111111111111111111111111111111111111111");
     assert.strictEqual(await firstResolvable(git, "/r", ["aaa", ""]), undefined);
-    assert.strictEqual(await mergeBase(git, "/r", "111", "222"), "000");
-    assert.strictEqual(await mergeBase(git, "/r", "111", "999"), undefined);
-    assert.strictEqual(await headRev(git, "/r"), "222");
+    assert.strictEqual(await mergeBase(git, "/r", "1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222"), "0000000000000000000000000000000000000000");
+    assert.strictEqual(await mergeBase(git, "/r", "1111111111111111111111111111111111111111", "9999999999999999999999999999999999999999"), undefined);
+    assert.strictEqual(await headRev(git, "/r"), "2222222222222222222222222222222222222222");
   });
 });
 
@@ -123,5 +126,64 @@ describe("two revisions (#155)", () => {
     assert.ok(!html.includes("open its source in the working tree"));
     assert.ok(!html.includes(`data-uri="`), "no row carries a location");
     assert.match(renderModelDiffHtml(d, { against: "v1", nonce: "N", cspSource: "c" }), /→ working tree<\/h1>/);
+  });
+});
+
+// A ref comes from typed input or from another extension's tree item (a fork
+// pull request's branch name is a stranger's), so it must never reach git as an
+// option, and only full commit ids reach `merge-base` and `worktree add`.
+describe("refs never reach git as options (#155)", () => {
+  const hostile = ["--upload-pack=touch /tmp/x", "-c", "--output=/tmp/x", "-", "--", "a b", "main\nHEAD", "x\u0000y", ""];
+
+  /** A git that records every call and answers any rev-parse with a commit id. */
+  function recording() {
+    const calls: string[][] = [];
+    const git: Git = {
+      async run(args) {
+        calls.push(args);
+        return { code: 0, stdout: "f".repeat(40) + "\n", stderr: "" };
+      },
+    };
+    return { git, calls };
+  }
+
+  it("refuses an option-like ref before any git runs", async () => {
+    for (const ref of hostile) {
+      assert.strictEqual(isSafeRef(ref), false, JSON.stringify(ref));
+      const { git, calls } = recording();
+      assert.strictEqual(await resolveRev(git, "/r", ref), undefined, JSON.stringify(ref));
+      assert.strictEqual(await firstResolvable(git, "/r", [ref]), undefined);
+      assert.deepStrictEqual(calls, [], `git.run was reached with ${JSON.stringify(ref)}`);
+    }
+    for (const ok of ["main", "origin/feature/x", "v1.2.3", "a".repeat(40), "HEAD~2", "refs/pull/5/head"]) {
+      assert.strictEqual(isSafeRef(ok), true, ok);
+    }
+  });
+
+  it("passes only commit ids to merge-base and worktree add", async () => {
+    const { git, calls } = recording();
+    assert.strictEqual(await mergeBase(git, "/r", "--flag", "f".repeat(40)), undefined);
+    assert.strictEqual(await mergeBase(git, "/r", "main", "f".repeat(40)), undefined, "a name is not an id");
+    assert.deepStrictEqual(calls, []);
+    await assert.rejects(withRevisionTree(git, "/r", "", "--detach", "/t", async () => true, async () => 1), /not a commit id/);
+    await assert.rejects(withRevisionTree(git, "/r", "", "main", "/t", async () => true, async () => 1), /not a commit id/);
+    assert.deepStrictEqual(calls, [], "no worktree was added");
+  });
+
+  it("accepts only a commit id from rev-parse, whatever git prints", async () => {
+    const odd: Git = { run: async () => ({ code: 0, stdout: "--output=/tmp/x\n", stderr: "" }) };
+    assert.strictEqual(await resolveRev(odd, "/r", "main"), undefined);
+    assert.strictEqual(await headRev(odd, "/r"), undefined);
+  });
+});
+
+describe("a pull request shape the extension no longer has (#155)", () => {
+  it("is not read, so the command falls back to asking for the revisions", () => {
+    // The shapes a future version of the GitHub Pull Requests extension may pass:
+    // `bynk.compareModelPullRequest` treats `undefined` as "ask" (see the
+    // integration test, which runs the command against such a shape).
+    for (const shape of [{ pullRequestModel: { base: "main" } }, { item: { base: { ref: "main" } } }, [], () => 1]) {
+      assert.strictEqual(pullRequestRefs(shape), undefined);
+    }
   });
 });

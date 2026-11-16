@@ -104,6 +104,8 @@ export async function mergeBaseChoice(git: Git, repo: string): Promise<RefChoice
 
 /** The best common ancestor of two revisions, or `undefined` when they share none. */
 export async function mergeBase(git: Git, repo: string, a: string, b: string): Promise<string | undefined> {
+  // Revisions arrive resolved (`resolveRev`): never pass anything else to git.
+  if (![a, b].every((x) => COMMIT_ID.test(x))) return undefined;
   return ok(await git.run(["merge-base", a, b], repo));
 }
 
@@ -120,7 +122,8 @@ export async function firstResolvable(git: Git, repo: string, candidates: string
 
 /** `HEAD`'s commit id. */
 export async function headRev(git: Git, repo: string): Promise<string | undefined> {
-  return ok(await git.run(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], repo));
+  const id = ok(await git.run(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], repo));
+  return id !== undefined && COMMIT_ID.test(id) ? id : undefined;
 }
 
 /** What a pull request's base and head are, read from the argument the GitHub
@@ -158,9 +161,24 @@ export function pullRequestRefs(arg: unknown): PullRequestRefs | undefined {
   };
 }
 
-/** `ref` resolved to a commit id, or `undefined` when it names nothing. */
+/** A full commit id, which is all that reaches `merge-base` or `worktree add`. */
+export const COMMIT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+
+/** Whether `ref` may be handed to git as a revision. A ref comes from typed
+ *  input or another extension's tree item (a fork pull request's branch name is
+ *  a stranger's), so one that git would read as an option (`--upload-pack=…`) or
+ *  that carries a control character or space is refused before any git runs. */
+export function isSafeRef(ref: string): boolean {
+  return ref !== "" && !ref.startsWith("-") && !/[\s\u0000-\u001f\u007f]/.test(ref);
+}
+
+/** `ref` resolved to a full commit id, or `undefined` when it is unsafe
+ *  (`isSafeRef`) or names nothing. Everything after this takes the id, never
+ *  the ref. */
 export async function resolveRev(git: Git, repo: string, ref: string): Promise<string | undefined> {
-  return ok(await git.run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], repo));
+  if (!isSafeRef(ref)) return undefined;
+  const id = ok(await git.run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], repo));
+  return id !== undefined && COMMIT_ID.test(id) ? id : undefined;
 }
 
 /** `bynk.toml`'s directory as a path relative to the repository root
@@ -206,6 +224,7 @@ export async function withRevisionTree<T>(
   exists: (path: string) => Promise<boolean>,
   use: (tree: RevisionTree) => Promise<T>,
 ): Promise<T> {
+  if (!COMMIT_ID.test(rev)) throw new Error(`${rev} is not a commit id.`);
   const added = await git.run(["worktree", "add", "--detach", "--force", dir, rev], repo);
   try {
     if (added.code !== 0) {

@@ -519,7 +519,7 @@ export function registerModelDiff(
         const current = await headRev(execGit, t.repo);
         // A pull request that is checked out is compared with the working tree.
         const toTree = head !== undefined && head !== current ? head : undefined;
-        const mb = (await mergeBase(execGit, t.repo, base, head ?? "HEAD")) ?? base;
+        const mb = (await mergeBase(execGit, t.repo, base, head ?? current ?? "")) ?? base;
         const what = pr.label ? `pull request ${pr.label}` : "the pull request";
         const from: Side = { rev: mb, label: `the merge base of ${what}` };
         const to: Side | undefined = toTree ? { rev: toTree, label: `the head of ${what}` } : undefined;

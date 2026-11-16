@@ -131,4 +131,29 @@ describe("compare model with a git revision (#147)", () => {
       [],
     );
   });
+  it("falls back to asking for the revisions when the pull request's shape is not recognised (#155)", async function () {
+    this.timeout(60_000);
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(file()));
+    const realPick = vscode.window.showQuickPick;
+    const realInfo = vscode.window.showInformationMessage;
+    const picks: string[] = [];
+    const infos: string[] = [];
+    // The picker is answered with a cancel, so nothing is compared.
+    (vscode.window as { showQuickPick: unknown }).showQuickPick = async (_items: unknown, o?: { title?: string }) => {
+      picks.push(o?.title ?? "");
+      return undefined;
+    };
+    (vscode.window as { showInformationMessage: unknown }).showInformationMessage = async (m: string) => {
+      infos.push(m);
+      return undefined;
+    };
+    try {
+      await vscode.commands.executeCommand("bynk.compareModelPullRequest", { pullRequestModel: { base: 42 } });
+    } finally {
+      (vscode.window as { showQuickPick: unknown }).showQuickPick = realPick;
+      (vscode.window as { showInformationMessage: unknown }).showInformationMessage = realInfo;
+    }
+    assert.ok(infos.some((m) => /could not read this pull request/.test(m)), JSON.stringify(infos));
+    assert.strictEqual(picks.length, 1, "the revision picker was offered");
+  });
 });
