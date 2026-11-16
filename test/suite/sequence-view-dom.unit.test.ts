@@ -122,3 +122,148 @@ describe("sequence view (jsdom)", () => {
     assert.strictEqual(dom.root.textContent, "No sequence model to render.");
   });
 });
+
+describe("sequence view reading aids (jsdom, slice 2)", () => {
+  let dom: Dom;
+  const open = async (p: SequencePayload | null = payload()): Promise<void> => {
+    dom = setupDom({ __BYNK_SEQUENCE_MODEL__: p });
+    dom.load("main");
+    await settle();
+  };
+  afterEach(() => dom.dispose());
+  const q = (sel: string): Element | null => dom.root.querySelector(sel);
+  const view = { target: { uri: "file:///a.bynk" }, followsCursor: true };
+
+  it("pins the lifeline heads in their own strip above the scrolling body", async () => {
+    await open();
+    assert.ok(q(".bynk-viewport .bynk-sticky-head svg.bynk-seq-head [data-bynk-ref=\"p2\"]"));
+    assert.ok(!q(".bynk-viewport-body [data-bynk-ref=\"p2\"]"), "heads are not drawn twice");
+    assert.ok(q(".bynk-viewport-body [data-bynk-ref=\"m1\"]"));
+  });
+
+  it("folds a fragment from its toggle, and unfolds it again", async () => {
+    await open();
+    (q('[data-bynk-fold-toggle="b0"]') as Element).dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    await settle();
+    assert.strictEqual(q('[data-bynk-foldable="b0"]')?.getAttribute("aria-expanded"), "false");
+    assert.ok(!q('[data-bynk-ref="m1"]'), "the fragment's contents are hidden");
+    assert.ok(q(".bynk-frag-summary")?.textContent?.startsWith("folded:"));
+    assert.ok(!dom.posted.some((m) => (m as { type: string }).type === "reveal"), "folding does not open the source");
+    (q('[data-bynk-fold-toggle="b0"]') as Element).dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    await settle();
+    assert.ok(q('[data-bynk-ref="m1"]'));
+  });
+
+  it("folds with Space on the fragment's tab, and keeps the fold across a live update", async () => {
+    await open();
+    (q('[data-bynk-ref="b0"]') as Element).dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    await settle();
+    assert.strictEqual(q('[data-bynk-foldable="b0"]')?.getAttribute("aria-expanded"), "false");
+    dom.post({ type: "update", payload: payload("later()"), view });
+    await settle();
+    assert.strictEqual(q('[data-bynk-foldable="b0"]')?.getAttribute("aria-expanded"), "false");
+  });
+
+  it("drops the reader's folds when the view moves to another handler", async () => {
+    await open();
+    (q('[data-bynk-fold-toggle="b0"]') as Element).dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    await settle();
+    const other = payload();
+    other.model.participants[1] = { ...other.model.participants[1], name: "other" };
+    dom.post({ type: "update", payload: other, view });
+    await settle();
+    assert.strictEqual(q('[data-bynk-foldable="b0"]')?.getAttribute("aria-expanded"), "true");
+  });
+
+  it("marks the element under the editor's cursor, and only for its own file", async () => {
+    await open();
+    dom.post({ type: "cursor", uri: "file:///a.bynk", position: { line: 11, character: 2 } });
+    await settle();
+    assert.deepStrictEqual(
+      Array.from(dom.root.querySelectorAll(".bynk-current")).map((e) => e.getAttribute("data-bynk-ref")),
+      ["m1"],
+    );
+    dom.post({ type: "cursor", uri: "file:///other.bynk", position: { line: 11, character: 2 } });
+    await settle();
+    assert.strictEqual(dom.root.querySelectorAll(".bynk-current").length, 0);
+  });
+
+  it("asks the host to mark the source of the element under the pointer, and to clear it", async () => {
+    await open();
+    (q('[data-bynk-ref="m1"]') as Element).dispatchEvent(new dom.window.MouseEvent("mouseover", { bubbles: true }));
+    assert.deepStrictEqual(dom.posted.slice(-1), [{ type: "highlight", uri: "file:///a.bynk", range: R(11) }]);
+    (q(".bynk-viewport") as Element).dispatchEvent(new dom.window.MouseEvent("mouseleave"));
+    assert.deepStrictEqual(dom.posted.slice(-1), [{ type: "highlight", uri: "file:///a.bynk", range: null }]);
+  });
+
+  it("zooms from the toolbar and keeps the zoom across an update", async () => {
+    await open();
+    const label = (): string | null | undefined => dom.document.getElementById("bynk-zoom-label")?.textContent;
+    assert.strictEqual(label(), "100% (fit)");
+    (dom.document.getElementById("bynk-zoom-in") as HTMLButtonElement).click();
+    assert.strictEqual(label(), "125%");
+    const svg = q(".bynk-viewport-body svg") as SVGSVGElement;
+    const w = Number(svg.getAttribute("width"));
+    assert.ok(w > Number(svg.getAttribute("viewBox")?.split(" ")[2]), "the drawing is scaled up");
+    dom.post({ type: "update", payload: payload("later()"), view });
+    await settle();
+    assert.strictEqual(label(), "125%");
+    (dom.document.getElementById("bynk-zoom-fit") as HTMLButtonElement).click();
+    assert.strictEqual(label(), "100% (fit)");
+  });
+
+  it("zooms with the keyboard and Ctrl+wheel, within the limits", async () => {
+    await open();
+    const vp = q(".bynk-viewport") as HTMLElement;
+    const label = (): string | null | undefined => dom.document.getElementById("bynk-zoom-label")?.textContent;
+    const key = (k: string): void => void vp.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: k, bubbles: true }));
+    key("+");
+    assert.strictEqual(label(), "125%");
+    key("-");
+    key("-");
+    assert.strictEqual(label(), "80%");
+    key("0");
+    assert.strictEqual(label(), "100% (fit)");
+    for (let i = 0; i < 20; i++) key("-");
+    assert.strictEqual(label(), "25%");
+    vp.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -500, ctrlKey: true, bubbles: true, cancelable: true }));
+    assert.notStrictEqual(label(), "25%");
+    const before = label();
+    vp.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -500, bubbles: true }));
+    assert.strictEqual(label(), before, "a plain wheel scrolls; it does not zoom");
+    (dom.document.getElementById("bynk-zoom-100") as HTMLButtonElement).click();
+    assert.strictEqual(label(), "100%");
+  });
+
+  it("moves to the first and last element with Home and End, and back with the arrows", async () => {
+    await open();
+    const focused = (): string | null | undefined => dom.document.activeElement?.getAttribute("data-bynk-ref");
+    const key = (on: string, k: string): void =>
+      void (q(`[data-bynk-ref="${on}"]`) as Element).dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: k, bubbles: true }));
+    key("p0", "End");
+    const last = focused();
+    assert.ok(last && last !== "p0");
+    key(last, "Home");
+    assert.strictEqual(focused(), "p0");
+    key("p0", "ArrowUp");
+    assert.strictEqual(focused(), "p0", "nothing before the first");
+    key("m1", "ArrowLeft");
+    assert.ok(focused() && focused() !== "m1");
+    key("m1", "x");
+    assert.notStrictEqual(focused(), "m1", "other keys do nothing");
+  });
+
+  it("exports a standalone SVG with the theme's colours resolved", async () => {
+    await open();
+    (dom.document.getElementById("bynk-save-svg") as HTMLButtonElement).click();
+    await settle();
+    const saved = dom.posted.slice(-1)[0] as { type: string; format: string; name: string; data: string };
+    assert.strictEqual(saved.type, "saveFile");
+    assert.strictEqual(saved.format, "svg");
+    assert.strictEqual(saved.name, "api");
+    assert.ok(saved.data.startsWith("<svg"));
+    assert.ok(!saved.data.includes("var(--"), "no VS Code variables left");
+    assert.ok(!/data-bynk-|tabindex/.test(saved.data), "nothing interactive exported");
+    assert.ok(saved.data.includes("Clock") && saved.data.includes("now()"));
+  });
+});

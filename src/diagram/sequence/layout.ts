@@ -87,9 +87,22 @@ export interface PlacedFragment {
   ref: SourceRef;
   operator: FragmentEvent["operator"];
   box: Box;
-  /** The pentagon in the top-left corner that names the operator. */
+  /** The pentagon in the top-left corner that names the operator. Its right
+   *  end holds the fold toggle (`foldX`). */
   tab: Box;
+  /** The fold toggle's centre. */
+  foldX: number;
+  foldY: number;
+  /** Folded: drawn as its header and a one-line summary, contents hidden. Only
+   *  the first operand is listed (its guard shows in the header). */
+  folded: boolean;
+  summary: (Label & { x: number; y: number }) | null;
   operands: PlacedOperand[];
+}
+
+export interface LayoutOptions {
+  /** The fragments (by IR id) to draw folded. */
+  folded?: ReadonlySet<string>;
 }
 
 export interface PlacedActivation {
@@ -133,7 +146,31 @@ const M = {
   actW: 10,
   actOverhang: 10,
   maxLabel: 64,
+  foldW: 14,
+  foldedBody: 24,
 };
+
+/** What a fragment holds, counted through nested fragments: for a folded
+ *  fragment's summary and extent. */
+function summarise(f: FragmentEvent): { lifelines: Set<number>; messages: number; notes: number } {
+  const out = { lifelines: new Set<number>(), messages: 0, notes: 0 };
+  const walk = (events: SequenceEvent[]): void => {
+    for (const e of events) {
+      if (e.type === "message") {
+        out.messages++;
+        out.lifelines.add(e.from);
+        out.lifelines.add(e.to);
+      } else if (e.type === "note") {
+        out.notes++;
+        out.lifelines.add(e.over);
+      } else {
+        for (const op of e.operands) walk(op.events);
+      }
+    }
+  };
+  for (const op of f.operands) walk(op.events);
+  return out;
+}
 
 function label(full: string): Label {
   const chars = Array.from(full);
@@ -141,7 +178,8 @@ function label(full: string): Label {
   return { text, full };
 }
 
-export function layoutSequence(diagram: SequenceDiagram, measure: TextMeasurer): SequenceScene {
+export function layoutSequence(diagram: SequenceDiagram, measure: TextMeasurer, opts: LayoutOptions = {}): SequenceScene {
+  const folded = opts.folded ?? new Set<string>();
   const w = (text: string, role: FontRole): number => measure.width(text, role);
   const lifelines = diagram.lifelines;
   const n = lifelines.length;
@@ -242,16 +280,57 @@ export function layoutSequence(diagram: SequenceDiagram, measure: TextMeasurer):
       } else {
         const top = y - M.msgRow / 2 - 6;
         const operator = e.operator;
-        const tabW = w(operator, "small") + 2 * M.tabPadX + 6;
+        const tabW = w(operator, "small") + 2 * M.tabPadX + 6 + M.foldW;
+        const isFolded = folded.has(e.ref.id);
         const frag: PlacedFragment = {
           type: "fragment",
           ref: e.ref,
           operator,
           box: { x: 0, y: top, w: 0, h: 0 },
           tab: { x: 0, y: top, w: tabW, h: M.tabH },
+          foldX: 0,
+          foldY: top + M.tabH / 2,
+          folded: isFolded,
+          summary: null,
           operands: [],
         };
         items.push(frag);
+        if (isFolded) {
+          // Header and a summary line; the contents are not placed. The box
+          // spans the lifelines its contents touch.
+          const { lifelines: touched, messages, notes } = summarise(e);
+          const xsTouched = [...touched].map((i) => xs[i] ?? xs[entry]);
+          const lo = xsTouched.length > 0 ? Math.min(...xsTouched) : xs[entry];
+          const hi = xsTouched.length > 0 ? Math.max(...xsTouched) : xs[entry];
+          const guard = label(e.operands[0]?.guard ? `[${e.operands[0].guard}]` : "");
+          const parts = [
+            e.operands.length > 1 ? `${e.operands.length} branches` : null,
+            messages > 0 ? `${messages} message${messages === 1 ? "" : "s"}` : null,
+            notes > 0 ? `${notes} note${notes === 1 ? "" : "s"}` : null,
+          ].filter(Boolean);
+          const summary = label(`folded: ${parts.join(", ") || "empty"}`);
+          const minW = Math.max(tabW + w(guard.text, "small") + 16, w(summary.text, "small") + 24);
+          let left = lo - 40;
+          let right = hi + 40;
+          if (right - left < minW) right = left + minW;
+          const h = M.tabH + M.foldedBody;
+          frag.box = { x: left, y: top, w: right - left, h };
+          frag.tab.x = left;
+          frag.foldX = left + tabW - M.foldW / 2 - 2;
+          if (e.operands[0]) {
+            frag.operands.push({ ref: e.operands[0].ref, guard, y: top, guardY: top + 13, guardX: left + tabW + 8 });
+          }
+          // Start the summary clear of the entry's activation bar, which runs
+          // through the box.
+          const entryX = xs[entry];
+          const sx = entryX >= left && entryX <= right ? Math.max(left + 10, entryX + M.actW / 2 + 8) : left + 10;
+          if (sx + w(summary.text, "small") + 10 > right) right = sx + w(summary.text, "small") + 10;
+          frag.box.w = right - left;
+          frag.summary = { ...summary, x: sx, y: top + M.tabH + 15 };
+          grow(ext, left, right);
+          y = top + h + M.fragAfter + M.msgRow / 2;
+          continue;
+        }
         const inner: Extent = { min: Infinity, max: -Infinity };
         let minW = 0;
         // The extra 6 keeps a nested fragment's top clear of this one's tab.
@@ -279,6 +358,7 @@ export function layoutSequence(diagram: SequenceDiagram, measure: TextMeasurer):
         const bottom = y - M.msgRow / 2 + M.fragBottom;
         frag.box = { x: left, y: top, w: right - left, h: bottom - top };
         frag.tab.x = left;
+        frag.foldX = left + tabW - M.foldW / 2 - 2;
         frag.operands.forEach((op, i) => (op.guardX = i === 0 ? left + frag.tab.w + 8 : left + 8));
         grow(ext, left, right);
         y = bottom + M.fragAfter + M.msgRow / 2;
@@ -376,6 +456,8 @@ export function layoutSequence(diagram: SequenceDiagram, measure: TextMeasurer):
     } else {
       shift(it.box);
       shift(it.tab);
+      it.foldX += dx;
+      if (it.summary) it.summary.x += dx;
       for (const op of it.operands) op.guardX += dx;
     }
   }

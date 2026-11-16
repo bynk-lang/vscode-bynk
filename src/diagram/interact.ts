@@ -4,23 +4,42 @@
 // id) and, when they link to source, `data-bynk-focusable`. Elements are found
 // by id, never by DOM position or a renderer's internal naming.
 //
-// - Click, Enter or Space reveals the element's source.
+// - Click or Enter reveals the element's source. Space does too, except on a
+//   foldable element (a fragment's tab), where it folds or unfolds; so does a
+//   click on the fold toggle (`data-bynk-fold-toggle`).
 // - Arrow keys, Home and End move focus between elements, in document order
 //   (lifelines first, then events top to bottom). One element at a time is in
 //   the tab order (a roving tabindex), so Tab enters and leaves the diagram in
 //   one step.
+// - Hovering or focusing an element tells the host its source range, so the
+//   editor can mark it (and `null` when that ends).
+//
+// The root is any element: the sequence view's viewport holds two SVGs (the
+// pinned lifeline heads and the body), and navigation runs across both.
 
 import type { Range } from "../webview/types";
 
 export interface DiagramHost {
   reveal(range: Range): void;
+  /** Fold or unfold the fragment with IR id `id`. */
+  toggleFold?(id: string): void;
+  /** The source of the element under the pointer or focus; `null` when none. */
+  hover?(range: Range | null): void;
 }
 
-/** Wire `root`'s elements to `host`. `ranges` maps each IR id to its source. */
-export function wireInteraction(root: SVGSVGElement, ranges: ReadonlyMap<string, Range>, host: DiagramHost): void {
+/** Put the first element in the tab order (after a redraw replaced them). */
+export function initTabOrder(root: Element): void {
+  const first = root.querySelector<SVGElement>("[data-bynk-focusable]");
+  if (first && !root.querySelector('[data-bynk-focusable][tabindex="0"]')) first.setAttribute("tabindex", "0");
+}
+
+/** Wire `root`'s elements to `host`, once: the handlers find elements as
+ *  events arrive, so `root`'s drawing can be replaced underneath them (call
+ *  `initTabOrder` after each). `ranges` maps each IR id to its source; it is
+ *  read at event time, so a caller may refill it on each redraw. */
+export function wireInteraction(root: Element, ranges: ReadonlyMap<string, Range>, host: DiagramHost): void {
   const focusables = (): SVGElement[] => Array.from(root.querySelectorAll<SVGElement>("[data-bynk-focusable]"));
-  const all = focusables();
-  if (all.length > 0) all[0].setAttribute("tabindex", "0");
+  initTabOrder(root);
 
   const target = (event: Event): SVGElement | null =>
     (event.target as Element | null)?.closest?.<SVGElement>("[data-bynk-focusable]") ?? null;
@@ -36,21 +55,48 @@ export function wireInteraction(root: SVGSVGElement, ranges: ReadonlyMap<string,
   };
 
   root.addEventListener("click", (event) => {
+    const fold = (event.target as Element | null)?.closest?.("[data-bynk-fold-toggle]");
+    if (fold && host.toggleFold) {
+      host.toggleFold(fold.getAttribute("data-bynk-fold-toggle") ?? "");
+      return;
+    }
     const el = target(event);
     if (!el) return;
     move(el);
     reveal(el);
   });
 
-  root.addEventListener("keydown", (event: KeyboardEvent) => {
+  let hovered: string | null = null;
+  const hover = (el: SVGElement | null): void => {
+    const id = el?.getAttribute("data-bynk-ref") ?? null;
+    if (id === hovered || !host.hover) return;
+    hovered = id;
+    host.hover(id ? ranges.get(id) ?? null : null);
+  };
+  root.addEventListener("mouseover", (event) => hover(target(event)));
+  root.addEventListener("mouseleave", () => hover(null));
+  root.addEventListener("focusin", (event) => hover(target(event)));
+  root.addEventListener("focusout", (event) => {
+    const next = (event as FocusEvent).relatedTarget as Node | null;
+    if (!next || !root.contains(next)) hover(null);
+  });
+
+  root.addEventListener("keydown", (e: Event) => {
+    const event = e as KeyboardEvent;
     const el = target(event);
     if (!el) return;
     const list = focusables();
     const i = list.indexOf(el);
     let next: SVGElement | undefined;
     switch (event.key) {
+      case " ": {
+        const foldable = el.getAttribute("data-bynk-foldable");
+        if (foldable && host.toggleFold) host.toggleFold(foldable);
+        else reveal(el);
+        event.preventDefault();
+        return;
+      }
       case "Enter":
-      case " ":
         reveal(el);
         event.preventDefault();
         return;
@@ -84,7 +130,7 @@ export function focusedRef(root: ParentNode): string | null {
 }
 
 /** Give focus back to the element for `id` after a redraw, if it still exists. */
-export function restoreFocus(root: SVGSVGElement, id: string | null): void {
+export function restoreFocus(root: Element, id: string | null): void {
   // IR ids are letters, digits and dots, so they quote safely in a selector.
   if (!id || !/^[\w.]+$/.test(id)) return;
   const el = root.querySelector<SVGElement>(`[data-bynk-focusable][data-bynk-ref="${id}"]`);

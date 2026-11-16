@@ -7,30 +7,32 @@
 // Reads the `SequencePayload` the extension host embeds as
 // `window.__BYNK_SEQUENCE_MODEL__` and draws it with the first-party diagram
 // engine (`src/diagram/`, model-diagrams slice 1) in UML notation. Every drawn
-// element carries its model identity, so click-to-code is a lookup by id. It
-// no longer zips Mermaid's rendered SVG back to the model by DOM order and
-// coordinates (the old `participant-map.ts`). Colours are CSS over
-// `--vscode-*`, so a theme switch needs no redraw.
+// element carries its model identity, so click-to-code is a lookup by id.
+// Colours are CSS over `--vscode-*`, so a theme switch needs no redraw.
 //
-// "Copy as Mermaid" keeps `mermaid-gen.ts` as an exporter, with no Mermaid
-// runtime in this bundle: the host puts the text on the clipboard.
+// Slice 2 adds the reading aids:
+// - the drawing sits in a viewport (`diagram/viewport.ts`): lifeline heads
+//   pinned while the body scrolls, zoom, drag to pan, and a minimap;
+// - fragments fold (the toggle on a fragment's tab, or Space on it); deeply
+//   nested ones start folded, and folds are kept across live updates;
+// - the editor's cursor marks the element it is in (the host posts
+//   `{type: "cursor"}`), and hovering or focusing an element marks its source
+//   in the editor (`{type: "highlight"}` to the host);
+// - Copy as Mermaid, and Save as SVG or PNG (the host shows the save dialog).
 
-import { focusedRef, restoreFocus } from "../diagram/interact";
+import { exportSvg, svgToPngBase64 } from "../diagram/export";
+import { focusedRef, initTabOrder, restoreFocus, wireInteraction } from "../diagram/interact";
 import { canvasMeasurer, type TextMeasurer } from "../diagram/measure";
-import { renderSequence } from "../diagram/sequence/render";
-import { ensureDiagramStyles } from "../diagram/style";
-import { startLiveView, type VsCodeApi } from "./live";
+import { elementAt, renderSequence, type SequenceRender } from "../diagram/sequence/render";
+import { DIAGRAM_CSS, ensureDiagramStyles } from "../diagram/style";
+import { DiagramViewport } from "../diagram/viewport";
+import { type LiveView, startLiveView, type VsCodeApi } from "./live";
 import { toMermaid } from "./mermaid-gen";
-import type { Range, RevealMessage, SequencePayload } from "./types";
+import type { Position, Range, RevealMessage, SequencePayload } from "./types";
 
 declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscodeApi = acquireVsCodeApi();
-
-function reveal(uri: string, range: Range): void {
-  const message: RevealMessage = { type: "reveal", uri, range };
-  vscodeApi.postMessage(message);
-}
 
 /** The workbench font, which the page's text is drawn in. */
 function fontFamily(): string {
@@ -45,42 +47,169 @@ function measurerFor(font: string): TextMeasurer {
   return measurer.measure;
 }
 
-function actions(payload: SequencePayload): HTMLElement {
+// -- Page state, kept across live updates. --
+
+let live: LiveView | undefined;
+let payload: SequencePayload | null = null;
+let current: SequenceRender | undefined;
+/** The reader's folds (fragment id → folded), over the default folds. */
+const overrides = new Map<string, boolean>();
+/** Which handler the folds belong to: they reset when the view retargets. */
+let modelKey: string | undefined;
+let cursor: { uri: string; position: Position } | undefined;
+/** Source ranges by IR id for the current drawing, refilled on each render. */
+const ranges = new Map<string, Range>();
+
+const viewport = new DiagramViewport(document);
+const actionsBar = buildActions();
+let wired = false;
+
+function post(message: unknown): void {
+  vscodeApi.postMessage(message);
+}
+
+function reveal(range: Range): void {
+  if (!payload) return;
+  const message: RevealMessage = { type: "reveal", uri: payload.uri, range };
+  post(message);
+}
+
+function button(label: string, title: string, id: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.id = id;
+  b.textContent = label;
+  b.title = title;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function sep(): HTMLElement {
+  const s = document.createElement("span");
+  s.className = "bynk-sep";
+  return s;
+}
+
+function buildActions(): HTMLElement {
   const bar = document.createElement("div");
   bar.className = "bynk-diagram-actions";
-  const copy = document.createElement("button");
-  copy.id = "bynk-copy-mermaid";
-  copy.textContent = "Copy as Mermaid";
-  copy.title = "Copy this diagram as Mermaid text, to paste into Markdown";
-  copy.addEventListener("click", () => {
-    vscodeApi.postMessage({ type: "copyText", text: toMermaid(payload.model).text, what: "Mermaid" });
-  });
-  bar.append(copy);
+  const zoomLabel = document.createElement("span");
+  zoomLabel.className = "bynk-zoom-label";
+  zoomLabel.id = "bynk-zoom-label";
+  const showZoom = (): void => {
+    zoomLabel.textContent = `${Math.round(viewport.zoom * 100)}%${viewport.isFit ? " (fit)" : ""}`;
+  };
+  viewport.onZoomChange(showZoom);
+  showZoom();
+  bar.append(
+    button("Copy as Mermaid", "Copy this diagram as Mermaid text, to paste into Markdown", "bynk-copy-mermaid", () => {
+      if (payload) post({ type: "copyText", text: toMermaid(payload.model).text, what: "Mermaid" });
+    }),
+    button("Save as SVG…", "Save this diagram as an SVG file, in the current theme's colours", "bynk-save-svg", () => void save("svg")),
+    button("Save as PNG…", "Save this diagram as a PNG image, in the current theme's colours", "bynk-save-png", () => void save("png")),
+    sep(),
+    button("−", "Zoom out (−)", "bynk-zoom-out", () => viewport.zoomOut()),
+    zoomLabel,
+    button("+", "Zoom in (+)", "bynk-zoom-in", () => viewport.zoomIn()),
+    button("Fit", "Fit the width of the panel (0)", "bynk-zoom-fit", () => viewport.setZoom("fit")),
+    button("100%", "Actual size", "bynk-zoom-100", () => viewport.setZoom(1)),
+  );
   return bar;
 }
 
-function render(root: HTMLElement, payload: SequencePayload | null): void {
-  if (!payload) {
+/** The diagram's file name: the handler's entry lifeline. */
+function fileName(): string {
+  const entry = current?.diagram.lifelines.find((l) => l.kind === "entry")?.name ?? "sequence";
+  return entry.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "sequence";
+}
+
+async function save(format: "svg" | "png"): Promise<void> {
+  if (!current) return;
+  try {
+    const style = getComputedStyle(document.body);
+    const markup = exportSvg(current.drawing, {
+      css: DIAGRAM_CSS,
+      lookup: (name) => style.getPropertyValue(name),
+      fontFamily: fontFamily(),
+    });
+    const { width, headHeight, bodyHeight } = current.drawing;
+    const data = format === "svg" ? markup : await svgToPngBase64(markup, width, headHeight + bodyHeight);
+    post({ type: "saveFile", format, name: fileName(), data });
+  } catch (err) {
+    post({ type: "error", message: `Could not make the ${format.toUpperCase()}: ${String(err)}` });
+  }
+}
+
+function toggleFold(id: string): void {
+  if (!current) return;
+  overrides.set(id, !current.folded.has(id));
+  live?.rerender();
+}
+
+/** Mark the element the editor's cursor is in; scroll to it when `scroll`. */
+function markCursor(scroll: boolean): void {
+  for (const el of viewport.element.querySelectorAll(".bynk-current")) el.classList.remove("bynk-current");
+  if (!current || !payload || !cursor || cursor.uri !== payload.uri) return;
+  const id = elementAt(current.ranges, current.hidden, cursor.position);
+  if (!id) return;
+  const el = viewport.element.querySelector(`[data-bynk-ref="${id}"]`);
+  if (!el) return;
+  el.classList.add("bynk-current");
+  if (scroll) viewport.reveal(el);
+}
+
+function render(root: HTMLElement, next: SequencePayload | null): void {
+  payload = next;
+  if (!next) {
+    current = undefined;
     root.textContent = "No sequence model to render.";
+    post({ type: "highlight", uri: "", range: null });
     return;
   }
   ensureDiagramStyles(document);
-  const keep = focusedRef(root);
+
+  const entry = next.model.participants.find((p) => p.kind === "Entry")?.name ?? "";
+  const key = `${next.uri}#${entry}`;
+  const retargeted = key !== modelKey;
+  if (retargeted) {
+    modelKey = key;
+    overrides.clear();
+  }
+
+  const keep = focusedRef(viewport.element);
   const font = fontFamily();
-  let svg: SVGSVGElement;
+  let result: SequenceRender;
   try {
-    svg = renderSequence(payload.model, {
-      measure: measurerFor(font),
-      fontFamily: font,
-      host: { reveal: (range) => reveal(payload.uri, range) },
-    });
+    result = renderSequence(next.model, { measure: measurerFor(font), fontFamily: font, overrides });
   } catch (err) {
+    current = undefined;
     root.textContent = `Failed to render diagram: ${String(err)}`;
     return;
   }
-  root.replaceChildren(actions(payload), svg);
-  restoreFocus(svg, keep);
-  reportWiring(payload, svg);
+  current = result;
+  ranges.clear();
+  for (const [id, r] of result.ranges) ranges.set(id, r);
+
+  if (actionsBar.parentElement !== root || viewport.element.parentElement !== root) {
+    root.replaceChildren(actionsBar, viewport.element);
+    document.body.appendChild(viewport.minimapElement);
+  }
+  if (!wired) {
+    wired = true;
+    wireInteraction(viewport.element, ranges, {
+      reveal,
+      toggleFold,
+      hover: (range) => post({ type: "highlight", uri: payload?.uri ?? "", range }),
+    });
+  }
+  viewport.show(result.drawing);
+  if (retargeted) {
+    viewport.element.scrollTop = 0;
+    viewport.element.scrollLeft = 0;
+  }
+  initTabOrder(viewport.element);
+  restoreFocus(viewport.element, keep);
+  markCursor(false);
+  reportWiring(next);
 }
 
 /** Test seam (#852): when the host sets `window.__BYNK_SEQUENCE_DEBUG__`, post
@@ -88,15 +217,27 @@ function render(root: HTMLElement, payload: SequencePayload | null): void {
  *  extension-host integration test cannot reach the webview's DOM, so this is
  *  how it checks that each participant's element really is that participant.
  *  No-op in production: only the test sets the flag. */
-function reportWiring(payload: SequencePayload, svg: SVGSVGElement): void {
+function reportWiring(p: SequencePayload): void {
   if (!(window as unknown as { __BYNK_SEQUENCE_DEBUG__?: boolean }).__BYNK_SEQUENCE_DEBUG__) return;
-  vscodeApi.postMessage({
+  post({
     type: "wiring",
-    participants: payload.model.participants.map((p) => ({
-      name: p.name,
-      label: svg.querySelector(`[data-bynk-ref="p${p.id}"] .bynk-name`)?.textContent?.trim() ?? null,
+    participants: p.model.participants.map((part) => ({
+      name: part.name,
+      label: viewport.element.querySelector(`[data-bynk-ref="p${part.id}"] .bynk-name`)?.textContent?.trim() ?? null,
     })),
   });
 }
 
-startLiveView<SequencePayload>(vscodeApi, "__BYNK_SEQUENCE_MODEL__", render);
+function isPosition(v: unknown): v is Position {
+  const p = v as { line?: unknown; character?: unknown } | null;
+  return Number.isInteger(p?.line) && Number.isInteger(p?.character);
+}
+
+window.addEventListener("message", (event: MessageEvent<{ type?: unknown; uri?: unknown; position?: unknown }>) => {
+  const m = event.data;
+  if (m?.type !== "cursor" || typeof m.uri !== "string" || !isPosition(m.position)) return;
+  cursor = { uri: m.uri, position: m.position };
+  markCursor(true);
+});
+
+live = startLiveView<SequencePayload>(vscodeApi, "__BYNK_SEQUENCE_MODEL__", render);

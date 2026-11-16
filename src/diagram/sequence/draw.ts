@@ -45,12 +45,35 @@ export interface DrawOptions {
   fontFamily: string;
 }
 
-export function drawSequence(scene: SequenceScene, opts: DrawOptions): SVGSVGElement {
+/** The drawing in two parts: the lifeline heads, which the viewport pins to
+ *  the top as the body scrolls (sticky headers), and the body. Both share the
+ *  scene's coordinates: the head strip is the scene's top `headHeight`, the
+ *  body the rest. */
+export interface SequenceDrawing {
+  head: SVGSVGElement;
+  body: SVGSVGElement;
+  width: number;
+  headHeight: number;
+  bodyHeight: number;
+}
+
+export function drawSequence(scene: SequenceScene, opts: DrawOptions): SequenceDrawing {
+  const headHeight = scene.lifelines[0]?.lineTop ?? 0;
+  const bodyHeight = Math.max(scene.height - headHeight, 1);
+  const head = svg("svg", {
+    class: "bynk-diagram bynk-seq bynk-seq-head",
+    width: scene.width,
+    height: headHeight,
+    viewBox: `0 0 ${scene.width} ${headHeight}`,
+    role: "group",
+    "aria-label": `${opts.title}: lifelines`,
+  });
+  head.style.fontFamily = opts.fontFamily;
   const root = svg("svg", {
     class: "bynk-diagram bynk-seq",
     width: scene.width,
-    height: scene.height,
-    viewBox: `0 0 ${scene.width} ${scene.height}`,
+    height: bodyHeight,
+    viewBox: `0 ${headHeight} ${scene.width} ${bodyHeight}`,
     role: "group",
     "aria-label": opts.title,
   });
@@ -74,7 +97,7 @@ export function drawSequence(scene: SequenceScene, opts: DrawOptions): SVGSVGEle
   marker("bynk-seq-open", false);
 
   const lines = svg("g", { class: "bynk-lines" }, root);
-  const heads = svg("g", { class: "bynk-heads" }, root);
+  const heads = svg("g", { class: "bynk-heads" }, head);
   const items = svg("g", { class: "bynk-items" }, root);
 
   for (const l of scene.lifelines) {
@@ -89,7 +112,7 @@ export function drawSequence(scene: SequenceScene, opts: DrawOptions): SVGSVGEle
     else if (item.type === "note") drawNote(item, items);
     else drawFragment(item, items);
   }
-  return root;
+  return { head, body: root, width: scene.width, headHeight, bodyHeight };
 }
 
 function drawHead(l: PlacedLifeline, parent: Element): void {
@@ -149,7 +172,7 @@ function drawNote(n: PlacedNote, parent: Element): void {
 }
 
 function drawFragment(f: PlacedFragment, parent: Element): void {
-  const g = svg("g", { class: `bynk-frag bynk-frag--${f.operator}` }, parent);
+  const g = svg("g", { class: `bynk-frag bynk-frag--${f.operator}${f.folded ? " bynk-frag--folded" : ""}` }, parent);
   const { x, y, w, h } = f.box;
   svg("rect", { class: "bynk-frag-box", x: px(x), y: px(y), width: px(w), height: px(h) }, g);
   f.operands.forEach((op, i) => {
@@ -163,7 +186,22 @@ function drawFragment(f: PlacedFragment, parent: Element): void {
     d: `M${px(t.x)},${px(t.y)} H${px(t.x + t.w)} V${px(t.y + t.h - 5)} L${px(t.x + t.w - 5)},${px(t.y + t.h)} H${px(t.x)} Z`,
   }, tab);
   svgText(f.operator, { class: "bynk-frag-op", x: px(t.x + 8), y: px(t.y + 13) }, tab);
-  identify(tab, f.ref, `${f.operator} fragment`);
+  // The fold toggle: a triangle at the tab's right end, pointing down when
+  // open and right when folded. A click on it folds; Space on the tab does.
+  const toggle = svg("g", { class: "bynk-fold", "data-bynk-fold-toggle": f.ref.id }, tab);
+  svg("rect", { class: "bynk-fold-hit", x: px(f.foldX - 7), y: px(f.foldY - 7), width: 14, height: 14 }, toggle);
+  svg("path", {
+    class: "bynk-fold-glyph",
+    d: f.folded
+      ? `M${px(f.foldX - 2)},${px(f.foldY - 4)} L${px(f.foldX + 3)},${px(f.foldY)} L${px(f.foldX - 2)},${px(f.foldY + 4)} Z`
+      : `M${px(f.foldX - 4)},${px(f.foldY - 2)} L${px(f.foldX + 4)},${px(f.foldY - 2)} L${px(f.foldX)},${px(f.foldY + 3)} Z`,
+  }, toggle);
+  identify(tab, f.ref, `${f.operator} fragment${f.folded ? ", folded" : ""}`);
+  tab.setAttribute("data-bynk-foldable", f.ref.id);
+  tab.setAttribute("aria-expanded", String(!f.folded));
+  if (f.summary) {
+    svgText(f.summary.text, { class: "bynk-frag-summary", x: px(f.summary.x), y: px(f.summary.y) }, g);
+  }
 
   for (const op of f.operands) {
     if (!op.guard.text) continue;
