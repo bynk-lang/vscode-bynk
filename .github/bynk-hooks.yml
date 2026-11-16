@@ -1,6 +1,6 @@
-# This repository's settings for the bynk-lang GitHub App (bynk-lang/github-hooks:
-# docs/settings.md). Every feature is off unless it's turned on here, and the
-# App reads this file from the default branch.
+# This repository's settings for the bynk-lang GitHub App
+# (bynk-lang/github-hooks: docs/settings.md). Every feature is off unless it's
+# turned on here, and the App reads this file from the default branch.
 
 # Issue triage: Claude Haiku 5.5 suggests labels for each new issue, and a
 # maintainer approves or declines them in Mine. Only the labels that say what
