@@ -146,6 +146,8 @@ export interface AgentDiagram {
 
 /** Everything the diff page draws. */
 export interface DiffGraphs {
+  /** Whether elements open their source: not when both sides are revisions. */
+  linked?: boolean;
   architecture: { model: ArchModel; marks: ArchMarks } | null;
   agents: AgentDiagram[];
 }

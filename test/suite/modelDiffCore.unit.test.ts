@@ -86,14 +86,14 @@ describe("git side (#147)", () => {
   });
 
   it("checks a revision out, uses it and always removes the worktree", async () => {
-    const ok = fakeGit({ "worktree add --detach --force /t abc": {} });
-    const seen = await withRevisionTree(ok.git, "/r", "apps/shop", "abc", "/t", async () => true, async (t) => t.projectDir);
+    const ok = fakeGit({ "worktree add --detach --force /t aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {} });
+    const seen = await withRevisionTree(ok.git, "/r", "apps/shop", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "/t", async () => true, async (t) => t.projectDir);
     assert.strictEqual(seen, "/t/apps/shop");
     assert.deepStrictEqual(ok.calls.slice(-2), ["worktree remove --force /t", "worktree prune"]);
 
-    const thrown = fakeGit({ "worktree add --detach --force /t abc": {} });
+    const thrown = fakeGit({ "worktree add --detach --force /t aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {} });
     await assert.rejects(
-      withRevisionTree(thrown.git, "/r", "", "abc", "/t", async () => true, async () => {
+      withRevisionTree(thrown.git, "/r", "", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "/t", async () => true, async () => {
         throw new Error("boom");
       }),
       /boom/,
@@ -102,16 +102,16 @@ describe("git side (#147)", () => {
   });
 
   it("explains a failed checkout and a project the revision predates", async () => {
-    const bad = fakeGit({ "worktree add --detach --force /t abc": { code: 128, stderr: "fatal: bad\n" } });
+    const bad = fakeGit({ "worktree add --detach --force /t aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": { code: 128, stderr: "fatal: bad\n" } });
     await assert.rejects(
-      withRevisionTree(bad.git, "/r", "", "abc", "/t", async () => true, async () => 1),
-      /could not check out abc: fatal: bad/,
+      withRevisionTree(bad.git, "/r", "", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "/t", async () => true, async () => 1),
+      /could not check out aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: fatal: bad/,
     );
     assert.ok(bad.calls.includes("worktree remove --force /t"));
-    const missing = fakeGit({ "worktree add --detach --force /t abc": {} });
+    const missing = fakeGit({ "worktree add --detach --force /t aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {} });
     await assert.rejects(
-      withRevisionTree(missing.git, "/r", "apps/shop", "abc", "/t", async () => false, async () => 1),
-      /no Bynk project at apps\/shop in abc/,
+      withRevisionTree(missing.git, "/r", "apps/shop", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "/t", async () => false, async () => 1),
+      /no Bynk project at apps\/shop in aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/,
     );
   });
 

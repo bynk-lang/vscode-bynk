@@ -102,9 +102,83 @@ export async function mergeBaseChoice(git: Git, repo: string): Promise<RefChoice
   };
 }
 
-/** `ref` resolved to a commit id, or `undefined` when it names nothing. */
+/** The best common ancestor of two revisions, or `undefined` when they share none. */
+export async function mergeBase(git: Git, repo: string, a: string, b: string): Promise<string | undefined> {
+  // Revisions arrive resolved (`resolveRev`): never pass anything else to git.
+  if (![a, b].every((x) => COMMIT_ID.test(x))) return undefined;
+  return ok(await git.run(["merge-base", a, b], repo));
+}
+
+/** The first of `candidates` git resolves to a commit (a pull request's base
+ *  may be known locally as its sha, `origin/<branch>` or `<branch>`). */
+export async function firstResolvable(git: Git, repo: string, candidates: string[]): Promise<string | undefined> {
+  for (const c of candidates) {
+    if (c === "") continue;
+    const sha = await resolveRev(git, repo, c);
+    if (sha) return sha;
+  }
+  return undefined;
+}
+
+/** `HEAD`'s commit id. */
+export async function headRev(git: Git, repo: string): Promise<string | undefined> {
+  const id = ok(await git.run(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], repo));
+  return id !== undefined && COMMIT_ID.test(id) ? id : undefined;
+}
+
+/** What a pull request's base and head are, read from the argument the GitHub
+ *  Pull Requests extension passes a command on one of its pull request tree
+ *  items (`pr:github`, a `pullrequest…` item): its `PRNode`, which holds a
+ *  `pullRequestModel` whose `base` and `head` are refs with a branch name
+ *  (`ref`) and a `sha`. That is the extension's internal shape, not a
+ *  documented API (its `getAPI()` exposes no refs), so every field is read
+ *  defensively and a shape that does not match yields `undefined`. */
+export interface PullRequestRefs {
+  /** Candidate names for the base, most specific first. */
+  base: string[];
+  /** The head commit, when the extension knows it. */
+  head?: string;
+  /** The pull request's number or title, for the heading. */
+  label?: string;
+}
+
+export function pullRequestRefs(arg: unknown): PullRequestRefs | undefined {
+  const obj = (v: unknown): Record<string, unknown> | undefined =>
+    v !== null && typeof v === "object" ? (v as Record<string, unknown>) : undefined;
+  const str = (v: unknown): string | undefined => (typeof v === "string" && v !== "" ? v : undefined);
+  const node = obj(arg);
+  const model = obj(node?.pullRequestModel) ?? node;
+  const base = obj(model?.base);
+  const baseRef = str(base?.ref);
+  const baseSha = str(base?.sha);
+  if (!baseRef && !baseSha) return undefined;
+  const head = obj(model?.head);
+  const number = typeof model?.number === "number" ? `#${model.number}` : undefined;
+  return {
+    base: [baseSha, baseRef && `origin/${baseRef}`, baseRef].filter((x): x is string => !!x),
+    head: str(head?.sha),
+    label: number,
+  };
+}
+
+/** A full commit id, which is all that reaches `merge-base` or `worktree add`. */
+export const COMMIT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+
+/** Whether `ref` may be handed to git as a revision. A ref comes from typed
+ *  input or another extension's tree item (a fork pull request's branch name is
+ *  a stranger's), so one that git would read as an option (`--upload-pack=…`) or
+ *  that carries a control character or space is refused before any git runs. */
+export function isSafeRef(ref: string): boolean {
+  return ref !== "" && !ref.startsWith("-") && !/[\s\u0000-\u001f\u007f]/.test(ref);
+}
+
+/** `ref` resolved to a full commit id, or `undefined` when it is unsafe
+ *  (`isSafeRef`) or names nothing. Everything after this takes the id, never
+ *  the ref. */
 export async function resolveRev(git: Git, repo: string, ref: string): Promise<string | undefined> {
-  return ok(await git.run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], repo));
+  if (!isSafeRef(ref)) return undefined;
+  const id = ok(await git.run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], repo));
+  return id !== undefined && COMMIT_ID.test(id) ? id : undefined;
 }
 
 /** `bynk.toml`'s directory as a path relative to the repository root
@@ -150,6 +224,7 @@ export async function withRevisionTree<T>(
   exists: (path: string) => Promise<boolean>,
   use: (tree: RevisionTree) => Promise<T>,
 ): Promise<T> {
+  if (!COMMIT_ID.test(rev)) throw new Error(`${rev} is not a commit id.`);
   const added = await git.run(["worktree", "add", "--detach", "--force", dir, rev], repo);
   try {
     if (added.code !== 0) {
@@ -231,6 +306,76 @@ export const CONTRACTS_NOTE =
 
 export interface ModelDiff {
   sections: DiffSection[];
+  /** Things to know before trusting the sections, such as a revision whose
+   *  dependencies were not fetched, so its model is incomplete. */
+  warnings?: string[];
+}
+
+/** The diagnostic codes of a project whose dependencies the toolchain could not
+ *  read. `bynk` never fetches while compiling or in the editor: it reads the
+ *  store `bynk fetch` fills (`$BYNK_HOME`, else `$XDG_CACHE_HOME/bynk`, else
+ *  `~/.cache/bynk`, one content-addressed tree per locked checksum), so a
+ *  revision whose `bynk.lock` names a tree the store lacks is analysed without
+ *  that dependency. */
+export const DEPENDENCY_PROBLEM_CODES: ReadonlySet<string> = new Set([
+  "bynk.package.not_fetched",
+  "bynk.registry.unavailable",
+  "bynk.package.lock_invalid",
+]);
+
+/** The scratch checkout a path lies under (the directory whose name starts with
+ *  `SCRATCH_PREFIX`), or `undefined`. */
+export function scratchRoot(path: string): string | undefined {
+  const segs = path.replace(/\\/g, "/").split("/");
+  const at = segs.findIndex((seg) => seg.startsWith(SCRATCH_PREFIX));
+  return at < 0 ? undefined : segs.slice(0, at + 1).join("/");
+}
+
+/** The dependency problems the server reports for model-diff checkouts. The
+ *  client drops those diagnostics (`isModelDiffScratch`) so they never reach the
+ *  Problems panel; this keeps the ones that say a dependency was not fetched, so
+ *  the page can say the revision's model is incomplete. */
+export class ScratchProblems {
+  private readonly byRoot = new Map<string, Set<string>>();
+
+  note(path: string, diagnostics: ReadonlyArray<{ code?: unknown; message: string }>): void {
+    const root = scratchRoot(path);
+    if (root === undefined) return;
+    for (const d of diagnostics) {
+      const raw = d.code;
+      const code = typeof raw === "object" && raw !== null ? (raw as { value?: unknown }).value : raw;
+      if (typeof code !== "string" || !DEPENDENCY_PROBLEM_CODES.has(code)) continue;
+      let set = this.byRoot.get(root);
+      if (!set) this.byRoot.set(root, (set = new Set()));
+      set.add(d.message);
+    }
+  }
+
+  /** The messages noted for the checkout at `dir` (a path inside the scratch
+   *  directory), forgetting them. */
+  take(dir: string): string[] {
+    const root = scratchRoot(dir.replace(/\\/g, "/") + "/");
+    if (root === undefined) return [];
+    const found = [...(this.byRoot.get(root) ?? [])];
+    this.byRoot.delete(root);
+    return found;
+  }
+}
+
+export const scratchProblems = new ScratchProblems();
+
+/** The sentence a revision's dependency problems become. */
+export function dependencyWarning(label: string, messages: readonly string[]): string {
+  return `Not every dependency of ${label} could be analysed, so its model is incomplete (${messages.join("; ")}). The compiler and the editor never fetch: run \`bynk fetch\` with that revision checked out to fill the shared store, then compare again.`;
+}
+
+/** A diff between two revisions has no working tree to open, so no entry links
+ *  anywhere. */
+export function withoutLocations(diff: ModelDiff): ModelDiff {
+  return {
+    ...diff,
+    sections: diff.sections.map((s) => ({ ...s, entries: s.entries.map((e) => ({ ...e, loc: null })) })),
+  };
 }
 
 /** The key an agent is known by across revisions. */
