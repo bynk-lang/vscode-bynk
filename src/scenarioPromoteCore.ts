@@ -394,9 +394,9 @@ function makeStep(
       if (p.name.toLowerCase() === "location" && offer.payload === "location" && offer.variable) return { text: offer.variable };
       return { why: `a ${p.name} header can't be read; only a redirect's Location is, as its payload` };
     }
+    if (offer.payload !== "value" && offer.payload !== "message") return { why: `\`${p.step}\`'s answer carries no body` };
     if (!offer.variable) return { why: `\`${p.step}\` did not bind its response` };
     if (offer.payload === "message") return p.path.length === 1 && p.path[0] === "error" ? { text: offer.variable } : { why: "an error message carries only `error`" };
-    if (offer.payload !== "value") return { why: `\`${p.step}\`'s answer carries no body` };
     const e = pathExpr(offer.variable, p.path);
     return e ? { text: e } : { why: "a list index has no spelling in a case" };
   };
