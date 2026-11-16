@@ -107,6 +107,8 @@ function unitNode(n: ArchNode, expanded: boolean): StructNode {
     expandable: memberCount(n) > 0,
     expanded: expanded && memberCount(n) > 0,
     cycle: false,
+    // Model-diagrams slice 5: a unit's ↗ opens its component view.
+    opens: true,
   };
 }
 

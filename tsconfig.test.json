@@ -57,6 +57,7 @@
     "src/webview/docview.ts",
     "src/webview/state.ts",
     "src/webview/architecture.ts",
+    "src/webview/component.ts",
     "src/webview/refinedExplorer.ts",
     "src/webview/sendRequest.ts",
     "src/webview/live.ts",

@@ -83,8 +83,11 @@ export interface LiveViewSpec<P> {
   /** #2196: what cursor-follow retargets on — the enclosing handler (the
    *  default) or the enclosing service/agent (the agent state view). An
    *  owner-scoped view also reports the handler under the cursor as
-   *  `ViewState.focus`, without re-requesting its model. */
-  followScope?: "handler" | "owner";
+   *  `ViewState.focus`, without re-requesting its model. Model-diagrams
+   *  slice 5: `"unit"` retargets on the file (a file belongs to one unit) and
+   *  reports the service or agent under the cursor as the focus (the
+   *  component view). */
+  followScope?: "handler" | "owner" | "unit";
   /** What an owner-scoped view follows, for the pin's wording ("agent"). */
   scopeNoun?: string;
   /** The name the page knows a handler by, from its document-symbol name
@@ -337,6 +340,7 @@ export class LivePanel<P> implements vscode.Disposable {
   /** The follow key for `pos`: its handler, or for an owner-scoped view its
    *  service/agent. `undefined` outside any. */
   private scopeKey(uri: string, symbols: readonly SymbolLike[], pos: Pos): string | undefined {
+    if (this.spec.followScope === "unit") return uri;
     if (this.spec.followScope === "owner") {
       const o = enclosingOwner(symbols, pos);
       return o ? ownerKey(uri, o) : undefined;
@@ -346,6 +350,7 @@ export class LivePanel<P> implements vscode.Disposable {
   }
 
   private focusAt(symbols: readonly SymbolLike[], pos: Pos): string | undefined {
+    if (this.spec.followScope === "unit") return enclosingOwner(symbols, pos)?.name;
     if (this.spec.followScope !== "owner") return undefined;
     const name = enclosingHandler(symbols, pos)?.symbol.name;
     return name !== undefined && this.spec.focusName ? this.spec.focusName(name) : name;
@@ -464,6 +469,7 @@ export class LivePanel<P> implements vscode.Disposable {
     const view: ViewState = { target: this.target ?? { uri: "" }, followsCursor: this.spec.followsCursor };
     if (this.focus !== undefined) view.focus = this.focus;
     if (this.spec.followScope === "owner") view.scope = this.spec.scopeNoun ?? "service or agent";
+    if (this.spec.followScope === "unit") view.scope = this.spec.scopeNoun ?? "context";
     return view;
   }
 

@@ -6,7 +6,8 @@
 
 import * as assert from "assert";
 
-import type { ArchPayload } from "../../src/webview/architectureTypes";
+import type { ArchPayload, ComponentPayload } from "../../src/webview/architectureTypes";
+import { componentModel } from "./componentFixture";
 import type { DocPayload } from "../../src/webview/docTypes";
 import type { RefinedPayload } from "../../src/webview/refinedTypes";
 import type { AgentStatePayload } from "../../src/webview/stateTypes";
@@ -432,6 +433,12 @@ describe("architecture view (jsdom, model-diagrams slice 4)", () => {
     assert.ok(dom.root.textContent?.includes("Other<img"));
   });
 
+  it("opens a unit's component view from its ↗ (slice 5)", async () => {
+    await open();
+    (q('[data-bynk-ref="u:Billing.open"]') as Element).dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    assert.deepStrictEqual(dom.posted.slice(-1), [{ type: "openComponent", uri: "file:///a.bynk", range }]);
+  });
+
   it("hides the events toggle when the model has no events", async () => {
     await open();
     assert.strictEqual((dom.document.getElementById("bynk-toggle-events") as HTMLElement).hidden, true);
@@ -440,6 +447,76 @@ describe("architecture view (jsdom, model-diagrams slice 4)", () => {
   it("says so when the project has no contexts", async () => {
     await open({ model: { nodes: [], edges: [] } });
     assert.strictEqual(dom.root.textContent, "No contexts found in this project.");
+  });
+});
+
+describe("component view (jsdom, model-diagrams slice 5)", function () {
+  // ELK lays out a whole context; give it room on a slow runner.
+  this.timeout(20_000);
+  let dom: Dom;
+  const drawn = async (): Promise<void> => {
+    for (let i = 0; i < 300; i++) {
+      if (dom.root.querySelector("svg.bynk-struct[role=group]") || dom.root.textContent?.startsWith("No context")) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  };
+  const view = { target: { uri: "file:///p/shop.bynk" }, followsCursor: true, focus: "Cart", scope: "context" };
+  const open = async (payload: ComponentPayload | null = { model: componentModel(), unit: "shop" }): Promise<void> => {
+    dom = setupDom({ __BYNK_COMPONENT_MODEL__: payload, __BYNK_VIEW__: view });
+    dom.load("component");
+    await settle();
+    await drawn();
+  };
+  afterEach(() => dom.dispose());
+  const q = (sel: string): Element | null => dom.root.querySelector(sel);
+  const click = (sel: string): void => void (q(sel) as Element).dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+
+  it("draws the context's parts, ports and neighbours, without Mermaid", async () => {
+    await open();
+    assert.strictEqual(dom.mermaid.calls.length, 0);
+    assert.ok(q('[data-bynk-ref="u:shop"].bynk-snode--open'));
+    assert.ok(q('[data-bynk-ref="svc:shop/web"]'));
+    assert.ok(q('[data-bynk-ref="pp:shop/web"].bynk-port--provided'));
+    assert.ok(q('[data-bynk-ref="u:billing"].bynk-muted'));
+    assert.ok(!dom.document.getElementById("bynk-copy-mermaid"), "no Mermaid form to copy");
+  });
+
+  it("marks the part under the editor's cursor, and follows it", async () => {
+    await open();
+    assert.ok(q('[data-bynk-ref="agent:shop/Cart"]')?.classList.contains("bynk-current"));
+    dom.post({ type: "view", view: { ...view, focus: "web" } });
+    assert.ok(!q('[data-bynk-ref="agent:shop/Cart"]')?.classList.contains("bynk-current"));
+    assert.ok(q('[data-bynk-ref="svc:shop/web"]')?.classList.contains("bynk-current"));
+  });
+
+  it("reveals an operation's source, and opens its sequence diagram from its ↗", async () => {
+    await open();
+    click('[data-bynk-ref="op:shop/web/GET /cart"]');
+    const loc = { uri: "file:///p/shop.bynk", range: { start: { line: 12, character: 0 }, end: { line: 12, character: 4 } } };
+    assert.deepStrictEqual(dom.posted.slice(-1), [{ type: "reveal", ...loc }]);
+    click('[data-bynk-ref="op:shop/web/GET /cart.open"]');
+    assert.deepStrictEqual(dom.posted.slice(-1), [{ type: "openSequence", ...loc }]);
+  });
+
+  it("opens a neighbouring context's own component view from its ↗", async () => {
+    await open();
+    click('[data-bynk-ref="u:billing.open"]');
+    assert.deepStrictEqual(dom.posted.slice(-1), [
+      { type: "openComponent", uri: "file:///p/billing.bynk", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } } },
+    ]);
+  });
+
+  it("renders every payload string as text, never as elements", async () => {
+    const model = componentModel();
+    model.nodes[0].services[0].name = `web${HOSTILE}`;
+    await open({ model, unit: "shop" });
+    noMarkup(dom.root);
+    assert.ok(dom.root.textContent?.includes("web<img"), dom.root.textContent?.slice(0, 300));
+  });
+
+  it("says so when there is no such unit", async () => {
+    await open({ model: componentModel(), unit: "gone" });
+    assert.strictEqual(dom.root.textContent, "No context or adapter to show.");
   });
 });
 

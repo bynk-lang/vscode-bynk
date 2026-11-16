@@ -31,7 +31,8 @@
     "onWebviewPanel:bynkWireContract",
     "onWebviewPanel:bynkSendRequest",
     "onWebviewPanel:bynkContractDiff",
-    "onWebviewPanel:bynkAgentState"
+    "onWebviewPanel:bynkAgentState",
+    "onWebviewPanel:bynkComponentView"
   ],
   "main": "./out/extension.js",
   "browser": "./out/web/extension.js",
@@ -634,6 +635,12 @@
         "icon": "$(symbol-enum)"
       },
       {
+        "command": "bynk.showComponentView",
+        "title": "Show Component View",
+        "category": "Bynk",
+        "icon": "$(symbol-structure)"
+      },
+      {
         "command": "bynk.showCompiledOutput",
         "title": "Show Compiled Output",
         "category": "Bynk",
@@ -1016,6 +1023,10 @@
           "when": "editorLangId == bynk && !isWeb"
         },
         {
+          "command": "bynk.showComponentView",
+          "when": "editorLangId == bynk && !isWeb"
+        },
+        {
           "command": "bynk.showCompiledOutput",
           "when": "editorLangId == bynk && !isWeb"
         },
@@ -1237,6 +1248,11 @@
         },
         {
           "command": "bynk.showArchitectureMap",
+          "when": "editorLangId == bynk && !isWeb",
+          "group": "navigation@93"
+        },
+        {
+          "command": "bynk.showComponentView",
           "when": "editorLangId == bynk && !isWeb",
           "group": "navigation@93"
         },

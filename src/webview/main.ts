@@ -24,7 +24,7 @@ import { focusedRef, initTabOrder, restoreFocus, wireInteraction } from "../diag
 import { canvasMeasurer, type TextMeasurer } from "../diagram/measure";
 import { elementAt, renderSequence, type SequenceRender } from "../diagram/sequence/render";
 import { ensureDiagramStyles } from "../diagram/style";
-import { buildToolbar } from "../diagram/toolbar";
+import { buildToolbar, toolbarButton } from "../diagram/toolbar";
 import { DiagramViewport } from "../diagram/viewport";
 import { type LiveView, startLiveView, type VsCodeApi } from "./live";
 import { toMermaid } from "./mermaid-gen";
@@ -81,6 +81,12 @@ function buildActions(): HTMLElement {
     mermaid: () => (payload ? toMermaid(payload.model).text : null),
     drawing: () => (current ? { drawing: current.drawing, name: fileName() } : null),
     fontFamily,
+    // Model-diagrams slice 5: up a level, to the handler's context.
+    extra: [
+      toolbarButton("Components", "Show the component view of this handler's context", "bynk-open-component", () => {
+        if (payload) post({ type: "openComponent", uri: payload.uri });
+      }),
+    ],
   });
 }
 

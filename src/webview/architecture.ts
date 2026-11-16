@@ -15,6 +15,7 @@
 //   context-level default). Which units are open is kept across live updates.
 // - Every element links to its source by identity, through the shared
 //   interaction layer; pointing at one marks its source in the editor.
+// - A unit's ↗ opens its component view (slice 5).
 // - The shared viewport and toolbar: zoom, pan, minimap, Copy as Mermaid
 //   (`architecture-gen.ts`, now an exporter), Save as SVG or PNG, and a toggle
 //   for events.
@@ -141,6 +142,12 @@ async function render(root: HTMLElement, next: ArchPayload | null): Promise<void
     wireInteraction<ArchLoc>(viewport.element, locs, {
       reveal,
       toggleFold,
+      // Model-diagrams slice 5: a unit's ↗ opens its component view.
+      open: (ref) => {
+        const id = ref.replace(/\.open$/, "");
+        const unit = id.startsWith("u:") ? payload?.model.nodes.find((n) => n.name === id.slice(2)) : undefined;
+        if (unit) post({ type: "openComponent", uri: unit.loc.uri, range: unit.loc.range });
+      },
       hover: (loc) => post({ type: "highlight", uri: loc?.uri ?? "", range: loc?.range ?? null }),
     });
   }

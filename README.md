@@ -443,7 +443,8 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Debug Tests** | Run the tests under the inspector, so breakpoints in `.bynk` sources pause. |
 | **Bynk: Show Sequence Diagram** | A UML sequence diagram of the handler at the cursor: its capability, context, and agent calls, and — in an agent's handler — its writes to the agent's own state, as notes. Click an element, or select it with the arrow keys and press Enter, to open its source; the element under the editor's cursor is marked. Lifeline heads stay pinned as you scroll; fragments fold (Space on a fragment's tab); zoom with the toolbar, Ctrl/Cmd + scroll or `+`/`-`/`0`. A `?` shows as a `break`, and a call into an agent or another context has a ↗ link to the callee's own diagram. **Copy as Mermaid**, **Save as SVG…** and **Save as PNG…** export it. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Show Documentation** | The active file's declarations, rendered as a reference page. |
-| **Bynk: Show Architecture Map** | A whole-project UML system view: contexts and adapters as components inside a system boundary, their `consumes` edges (cycles marked), the actors that call in, the platform units capabilities are wired from, and events. Open a unit in place to see its services, agents, capabilities and providers; click anything to open its source. |
+| **Bynk: Show Architecture Map** | A whole-project UML system view: contexts and adapters as components inside a system boundary, their `consumes` edges (cycles marked), the actors that call in, the platform units capabilities are wired from, and events. Open a unit in place to see its services, agents, capabilities and providers; click anything to open its source, or a unit's ↗ to open its component view. |
+| **Bynk: Show Component View** | One context opened up as a UML component diagram: its services, agents and providers as parts, with their operations (and each agent's key and state); a provided port for each service and a required port for each capability or consumed service it needs; and, in grey, who calls in and what satisfies its requirements. Follows the cursor's context. An operation's ↗ opens its sequence diagram. |
 | **Bynk: Show Wire Contract** | The JSON wire shape of the service handler at the cursor. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Send Request** | Send the HTTP handler at the cursor a request on the dev server: path parameters, headers and a JSON body pre-filled from its type, then the response. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Run Scenario** | Run the `.bynk-http` scenario in the active editor on the dev server, with the results inline. Also a `Run scenario` / `Run step` CodeLens in the file. |
@@ -476,8 +477,8 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Review Pending npm Requirements…** | Review the npm packages dependencies' adapters ask for and approve them per package (`bynk approve`). |
 | **Bynk: Doctor** | Check whether this machine can compile, test, serve and deploy Bynk, with a remedy for each gap. |
 
-The model views (sequence diagram, documentation, architecture map, wire
-contract, agent state, contract diff) are also buttons on the editor title bar of a `.bynk` file. Each
+The model views (sequence diagram, documentation, architecture map, component
+view, wire contract, agent state, contract diff) are also buttons on the editor title bar of a `.bynk` file. Each
 refreshes on the trigger `bynk.views.refresh` sets, has a **Refresh** button of
 its own, and is restored after **Developer: Reload Window**.
 

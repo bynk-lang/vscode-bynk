@@ -35,6 +35,15 @@ export interface OpenSequenceMessage {
   range: RevealRange;
 }
 
+/** Model-diagrams slice 5: open the component view of the unit `uri` belongs
+ *  to, from the map (a unit's ↗) or the sequence diagram's toolbar. `range`,
+ *  when given, is revealed first, so a cursor-following view agrees. */
+export interface OpenComponentMessage {
+  type: "openComponent";
+  uri: string;
+  range?: RevealRange;
+}
+
 /** Something the page could not do, to show the user. */
 export interface PageErrorMessage {
   type: "error";
@@ -86,9 +95,23 @@ export function isOpenSequence(message: unknown): message is OpenSequenceMessage
   return m?.type === "openSequence" && typeof m.uri === "string" && m.uri !== "" && isRange(m.range);
 }
 
+export function isOpenComponent(message: unknown): message is OpenComponentMessage {
+  const m = message as { type?: unknown; uri?: unknown; range?: unknown } | null | undefined;
+  return m?.type === "openComponent" && typeof m.uri === "string" && m.uri !== "" && (m.range === undefined || isRange(m.range));
+}
+
 export function isPageError(message: unknown): message is PageErrorMessage {
   const m = message as { type?: unknown; message?: unknown } | null | undefined;
   return m?.type === "error" && typeof m.message === "string" && m.message.length <= 2000;
+}
+
+/** Whether a page-supplied `uri` may drive the host: only local files and
+ *  the schemes of the workspace's own folders (`folderSchemes`). A URI with no
+ *  scheme parses as `file`, as `vscode.Uri.parse` treats it. Every host action
+ *  a page can trigger with a URI checks this first (review of #177). */
+export function isAllowedScheme(uri: string, folderSchemes: readonly string[]): boolean {
+  const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(uri)?.[1]?.toLowerCase() ?? "file";
+  return scheme === "file" || folderSchemes.some((s) => s.toLowerCase() === scheme);
 }
 
 /** A safe file name stem for the save dialog: letters, digits, `.`, `_`, `-`. */

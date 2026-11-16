@@ -21,7 +21,7 @@ import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
 import { diagramMessages } from "./diagramHost";
 import { isOpenSequence } from "./sequenceMessages";
 import type { ViewRefresh } from "./viewRefresh";
-import { revealLocation } from "./webviewHost";
+import { allowedPageUri, revealLocation } from "./webviewHost";
 import type { SequenceModel, SequencePayload } from "./webview/types";
 
 interface SequenceModelParams {
@@ -46,7 +46,7 @@ export function registerSequenceDiagram(
     request: requestSequence,
     onMessage: (message) => {
       if (shared.handle(message)) return;
-      if (isOpenSequence(message)) {
+      if (isOpenSequence(message) && allowedPageUri(message.uri)) {
         // A `ref` link: show the callee's handler in the editor (so a
         // cursor-following view agrees), then its diagram (so a pinned one
         // moves too).

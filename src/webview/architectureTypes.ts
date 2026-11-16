@@ -59,6 +59,11 @@ export interface ArchAgent {
   name: string;
   handlerCount: number;
   loc: ArchLoc;
+  /** Model-diagrams slice 5 (bynk-lang/bynk#3657): the key as written
+   *  (`client: ClientId`). Absent from older servers. */
+  key?: string;
+  /** Model-diagrams slice 5: the `store` field names, in declaration order. */
+  state?: string[];
 }
 
 export interface ArchNode {
@@ -104,6 +109,22 @@ export interface ArchUse {
 export interface ArchHandlerUses {
   member: ArchMember;
   uses: ArchUse[];
+  /** Model-diagrams slice 5: the services and agents it calls. Absent from
+   *  older servers. */
+  calls?: ArchCall[];
+}
+
+/** Model-diagrams slice 5: one service or agent a handler calls, at its first
+ *  call. */
+export interface ArchCall {
+  /** A consumed context's service, or one of the caller's own agents. */
+  kind: "service" | "agent";
+  /** The unit that declares the callee. */
+  unit: string;
+  container: string;
+  /** The agent handler dispatched to; absent for a service. */
+  handler?: string;
+  loc: ArchLoc;
 }
 
 /** ADR 0854: a declared event, who emits it and who subscribes. */
@@ -127,6 +148,13 @@ export interface ArchModel {
  *  in the model already carries its own (see the module doc). */
 export interface ArchPayload {
   model: ArchModel;
+}
+
+/** Model-diagrams slice 5: the component view's payload — the project's
+ *  model and the unit to open up (the one the target file belongs to). */
+export interface ComponentPayload {
+  model: ArchModel;
+  unit: string;
 }
 
 /** A click-to-code message the webview posts back to the extension host —
