@@ -1,14 +1,10 @@
 // #2196: unit coverage for the agent state view's pure halves — the Mermaid
-// `stateDiagram-v2` text and table cells (`state-gen.ts`) and the rendered-SVG
-// back-mapping (`state-map.ts`). The element ids the mapping tests use are the
-// shapes a real Mermaid 12.2 render produces (`<svg-id>-state-s0-4`, a note's
-// `…-state-s0----note-4`, transition labels carrying `data-id="edge<n>"`, and
-// no label element for the label-less `[*] --> initial`).
+// `stateDiagram-v2` text (now the "Copy as Mermaid" export, model-diagrams
+// slice 6) and the table cells (`state-gen.ts`).
 
 import * as assert from "assert";
 
 import { cellEdges, cellText, toMermaidState, writeText } from "../../src/webview/state-gen";
-import { alignLabels, stateNode, transitionLabels } from "../../src/webview/state-map";
 import type { StateEdge, StateMachine } from "../../src/webview/stateTypes";
 
 const R = { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } };
@@ -197,48 +193,7 @@ describe("handler x state cells", () => {
   });
 });
 
-interface FakeEl {
-  id: string;
-  dataId: string | null;
-  getAttribute(name: string): string | null;
-}
 
-function fake(id: string, dataId: string | null = null): FakeEl {
-  return { id, dataId, getAttribute: (name) => (name === "data-id" ? dataId : null) };
-}
-
-describe("state-map", () => {
-  it("finds a state's node by its Mermaid id, never a longer id or its note", () => {
-    const nodes = [
-      fake("bynk-agent-state-0-state-s0----note-4"),
-      fake("bynk-agent-state-0-state-s10-2"),
-      fake("bynk-agent-state-0-state-s1-3"),
-      fake("bynk-agent-state-0-state-s0-4"),
-      fake("bynk-agent-state-0-state-unknown-3"),
-    ];
-    assert.strictEqual(stateNode(nodes, "s0")?.id, "bynk-agent-state-0-state-s0-4");
-    assert.strictEqual(stateNode(nodes, "s1")?.id, "bynk-agent-state-0-state-s1-3");
-    assert.strictEqual(stateNode(nodes, "unknown")?.id, "bynk-agent-state-0-state-unknown-3");
-    assert.strictEqual(stateNode(nodes, "s2"), undefined);
-  });
-
-  it("lines labels up with groups whether or not the initial transition has one", () => {
-    // Mermaid 12.2 (a real render): `[*] --> s0` is edge0 with no label
-    // element, so the labels are edge1.. — exactly the two groups.
-    const real = transitionLabels([fake("", "edge2"), fake("", "edge1")]);
-    assert.deepStrictEqual(alignLabels(real, 2, true).map((l) => l.dataId), ["edge1", "edge2"]);
-    // A Mermaid that gave the initial transition an (empty) label: drop it.
-    const withInitial = transitionLabels([fake("", "edge0"), fake("", "edge1"), fake("", "edge2")]);
-    assert.deepStrictEqual(alignLabels(withInitial, 2, true).map((l) => l.dataId), ["edge1", "edge2"]);
-    // No initial transition: nothing to drop.
-    assert.deepStrictEqual(alignLabels(real, 2, false).map((l) => l.dataId), ["edge1", "edge2"]);
-  });
-
-  it("orders transition labels by their edge number, whatever the DOM order", () => {
-    const labels = [fake("", "edge3"), fake("", "edge1"), fake("", null), fake("", "s0-s0----note"), fake("", "edge10")];
-    assert.deepStrictEqual(transitionLabels(labels).map((l) => l.dataId), ["edge1", "edge3", "edge10"]);
-  });
-});
 
 describe("effect write labels (#2198)", () => {
   it("labels assignments, keyed writes, items and combiners", () => {

@@ -31,6 +31,7 @@ export function registerComponentView(
     viewType: "bynkComponentView",
     commandLabel: "Show Component View",
     script: "component.js",
+    vendorScripts: ["elk.js"],
     globalName: "__BYNK_COMPONENT_MODEL__",
     followsCursor: true,
     followScope: "unit",

@@ -27,14 +27,6 @@ const GLOBALS = [
 
 const WEBVIEW_DIR = path.join(__dirname, "../../src/webview");
 
-/** What a stubbed `mermaid.render` is asked for, and what it answers. */
-export interface MermaidStub {
-  calls: Array<{ id: string; text: string }>;
-  /** The SVG markup `render` resolves to; set `fail` to make it reject. */
-  svg: string;
-  fail?: Error;
-}
-
 export interface Dom {
   window: Window & typeof globalThis & Record<string, unknown>;
   document: Document;
@@ -43,7 +35,6 @@ export interface Dom {
   posted: unknown[];
   /** Everything the page handed `setState`, in order. */
   states: unknown[];
-  mermaid: MermaidStub;
   /** Require `src/webview/<name>` afresh against this page. */
   load<T = Record<string, unknown>>(name: string): T;
   /** Deliver a host message to the page, as the webview host would. */
@@ -74,28 +65,6 @@ export function setupDom(globals: Record<string, unknown> = {}): Dom {
     setState: (s: unknown) => void states.push(s),
   }));
 
-  // The real Mermaid lays out SVG, which jsdom can't; the views' own wiring
-  // (what they feed it, how they hook up what comes back) is what's tested.
-  const mermaid: MermaidStub = { calls: [], svg: "" };
-  const stubKey = require.resolve("mermaid");
-  const hadStub = Object.getOwnPropertyDescriptor(require.cache, stubKey);
-  require.cache[stubKey] = {
-    id: stubKey,
-    filename: stubKey,
-    loaded: true,
-    exports: {
-      __esModule: true,
-      default: {
-        initialize: () => undefined,
-        render: async (id: string, text: string) => {
-          mermaid.calls.push({ id, text });
-          if (mermaid.fail) throw mermaid.fail;
-          return { svg: mermaid.svg };
-        },
-      },
-    },
-  } as unknown as NodeJS.Module;
-
   const dropWebviewModules = (): void => {
     for (const key of Object.keys(require.cache)) {
       if (key.startsWith(WEBVIEW_DIR)) delete require.cache[key];
@@ -108,7 +77,6 @@ export function setupDom(globals: Record<string, unknown> = {}): Dom {
     root: win.document.getElementById("root") as HTMLElement,
     posted,
     states,
-    mermaid,
     load<T>(name: string): T {
       dropWebviewModules();
       return require(path.join(WEBVIEW_DIR, name)) as T;
@@ -118,8 +86,6 @@ export function setupDom(globals: Record<string, unknown> = {}): Dom {
     },
     dispose(): void {
       dropWebviewModules();
-      if (hadStub) Object.defineProperty(require.cache, stubKey, hadStub);
-      else delete require.cache[stubKey];
       for (const [name, desc] of saved) {
         if (desc) Object.defineProperty(globalThis, name, desc);
         else delete (globalThis as Record<string, unknown>)[name];

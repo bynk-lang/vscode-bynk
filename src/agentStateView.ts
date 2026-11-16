@@ -54,7 +54,7 @@ export function registerAgentStateView(
     viewType: "bynkAgentState",
     commandLabel: "Show Agent State",
     script: "state.js",
-    vendorScripts: ["mermaid.js"],
+    vendorScripts: ["elk.js"],
     globalName: "__BYNK_AGENT_STATE__",
     bodyCss: BODY_CSS,
     followsCursor: true,

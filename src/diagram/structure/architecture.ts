@@ -18,6 +18,7 @@
 // actors or events.
 
 import type { ArchLoc, ArchMember, ArchModel, ArchNode } from "../../webview/architectureTypes";
+import { type ArchMarks, edgeKey, MARK_SIGN, memberKey } from "../../webview/diffMarks";
 import type { StructDiagram, StructEdge, StructEdgeKind, StructNode } from "./ir";
 
 export interface ArchitectureOptions {
@@ -25,6 +26,10 @@ export interface ArchitectureOptions {
   expanded: ReadonlySet<string>;
   /** Draw events and their emit/subscribe edges. */
   events: boolean;
+  /** Slice 6: a model diff's marks over the merged before-and-after model.
+   *  A marked element is drawn in its mark's colour; a removed one is a
+   *  ghost that opens nothing (its source is not in the working tree). */
+  marks?: ArchMarks;
 }
 
 export const ids = {
@@ -122,6 +127,33 @@ function memberNode(m: ArchMember, expanded: ReadonlySet<string>, units: Readonl
   return ids.unit(m.unit);
 }
 
+/** Slice 6: put a model diff's marks on the units and their members. */
+function markNodes(nodes: StructNode[], marks: ArchMarks): void {
+  const kinds: Record<string, "service" | "agent" | "capability" | "provider"> = {
+    svc: "service",
+    agent: "agent",
+    cap: "capability",
+    prov: "provider",
+  };
+  const walk = (ns: StructNode[]): void => {
+    for (const n of ns) {
+      const id = n.ref.id;
+      let mark = undefined as (typeof marks.nodes)[string] | undefined;
+      if (id.startsWith("u:")) mark = marks.nodes[id.slice(2)];
+      else {
+        const m = /^(svc|agent|cap|prov):(.*)\/([^/]*)$/.exec(id);
+        if (m) mark = marks.members[memberKey(m[2], kinds[m[1]], m[3])];
+      }
+      if (mark) {
+        n.diff = mark;
+        if (mark === "removed") n.ref = { ...n.ref, loc: null };
+      }
+      walk(n.children);
+    }
+  };
+  walk(nodes);
+}
+
 /** The units on a `consumes` cycle, and the edges inside one (Tarjan's
  *  strongly connected components). */
 export function consumesCycles(model: ArchModel): { units: Set<string>; edges: Set<number> } {
@@ -202,7 +234,17 @@ export function toArchitectureDiagram(model: ArchModel, opts: ArchitectureOption
   // `consumes` between project units.
   model.edges.forEach((e, i) => {
     if (!units.has(e.from) || !units.has(e.to)) return;
-    edge("consumes", ids.unit(e.from), ids.unit(e.to), e.capabilities.length > 0 ? e.capabilities.join(", ") : null, e.loc, cycles.edges.has(i));
+    const mark = opts.marks?.edges[edgeKey(e)];
+    const label = e.capabilities.length > 0 ? e.capabilities.join(", ") : null;
+    edge(
+      "consumes",
+      ids.unit(e.from),
+      ids.unit(e.to),
+      mark ? `${MARK_SIGN[mark]}${label ? ` ${label}` : ""}` : label,
+      mark === "removed" ? null : e.loc,
+      cycles.edges.has(i),
+    );
+    if (mark) edges[edges.length - 1].diff = mark;
   });
 
   // Capabilities bound from outside the project (the `bynk` surface): the
@@ -273,5 +315,6 @@ export function toArchitectureDiagram(model: ArchModel, opts: ArchitectureOption
     expanded: true,
     cycle: false,
   };
+  if (opts.marks) markNodes(inside, opts.marks);
   return { nodes: [...outside.filter((n) => n.kind === "actor"), boundary, ...outside.filter((n) => n.kind !== "actor")], edges };
 }

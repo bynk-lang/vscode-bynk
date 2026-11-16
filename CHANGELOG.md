@@ -12,6 +12,12 @@ version).
 
 ## [Unreleased]
 
+### Changed
+
+- **The agent state view's machine is redrawn** by the extension's own diagram engine, not Mermaid (model-diagrams track, slice 6). It is now UML state machine notation: a filled dot for the initial state, rounded states, a dashed `?` where a computed write lands, and unreachable states faded. Transitions a `transition` would refuse at commit are red (known) or amber (possible), with ⚠ and the refused `transition`'s name on the label. Clicking a state opens the field and clicking a transition opens its write. The handler under the cursor is marked in the table and on its transitions. The machine has the same zoom, **Copy as Mermaid**, **Save as SVG…** and **Save as PNG…** as the other diagrams, and needs no redraw when the theme changes.
+- **Compare Model** draws its architecture map and the changed agents' state machines with the engine too. Added elements are green, changed ones amber and removed ones dashed ghosts, in the theme's source-control colours, each with a `+`, `~` or `−` sign. Clicking a working-tree element opens its source; a ghost opens nothing.
+- **Mermaid is no longer part of the extension.** Every diagram draws with the engine; **Copy as Mermaid** still writes Mermaid text for Markdown. The desktop bundles shrink from about 9.1 MiB to 2.6 MiB: Mermaid (5.1 MiB) is gone, and the layout engine (ELK) now ships once, in `out/elk.js`, shared by the four pages that use it, instead of in two of them. Each page is under 110 KiB. `scripts/check-bundle.mjs` now holds every desktop bundle to a size budget.
+
 ### Added
 
 - **Bynk: Show Component View** (model-diagrams track, slice 5): one context opened up as a UML component diagram. It is also on the editor title bar of a `.bynk` file.

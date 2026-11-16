@@ -12,6 +12,7 @@ import ELK from "elkjs/lib/elk.bundled.js";
 import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk-api";
 
 import { FONT_SIZE, type TextMeasurer } from "../measure";
+import { MARK_SIGN } from "../../webview/diffMarks";
 import type { StructDiagram, StructEdge, StructNode, StructPort } from "./ir";
 
 export interface Box {
@@ -78,7 +79,8 @@ const M = {
 export function nodeLines(n: StructNode): { text: string; role: "small" | "name" }[] {
   const lines: { text: string; role: "small" | "name" }[] = [];
   if (n.stereotype) lines.push({ text: `«${n.stereotype}»`, role: "small" });
-  lines.push({ text: n.name, role: "name" });
+  // A diff's mark is a sign as well as a colour.
+  lines.push({ text: n.diff ? `${MARK_SIGN[n.diff]} ${n.name}` : n.name, role: "name" });
   if (n.detail) lines.push({ text: n.detail, role: "small" });
   return lines;
 }
@@ -97,6 +99,8 @@ export function headerReserve(n: StructNode): number {
 
 function leafSize(n: StructNode, measure: TextMeasurer): { width: number; height: number } {
   if (n.kind === "actor") return { width: Math.max(M.actorW, measure.width(n.name, "name") + 8), height: M.actorH };
+  if (n.kind === "initial") return { width: 18, height: 18 };
+  if (n.kind === "note") return { width: measure.width(n.name, "small") + 2 * M.padX + 8, height: 30 };
   const lines = nodeLines(n);
   const items = n.items ?? [];
   const w = Math.max(
@@ -170,8 +174,18 @@ const ROOT_OPTIONS: Record<string, string> = {
 
 let elk: InstanceType<typeof ELK> | undefined;
 
+export interface StructLayoutOptions {
+  /** Which way the layers run: `RIGHT` (the default; structure reads left to
+   *  right) or `DOWN` (a state machine reads top to bottom). */
+  direction?: "RIGHT" | "DOWN";
+}
+
 /** Lay out `diagram`. Async: ELK answers with a promise. */
-export async function layoutStructure(diagram: StructDiagram, measure: TextMeasurer): Promise<StructScene> {
+export async function layoutStructure(
+  diagram: StructDiagram,
+  measure: TextMeasurer,
+  opts: StructLayoutOptions = {},
+): Promise<StructScene> {
   elk ??= new ELK();
   // ELK refuses a graph with an edge to an element it does not have; an
   // adapter should not produce one, but a dropped edge beats no diagram.
@@ -195,7 +209,7 @@ export async function layoutStructure(diagram: StructDiagram, measure: TextMeasu
   }));
   const graph: ElkNode = {
     id: "root",
-    layoutOptions: ROOT_OPTIONS,
+    layoutOptions: { ...ROOT_OPTIONS, "elk.direction": opts.direction ?? "RIGHT" },
     children: diagram.nodes.map((n) => toElk(n, measure)),
     edges,
   };

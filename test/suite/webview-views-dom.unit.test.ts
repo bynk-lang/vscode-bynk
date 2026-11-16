@@ -277,19 +277,43 @@ function statePayload(): AgentStatePayload {
   };
 }
 
-describe("state view (jsdom)", () => {
+describe("state view (jsdom, model-diagrams slice 6)", function () {
+  // ELK lays the machine out; give it room on a slow runner.
+  this.timeout(20_000);
   let dom: Dom;
+  const drawn = async (): Promise<void> => {
+    for (let i = 0; i < 300; i++) {
+      if (dom.root.querySelector("svg.bynk-struct[role=group]")) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  };
   const open = async (payload: AgentStatePayload | null = statePayload()): Promise<void> => {
     dom = setupDom({ __BYNK_AGENT_STATE__: payload, __BYNK_VIEW__: { target: { uri: "file:///agent.bynk" }, followsCursor: true, focus: "peek" } });
     dom.load("state");
     await settle();
+    if (payload && payload.model.machines.length > 0) await drawn();
   };
   afterEach(() => dom.dispose());
+  const q = (sel: string): Element | null => dom.root.querySelector(sel);
+  const byRef = (id: string): Element | undefined =>
+    [...dom.root.querySelectorAll("[data-bynk-ref]")].find((e) => e.getAttribute("data-bynk-ref") === id);
+
+  it("draws the machine in UML notation with the engine, not Mermaid", async () => {
+    await open();
+    assert.ok(byRef("initial")?.classList.contains("bynk-snode--initial"), "the initial pseudo-state");
+    for (const s of ["Open", "Closed", "Orphan"]) assert.ok(byRef(`state:${s}`), `state ${s}`);
+    assert.ok(byRef("state:Orphan")?.classList.contains("bynk-dimmed"), "an unreachable state is dimmed");
+    assert.ok(byRef("tr:[*]->Open"), "the initial transition");
+    const close = byRef("tr:Open->Closed");
+    assert.ok(close?.classList.contains("bynk-flag-known"), "a refused transition is flagged");
+    assert.ok(close?.textContent?.includes(`⚠ close${HOSTILE}()`));
+    assert.ok(byRef("note:truncated")?.textContent?.includes("peek()"));
+    assert.ok(dom.document.getElementById("bynk-copy-mermaid"), "Copy as Mermaid stays, as an export");
+  });
 
   it("renders the controls, the handler-by-state table, the legend and the effects", async () => {
     await open();
-    assert.strictEqual(dom.mermaid.calls.length, 1);
-    assert.ok(dom.root.querySelector("select#bynk-state-field"));
+    assert.ok(q("select#bynk-state-field"));
     assert.deepStrictEqual(
       [...dom.root.querySelectorAll("select option")].map((o) => (o as HTMLOptionElement).value).slice(1),
       ["other"],
@@ -305,50 +329,66 @@ describe("state view (jsdom)", () => {
     assert.strictEqual(rows.length, 2);
     assert.strictEqual(rows[1].querySelector("td")?.textContent, "too many paths");
     assert.ok(rows[0].querySelector(".entry.flag-known"));
-    assert.ok(dom.root.querySelector(".legend .flag-known"));
+    assert.ok(q(".legend .flag-known"));
     assert.strictEqual(dom.root.querySelectorAll("details.effects-details .effects").length, 2);
-    assert.strictEqual(dom.root.querySelector(".effects-table tbody td:first-child")?.textContent, "always");
+    assert.strictEqual(q(".effects-table tbody td:first-child")?.textContent, "always");
   });
 
   it("renders every payload string as text, never as elements", async () => {
     await open();
     noMarkup(dom.root);
     assert.ok((dom.root.textContent ?? "").includes(HOSTILE));
-    // The diagram's failure text is the thrown message, shown as text too.
-    dom.mermaid.fail = new Error(HOSTILE);
-    dom.post({ type: "update", payload: statePayload(), view: { target: { uri: "file:///agent.bynk" }, followsCursor: true } });
-    await settle();
-    const holder = dom.root.querySelector(".diagram") as HTMLElement;
-    assert.ok(holder.textContent?.startsWith("Failed to render diagram: "));
-    noMarkup(dom.root);
   });
 
-  it("marks the focused handler and reveals source on a click", async () => {
+  it("marks the focused handler in the table and on its transitions", async () => {
     await open();
     assert.deepStrictEqual(
       [...dom.root.querySelectorAll("tr.focus, .effects.focus")].map((e) => (e as HTMLElement).dataset.handler),
       ["peek", "peek"],
     );
-    (dom.root.querySelector("tr[data-handler] a") as HTMLElement).click();
+    assert.ok(!byRef("tr:Open->Closed")?.classList.contains("bynk-current"));
+    // A handler name with spaces in it still matches its own transition.
+    dom.post({ type: "view", view: { target: { uri: "file:///agent.bynk" }, followsCursor: true, focus: `close${HOSTILE}` } });
+    assert.ok(byRef("tr:Open->Closed")?.classList.contains("bynk-current"));
+  });
+
+  it("reveals source from the table, a state and a transition", async () => {
+    await open();
+    (q("tr[data-handler] a") as HTMLElement).click();
     assert.deepStrictEqual(dom.posted.slice(-1), [{ type: "reveal", uri: "file:///agent.bynk", range }]);
+    const n = dom.posted.length;
+    byRef("state:Closed")?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    byRef("tr:Open->Closed")?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    assert.deepStrictEqual(dom.posted.slice(n).filter((m) => (m as { type: string }).type === "reveal"), [
+      { type: "reveal", uri: "file:///agent.bynk", range },
+      { type: "reveal", uri: "file:///agent.bynk", range },
+    ]);
   });
 
   it("redraws through the shared queue when the field is switched", async () => {
     await open();
-    const select = dom.root.querySelector("select") as HTMLSelectElement;
+    const select = q("select") as HTMLSelectElement;
     select.value = "other";
     select.dispatchEvent(new dom.window.Event("change"));
     await settle();
-    assert.strictEqual(dom.mermaid.calls.length, 2);
-    assert.ok(dom.mermaid.calls[1].text.includes("A"));
+    for (let i = 0; i < 300 && !byRef("state:A"); i++) await new Promise((r) => setTimeout(r, 10));
+    assert.ok(byRef("state:A"));
+    assert.ok(!byRef("state:Open"));
     assert.strictEqual(dom.root.querySelectorAll("table.states:not(.effects-table) thead th").length, 2);
+  });
+
+  it("copies the machine as Mermaid text", async () => {
+    await open();
+    (dom.document.getElementById("bynk-copy-mermaid") as HTMLButtonElement).click();
+    const copy = dom.posted.find((m) => (m as { type: string }).type === "copyText") as { text: string } | undefined;
+    assert.ok(copy?.text.startsWith("stateDiagram-v2"));
   });
 
   it("falls back to the effects alone for an agent with no state machine", async () => {
     const payload = statePayload();
     payload.model.machines = [];
     await open(payload);
-    assert.strictEqual(dom.mermaid.calls.length, 0);
+    assert.ok(!q("svg.bynk-struct"));
     assert.ok(dom.root.textContent?.includes("No state machine"));
     assert.strictEqual(dom.root.querySelectorAll(".effects").length, 2);
   });
@@ -400,7 +440,6 @@ describe("architecture view (jsdom, model-diagrams slice 4)", () => {
 
   it("draws each unit as a component inside the system boundary, without Mermaid", async () => {
     await open();
-    assert.strictEqual(dom.mermaid.calls.length, 0);
     assert.ok(q('[data-bynk-ref="system"] .bynk-boundary'));
     assert.ok(q('[data-bynk-ref="u:Billing"].bynk-snode--context'));
     assert.ok(q(".bynk-snode--adapter"));
@@ -473,7 +512,6 @@ describe("component view (jsdom, model-diagrams slice 5)", function () {
 
   it("draws the context's parts, ports and neighbours, without Mermaid", async () => {
     await open();
-    assert.strictEqual(dom.mermaid.calls.length, 0);
     assert.ok(q('[data-bynk-ref="u:shop"].bynk-snode--open'));
     assert.ok(q('[data-bynk-ref="svc:shop/web"]'));
     assert.ok(q('[data-bynk-ref="pp:shop/web"].bynk-port--provided'));
@@ -517,6 +555,78 @@ describe("component view (jsdom, model-diagrams slice 5)", function () {
   it("says so when there is no such unit", async () => {
     await open({ model: componentModel(), unit: "gone" });
     assert.strictEqual(dom.root.textContent, "No context or adapter to show.");
+  });
+});
+
+describe("model diff page (jsdom, model-diagrams slice 6)", function () {
+  this.timeout(20_000);
+  let dom: Dom;
+  const L = (uri: string) => ({ uri, range });
+  const node = (name: string, uri: string): ArchPayload["model"]["nodes"][number] => ({
+    name, kind: "Context", loc: L(uri), capabilities: [], providers: [], services: [], agents: [],
+  });
+  const graphs = (linked: boolean) => ({
+    linked,
+    architecture: {
+      model: { nodes: [node("shop", "file:///w/shop.bynk"), node(`old${HOSTILE}`, "file:///w/old.bynk")], edges: [] },
+      marks: { nodes: { shop: "added", [`old${HOSTILE}`]: "removed" }, members: {}, edges: {} },
+    },
+    agents: [
+      {
+        key: "shop.Cart",
+        uri: "file:///w/shop.bynk",
+        machines: [
+          {
+            field: "status", fieldRange: range, states: ["Open", "Done"], initial: "Open",
+            edges: [{ handler: "finish", from: ["Open"], guards: [], to: { kind: "State", state: "Done" }, outcome: null, range, violations: [], diff: "added" }],
+            reachable: ["Open", "Done"], truncated: [], notEvaluated: [], diffStates: { Done: "added" },
+          },
+        ],
+      },
+    ],
+  });
+  const open = async (linked = true): Promise<void> => {
+    dom = setupDom({ __BYNK_MODEL_DIFF__: graphs(linked) });
+    const arch = dom.document.createElement("div");
+    arch.id = "diff-architecture";
+    const states = dom.document.createElement("div");
+    states.id = "diff-states";
+    dom.document.body.append(arch, states);
+    dom.load("model-diff");
+    for (let i = 0; i < 300 && dom.document.querySelectorAll("svg.bynk-struct[role=group]").length < 2; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  };
+  afterEach(() => dom.dispose());
+  const byRef = (id: string): Element | undefined =>
+    [...dom.document.querySelectorAll("[data-bynk-ref]")].find((e) => e.getAttribute("data-bynk-ref") === id);
+  const click = (el: Element | undefined): void => void el?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+
+  it("draws the map and the changed machine with the engine, marks and all", async () => {
+    await open();
+    assert.strictEqual(dom.document.querySelectorAll("svg.bynk-struct[role=group]").length, 2);
+    assert.ok(byRef("u:shop")?.classList.contains("bynk-diff-added"));
+    assert.ok(byRef(`u:old${HOSTILE}`)?.classList.contains("bynk-diff-removed"));
+    assert.ok(byRef("state:Done")?.classList.contains("bynk-diff-added"));
+    assert.ok(byRef("tr:Open->Done")?.textContent?.includes("+ finish()"));
+    noMarkup(dom.document.body);
+  });
+
+  it("opens a working-tree element's source, never a ghost's", async () => {
+    await open();
+    click(byRef("u:shop"));
+    assert.deepStrictEqual(dom.posted.slice(-1), [{ type: "reveal", ...L("file:///w/shop.bynk") }]);
+    const n = dom.posted.length;
+    click(byRef(`u:old${HOSTILE}`));
+    assert.strictEqual(dom.posted.length, n, "a removed context is a ghost");
+    assert.ok(!byRef(`u:old${HOSTILE}`)?.hasAttribute("data-bynk-focusable"));
+  });
+
+  it("opens nothing between two revisions", async () => {
+    await open(false);
+    click(byRef("u:shop"));
+    click(byRef("state:Open"));
+    assert.ok(!dom.posted.some((m) => (m as { type: string }).type === "reveal"));
   });
 });
 

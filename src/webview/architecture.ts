@@ -24,8 +24,9 @@ import { focusedRef, initTabOrder, restoreFocus, wireInteraction } from "../diag
 import { canvasMeasurer, type TextMeasurer } from "../diagram/measure";
 import { toArchitectureDiagram } from "../diagram/structure/architecture";
 import { drawStructure } from "../diagram/structure/draw";
-import type { StructDiagram, StructNode } from "../diagram/structure/ir";
+import type { StructDiagram } from "../diagram/structure/ir";
 import { layoutStructure } from "../diagram/structure/layout";
+import { locsOf } from "../diagram/structure/locs";
 import { ensureDiagramStyles } from "../diagram/style";
 import { buildToolbar, toolbarButton } from "../diagram/toolbar";
 import type { Drawing } from "../diagram/viewport";
@@ -92,19 +93,6 @@ function toggleFold(id: string): void {
   live?.rerender();
 }
 
-/** Every IR id with a source, for the interaction layer. */
-function locsOf(diagram: StructDiagram): Map<string, ArchLoc> {
-  const out = new Map<string, ArchLoc>();
-  const walk = (ns: StructNode[]): void => {
-    for (const n of ns) {
-      if (n.ref.loc) out.set(n.ref.id, n.ref.loc);
-      walk(n.children);
-    }
-  };
-  walk(diagram.nodes);
-  for (const e of diagram.edges) if (e.ref.loc) out.set(e.ref.id, e.ref.loc);
-  return out;
-}
 
 async function render(root: HTMLElement, next: ArchPayload | null): Promise<void> {
   payload = next;

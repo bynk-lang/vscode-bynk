@@ -2,6 +2,12 @@
 // handler x state table's cells. Kept free of the DOM, like `mermaid-gen.ts`
 // and `architecture-gen.ts`, so it is unit-testable.
 //
+// Model-diagrams slice 6: the view now draws with the diagram engine
+// (`diagram/structure/stateMachine.ts`), which shares `groupTransitions` and
+// `transitionLabel` with this file; the Mermaid text is what "Copy as
+// Mermaid" copies. The click-to-code notes below describe the Mermaid
+// rendering the view used before, kept for the exporter's ids.
+//
 // The diagram (track §3.4, #2196 DECISION C):
 //   - `[*] --> initial`, then one transition per (from, to) pair a handler can
 //     produce, with the handlers that produce it joined on its label;
@@ -66,20 +72,19 @@ function esc(label: string): string {
   return label.replace(/\s+/g, " ").replace(/[:;]/g, " ").trim();
 }
 
-export function toMermaidState(machine: StateMachine, opts: StateMermaidOptions): StateMermaidResult {
-  const lines = ["stateDiagram-v2"];
-  const stateIds = new Map<string, string>();
-  const index = new Map(machine.states.map((s, i) => [s, i]));
-  machine.states.forEach((s, i) => {
-    stateIds.set(stateId(i), s);
-    lines.push(`    state "${esc(s)}" as ${stateId(i)}`);
-  });
-
-  // Group the model's edges into one transition per (from, to).
+/** The transitions to draw: one per (from, to) a handler can produce, with
+ *  every model edge it stands for. Shared by the Mermaid exporter and the
+ *  diagram engine (`diagram/structure/stateMachine.ts`, model-diagrams slice
+ *  6), so the two always agree:
+ *   - a computed write (`Unknown`) goes to `"?"`;
+ *   - an unchanged path is a self-loop, kept only with `showUnchanged`, or
+ *     when a `transition` refuses it (a flagged edge is never hidden);
+ *   - an edge from or to a state the model did not declare is skipped (the
+ *     table still lists it). */
+export function groupTransitions(machine: StateMachine, opts: StateMermaidOptions): TransitionGroup[] {
+  const index = new Set(machine.states);
   const groups: TransitionGroup[] = [];
   const add = (from: string, to: string, edge: StateEdge): void => {
-    // A state the model didn't declare would be drawn as the wrong state;
-    // skip the edge instead (the table still lists it).
     if (!index.has(from) || (to !== "?" && !index.has(to))) return;
     let g = groups.find((x) => x.from === from && x.to === to);
     if (!g) {
@@ -102,11 +107,29 @@ export function toMermaidState(machine: StateMachine, opts: StateMermaidOptions)
     for (const from of e.from) {
       if (e.to.kind === "State") add(from, e.to.state, e);
       else if (e.to.kind === "Unknown") add(from, "?", e);
-      // An unchanged outcome a `transition` refuses is always drawn: a
-      // flagged edge is never hidden (track §3.5).
       else if (opts.showUnchanged || violationsFrom(e, from).length > 0) add(from, from, e);
     }
   }
+  return groups;
+}
+
+/** A transition's label: its handlers, a ⚠ and the refused `transition`s when
+ *  flagged, and the diff sign when marked. */
+export function transitionLabel(g: TransitionGroup): string {
+  const handlers = g.handlers.map((h) => `${h}()`).join(", ");
+  const flagged = g.flag ? `⚠ ${handlers} (${g.violated.join(", ")})` : handlers;
+  return g.diff ? `${MARK_SIGN[g.diff]} ${flagged}` : flagged;
+}
+
+export function toMermaidState(machine: StateMachine, opts: StateMermaidOptions): StateMermaidResult {
+  const lines = ["stateDiagram-v2"];
+  const stateIds = new Map<string, string>();
+  const index = new Map(machine.states.map((s, i) => [s, i]));
+  machine.states.forEach((s, i) => {
+    stateIds.set(stateId(i), s);
+    lines.push(`    state "${esc(s)}" as ${stateId(i)}`);
+  });
+  const groups = groupTransitions(machine, opts);
 
   if (groups.some((g) => g.to === "?")) {
     stateIds.set(UNKNOWN_ID, "?");
@@ -118,12 +141,7 @@ export function toMermaidState(machine: StateMachine, opts: StateMermaidOptions)
 
   const hasInitial = machine.initial !== null && index.has(machine.initial);
   if (hasInitial && machine.initial !== null) lines.push(`    [*] --> ${idOf(machine.initial)}`);
-  for (const g of groups) {
-    const handlers = g.handlers.map((h) => `${h}()`).join(", ");
-    const flagged = g.flag ? `⚠ ${handlers} (${g.violated.join(", ")})` : handlers;
-    const label = esc(g.diff ? `${MARK_SIGN[g.diff]} ${flagged}` : flagged);
-    lines.push(`    ${idOf(g.from)} --> ${idOf(g.to)} : ${label}`);
-  }
+  for (const g of groups) lines.push(`    ${idOf(g.from)} --> ${idOf(g.to)} : ${esc(transitionLabel(g))}`);
 
   if (machine.truncated.length > 0 && machine.states.length > 0) {
     const names = machine.truncated.map((h) => `${h}()`).join(", ");
