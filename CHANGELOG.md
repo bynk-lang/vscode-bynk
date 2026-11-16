@@ -12,6 +12,12 @@ version).
 
 ## [Unreleased]
 
+## [0.614.3] - 2026-11-16
+
+Built against `bynk` v0.614.0. Compare Model draws its differences and compares
+two revisions or a pull request; request scenarios run against test targets and
+become `system` test suites; the Contract Diff panel can be filtered.
+
 ### Added
 
 - **Bynk: Promote Scenario to Test Suite** (`bynk.scenario.promote`, and a `Promote to test suite` CodeLens on a scenario) writes a `.bynk-http` scenario as a `system`-tier suite under `tests/` (#158). Each step becomes a typed call (`api.PUT("/items/:id", "abc", Item { … }) by Visitor`) in one case; a `{{step.body.field}}` capture is the earlier answer's typed value, and `? status == N` is the `HttpResult` variant that carries it. Credentials are the case's `by <Actor>` (you pick the actor), never a header, and an environment value is never written into the suite. What a suite cannot express (response headers other than a redirect's `Location`, `exists`/`contains` and list-index paths, query strings, a step that reads one of those) is listed at the top of the suite and in a summary you confirm before anything is written; a step that cannot be a call is left out with the steps that read it. The suite is checked with `bynk check` before it is offered, in a scratch copy of the project that includes unsaved buffers (`bynk compile --sources-stdin` does not type-check a suite), and nothing is written if it does not check. It is a one-way copy.
