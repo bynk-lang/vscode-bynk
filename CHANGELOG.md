@@ -41,6 +41,18 @@ version).
   tightened is breaking), applied by the extension to each revision's wire
   contract, with each reason named. Where unsure it says breaking. Agent
   invariants are not compared: `bynk/agentStateModel` does not expose them.
+- **Bynk: Compare Model Between Revisions…** compares two revisions (or a
+  revision and the working tree), not only a revision with the working tree
+  (#155); `bynk.compareModel` also takes a second ref. A pull request in the
+  GitHub Pull Requests view gets **Compare Bynk Model for Pull Request**: what
+  the pull request changes (the merge base with its base branch) against its
+  head, or against the working tree when it is checked out. That extension has
+  no documented API or menu for this, so the entry reads its pull request item's
+  `pullRequestModel.base` and `.head`; if that shape changes it falls back to
+  asking for the revisions. A revision whose `bynk.lock` dependencies are not in
+  the store (`bynk fetch` fills it; the compiler and the editor never fetch) is
+  analysed without them, and the page now says so instead of leaving its model
+  quietly incomplete.
 
 ## [0.614.2] - 2026-11-15
 

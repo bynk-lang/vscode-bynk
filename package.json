@@ -616,6 +616,18 @@
         "icon": "$(git-compare)"
       },
       {
+        "command": "bynk.compareModelBetween",
+        "title": "Compare Model Between Revisions…",
+        "category": "Bynk",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "bynk.compareModelPullRequest",
+        "title": "Compare Bynk Model for Pull Request",
+        "category": "Bynk",
+        "icon": "$(git-compare)"
+      },
+      {
         "command": "bynk.showAgentState",
         "title": "Show Agent State",
         "category": "Bynk",
@@ -992,6 +1004,14 @@
           "when": "!isWeb"
         },
         {
+          "command": "bynk.compareModelBetween",
+          "when": "!isWeb"
+        },
+        {
+          "command": "bynk.compareModelPullRequest",
+          "when": "false"
+        },
+        {
           "command": "bynk.showAgentState",
           "when": "editorLangId == bynk && !isWeb"
         },
@@ -1264,6 +1284,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "bynk.compareModelPullRequest",
+          "when": "view == pr:github && viewItem =~ /^pullrequest/ && !isWeb",
+          "group": "9_bynk@1"
+        },
         {
           "command": "bynk.addDependency",
           "when": "view == bynk.project && viewItem == bynkDependencies && !isWeb",
