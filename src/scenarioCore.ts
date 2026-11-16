@@ -701,6 +701,12 @@ export interface RouteInfo {
   /** As declared, `/items/:id`. */
   path: string;
   model: Pick<WcModel, "envelope" | "types" | "instantiations">;
+  /** The service the handler is in, what a test case addresses. */
+  service?: string;
+  /** The statuses the handler can answer, from the contract. */
+  responses?: WcModel["responses"];
+  /** The actors the handler's header names (`by u: User`): what a case may run as. */
+  actors?: string[];
 }
 
 /** Whether a scenario path (its `{{…}}` segments stand for anything) is a

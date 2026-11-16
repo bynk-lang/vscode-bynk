@@ -180,6 +180,81 @@ describe("Request scenarios (#149)", () => {
     assert.deepStrictEqual(results.map((r) => r.step), ["create", "ping"]);
   });
 
+  describe("promoted to a system-tier suite (#158)", () => {
+    const PROMO = `@context shop
+
+### create
+PUT /items/abc
+Content-Type: application/json
+
+{ "name": "x", "qty": 2 }
+
+? status == 200
+
+### ping
+GET /ping
+Authorization: Bearer {{env.PROMO_TOKEN}}
+
+? header content-type == "application/json"
+`;
+    const stdin = () => path.join(dir, ".promote-stdin.json");
+
+    async function promote(answer: string | undefined) {
+      const pick = vscode.window.showQuickPick;
+      const info = vscode.window.showInformationMessage;
+      (vscode.window as { showQuickPick: unknown }).showQuickPick = async (items: readonly string[]) => items[0];
+      (vscode.window as { showInformationMessage: unknown }).showInformationMessage = async () => answer;
+      try {
+        write("scenarios/promo.bynk-http", PROMO);
+        const uri = vscode.Uri.file(path.join(dir, "scenarios", "promo.bynk-http"));
+        return await vscode.commands.executeCommand<vscode.Uri | undefined>("bynk.scenario.promote", uri.toString());
+      } finally {
+        (vscode.window as { showQuickPick: unknown }).showQuickPick = pick;
+        (vscode.window as { showInformationMessage: unknown }).showInformationMessage = info;
+      }
+    }
+
+    after(() => {
+      delete process.env.BYNK_FAKE_COMPILE;
+      delete process.env.BYNK_FAKE_COMPILE_STDIN;
+    });
+
+    it("checks the suite with the compiler, lists what it cannot express and writes nothing secret", async function () {
+      this.timeout(60_000);
+      process.env.BYNK_FAKE_COMPILE_STDIN = stdin();
+      const target = await promote("Write suite");
+      assert.ok(target, "the suite was written");
+      assert.strictEqual(target.fsPath, path.join(dir, "tests", "promo.bynk"));
+      const text = fs.readFileSync(target.fsPath, "utf8");
+      assert.ok(text.includes("suite shop as system {"), text);
+      assert.ok(text.includes('let Ok(_) <- api.PUT("/items/:id", "abc", Item { name: "x", qty: 2 }) by Visitor else { expect false }'), text);
+      assert.ok(text.includes("// Not expressed (1 of 2 expectations"), text);
+      assert.ok(text.includes("content-type"), text);
+      assert.ok(!/PROMO_TOKEN|Bearer/.test(text), text);
+      // What the compiler was given was this text, as an unsaved new file under tests/.
+      const sent = JSON.parse(fs.readFileSync(stdin(), "utf8")) as Record<string, string>;
+      assert.strictEqual(sent[target.fsPath], text);
+      fs.rmSync(target.fsPath);
+    });
+
+    it("writes nothing when the compiler refuses the suite", async function () {
+      this.timeout(60_000);
+      process.env.BYNK_FAKE_COMPILE = "errors";
+      try {
+        assert.strictEqual(await promote("Write suite"), undefined);
+      } finally {
+        delete process.env.BYNK_FAKE_COMPILE;
+      }
+      assert.ok(!fs.existsSync(path.join(dir, "tests", "promo.bynk")));
+    });
+
+    it("writes nothing when the question is not answered", async function () {
+      this.timeout(60_000);
+      assert.strictEqual(await promote(undefined), undefined);
+      assert.ok(!fs.existsSync(path.join(dir, "tests", "promo.bynk")));
+    });
+  });
+
   it("saves a request from Send Request to a scenario file, keeping credentials out", async function () {
     this.timeout(30_000);
     const pick = vscode.window.showQuickPick;

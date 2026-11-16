@@ -466,6 +466,21 @@ if (args[0] === "book") {
     process.exit(1);
   }
   process.exit(0);
+} else if (args[0] === "compile" && args.includes("--sources-stdin")) {
+  // `bynk compile <root> --output <dir> --sources-stdin` (#158): the unsaved
+  // buffers arrive as JSON on stdin. `BYNK_FAKE_COMPILE_STDIN` names a file to
+  // keep them in, and `BYNK_FAKE_COMPILE=errors` refuses them.
+  let input = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (c) => (input += c));
+  process.stdin.on("end", () => {
+    if (process.env.BYNK_FAKE_COMPILE_STDIN) fs.writeFileSync(process.env.BYNK_FAKE_COMPILE_STDIN, input);
+    if (process.env.BYNK_FAKE_COMPILE === "errors") {
+      process.stderr.write("tests/fake.bynk:4:3: error[bynk.fake.suite]: the fake compiler refuses this suite\n");
+      process.exit(1);
+    }
+    process.exit(0);
+  });
 } else {
   process.stderr.write(`fake bynk: no canned answer for \`${args.join(" ")}\`\n`);
   process.exit(2);

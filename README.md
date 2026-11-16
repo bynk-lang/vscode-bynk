@@ -250,6 +250,23 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   expectation) and in the **Bynk Scenario** output channel. A step that reads a
   failed or missing value is skipped, not sent, and the run carries on with the
   steps that don't depend on it.
+
+  **Promote to test suite** (the lens, or **Bynk: Promote Scenario to Test
+  Suite**) turns a scenario into a `system`-tier suite under `tests/`, so
+  exploring becomes a regression test. The suite is one case of typed calls, as
+  a `system` case writes them: the route's pattern and typed arguments rather
+  than JSON, `{{create.body.id}}` as the earlier answer's value, and
+  `? status == 201` as the `HttpResult` variant that carries it
+  (`let Created(item) <- api.PUT(…) else { expect false }`). Credentials are the
+  case's `by <Actor>`, which you pick; a suite never carries a header credential
+  or an environment value. Whatever a suite cannot express is listed at the top
+  of the file and in the summary you confirm before it is written: response
+  headers other than a redirect's `Location` (a test cannot read them), `exists`
+  and `contains` checks and list-index paths (they need the field's type), a
+  query string, and a step that reads any of these, which is left out. The suite
+  is compiled with your unsaved buffers first and nothing is written if it does
+  not check. It is a one-way copy: the scenario and the suite are not kept in
+  sync.
 - **Export OpenAPI** — **Bynk: Export OpenAPI…** writes an OpenAPI 3.1 document
   for the project's `from http` services with `bynk openapi`, as JSON or YAML by
   the file name you choose. It needs a `bynk` that has the command, and offers to
@@ -413,6 +430,7 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Wire Contract** | The JSON wire shape of the service handler at the cursor. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Send Request** | Send the HTTP handler at the cursor a request on the dev server: path parameters, headers and a JSON body pre-filled from its type, then the response. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Run Scenario** | Run the `.bynk-http` scenario in the active editor on the dev server, with the results inline. Also a `Run scenario` / `Run step` CodeLens in the file. |
+| **Bynk: Promote Scenario to Test Suite** | Write the scenario as a `system`-tier test suite under `tests/`, listing what a suite cannot express, after the compiler has checked it. Also a `Promote to test suite` CodeLens. |
 | **Bynk: Show Agent State** | The state machines of the agent at the cursor: for each `store` Cell of an enum or sum type, a state diagram generated from its handlers and a handler × state table of what each handler does from each state, with moves a `transition` would refuse at commit marked ⚠, and each handler's effects — what it writes, reads and calls on each path (shown instead for an agent with no state field). Follows the cursor from agent to agent, highlighting the handler under it. |
 | **Bynk: Show Contract Diff** | Boundary changes since `bynk.schema.lock` and service contracts that differ from `bynk.deploy.lock`'s live record, each marked compatible or breaking. Refreshes when either lock changes. |
 | **Bynk: Compare Model with…** | Pick a git ref (the first choice is the merge base with the default branch) and see what changed in the project's model against the working tree: contexts, adapters, `consumes` edges, services and agents added, removed or changed; boundary and service-contract changes, classified compatible or breaking where the language server classifies them; agent states, handlers and transitions; and capabilities and their providers. Each row opens its source in the working tree, and the differences are also drawn on the architecture map and on the state diagram of each agent whose states changed: added elements green, changed amber, removed ones as dashed ghosts. Also on the Source Control view's title bar. |
