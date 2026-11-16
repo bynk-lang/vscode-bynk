@@ -12,6 +12,8 @@
 
 import * as vscode from "vscode";
 
+import { isAllowedScheme } from "./sequenceMessages";
+
 /** A serialisable range a webview posts back for click-to-code (never a real
  *  `vscode.Range` — a webview has no access to the `vscode` module). */
 export interface RevealRange {
@@ -66,6 +68,12 @@ export function isRevealMessage(message: unknown): message is RevealMessage {
   return isPosition(r?.start) && isPosition(r?.end);
 }
 
+/** Whether a page-supplied URI may drive the host (open a file, run a view
+ *  command on it): a local file, or one of the workspace folders' schemes. */
+export function allowedPageUri(uri: string): boolean {
+  return isAllowedScheme(uri, (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.scheme));
+}
+
 /** Open `uriStr` and select `range` — the host end of click-to-code, shared
  *  by every Bynk webview. Reveals in the first editor column, focused. A
  *  malformed message is ignored; a file that cannot be opened (deleted since
@@ -76,8 +84,7 @@ export async function revealLocation(uriStr: string, range: RevealRange): Promis
     const uri = vscode.Uri.parse(uriStr);
     // A webview must not be able to open an arbitrary scheme: only local files
     // and the schemes of the workspace's own folders.
-    const schemes = new Set(["file", ...(vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.scheme)]);
-    if (!schemes.has(uri.scheme)) return;
+    if (!allowedPageUri(uri.toString())) return;
     const vsRange = new vscode.Range(
       new vscode.Position(range.start.line, range.start.character),
       new vscode.Position(range.end.line, range.end.character),

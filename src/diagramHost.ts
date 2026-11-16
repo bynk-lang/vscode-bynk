@@ -8,7 +8,7 @@
 
 import * as vscode from "vscode";
 
-import { revealLocation } from "./webviewHost";
+import { allowedPageUri, revealLocation } from "./webviewHost";
 
 import {
   fileStem,
@@ -51,6 +51,9 @@ export function diagramMessages(context: vscode.ExtensionContext, what: string):
       } else if (isSaveFile(message)) {
         void saveFile(message, what);
       } else if (isOpenComponent(message)) {
+        // The page is untrusted: only a local file or a workspace folder's
+        // scheme reaches the command (and from it the language server).
+        if (!allowedPageUri(message.uri)) return true;
         // Reveal the unit first when the page says where, so the component
         // view (which follows the cursor's context) stays on it.
         const { uri, range } = message;

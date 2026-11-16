@@ -17,6 +17,7 @@
 
 import { focusedRef, initTabOrder, restoreFocus, wireInteraction } from "../diagram/interact";
 import { canvasMeasurer, type TextMeasurer } from "../diagram/measure";
+import { ids } from "../diagram/structure/architecture";
 import { type ComponentLinks, toComponentDiagram } from "../diagram/structure/component";
 import { drawStructure } from "../diagram/structure/draw";
 import type { StructDiagram, StructNode } from "../diagram/structure/ir";
@@ -101,9 +102,9 @@ function locsOf(diagram: StructDiagram): Map<string, ArchLoc> {
 function markFocus(): void {
   for (const el of viewport.element.querySelectorAll(".bynk-current")) el.classList.remove("bynk-current");
   if (!focus || !payload) return;
-  const ids = new Set([`svc:${payload.unit}/${focus}`, `agent:${payload.unit}/${focus}`]);
+  const parts = new Set([ids.service(payload.unit, focus), ids.agent(payload.unit, focus)]);
   for (const el of viewport.element.querySelectorAll("[data-bynk-ref]")) {
-    if (ids.has(el.getAttribute("data-bynk-ref") ?? "")) el.classList.add("bynk-current");
+    if (parts.has(el.getAttribute("data-bynk-ref") ?? "")) el.classList.add("bynk-current");
   }
 }
 

@@ -7,7 +7,7 @@
 import * as assert from "assert";
 
 import type { ArchPayload, ComponentPayload } from "../../src/webview/architectureTypes";
-import { componentModel } from "./component-structure.unit.test";
+import { componentModel } from "./componentFixture";
 import type { DocPayload } from "../../src/webview/docTypes";
 import type { RefinedPayload } from "../../src/webview/refinedTypes";
 import type { AgentStatePayload } from "../../src/webview/stateTypes";

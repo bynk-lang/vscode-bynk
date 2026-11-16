@@ -20,7 +20,7 @@ import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
 import { isOpenSequence } from "./sequenceMessages";
 import type { ViewRefresh } from "./viewRefresh";
 import type { ComponentPayload } from "./webview/architectureTypes";
-import { revealLocation } from "./webviewHost";
+import { allowedPageUri, revealLocation } from "./webviewHost";
 
 export function registerComponentView(
   context: vscode.ExtensionContext,
@@ -44,7 +44,7 @@ export function registerComponentView(
     missMessage: "Bynk: no context or adapter declared in this file (or no committed analysis yet).",
     onMessage: (message) => {
       if (shared.handle(message)) return;
-      if (isOpenSequence(message)) {
+      if (isOpenSequence(message) && allowedPageUri(message.uri)) {
         void revealLocation(message.uri, message.range).then(() =>
           vscode.commands.executeCommand("bynk.showSequenceDiagram", message.uri, message.range.start),
         );

@@ -105,6 +105,15 @@ export function isPageError(message: unknown): message is PageErrorMessage {
   return m?.type === "error" && typeof m.message === "string" && m.message.length <= 2000;
 }
 
+/** Whether a page-supplied `uri` may drive the host: only local files and
+ *  the schemes of the workspace's own folders (`folderSchemes`). A URI with no
+ *  scheme parses as `file`, as `vscode.Uri.parse` treats it. Every host action
+ *  a page can trigger with a URI checks this first (review of #177). */
+export function isAllowedScheme(uri: string, folderSchemes: readonly string[]): boolean {
+  const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(uri)?.[1]?.toLowerCase() ?? "file";
+  return scheme === "file" || folderSchemes.some((s) => s.toLowerCase() === scheme);
+}
+
 /** A safe file name stem for the save dialog: letters, digits, `.`, `_`, `-`. */
 export function fileStem(name: string): string {
   return name.replace(/[^\w.-]+/g, "-").replace(/^[-.]+|-+$/g, "") || "sequence";
