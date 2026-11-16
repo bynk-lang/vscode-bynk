@@ -4,7 +4,7 @@
 // Reads the `CdPayload` the host embeds as `window.__BYNK_CONTRACT_DIFF__`.
 
 import { renderContractDiff } from "./contract-diff-render";
-import type { CdPayload, CdRevealMessage, Range } from "./contractDiffTypes";
+import type { CdClearFilterMessage, CdPayload, CdRevealMessage, Range } from "./contractDiffTypes";
 import { startLiveView, type VsCodeApi } from "./live";
 
 declare function acquireVsCodeApi(): VsCodeApi;
@@ -21,7 +21,7 @@ function render(root: HTMLElement, payload: CdPayload | null): void {
     root.textContent = "No contract diff to show.";
     return;
   }
-  renderContractDiff(root, payload, reveal);
+  renderContractDiff(root, payload, reveal, () => vscodeApi.postMessage({ type: "clearFilter" } satisfies CdClearFilterMessage));
 }
 
 startLiveView<CdPayload>(vscodeApi, "__BYNK_CONTRACT_DIFF__", render);

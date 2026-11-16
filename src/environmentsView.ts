@@ -171,8 +171,13 @@ export function registerEnvironments(
         context: "",
       }),
     ),
-    vscode.commands.registerCommand("bynk.environments.showContractDiff", async () =>
-      vscode.commands.executeCommand("bynk.showContractDiff", (await provider.projectFile())?.toString()),
+    vscode.commands.registerCommand("bynk.environments.showContractDiff", async (n?: EnvTreeNode) =>
+      vscode.commands.executeCommand(
+        "bynk.showContractDiff",
+        (await provider.projectFile())?.toString(),
+        // #157: scope the panel to the node it was invoked on.
+        n?.data.kind === "context" ? { context: n.data.context, environment: n.data.environment } : undefined,
+      ),
     ),
   );
 }
