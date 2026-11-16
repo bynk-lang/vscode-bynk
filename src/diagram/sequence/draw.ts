@@ -153,10 +153,40 @@ function drawMessage(m: PlacedMessage, scene: SequenceScene, parent: Element): v
   // A wide transparent stroke under the line, so the arrow is easy to hit.
   svg("path", { class: "bynk-hit", d }, g);
   svg("path", { class: "bynk-msg-line", d, "marker-end": head }, g);
-  const from = scene.lifelines[m.from];
   const to = scene.lifelines[m.to];
   const what = m.label.full ? `: ${m.label.full}` : "";
+  if (m.found) {
+    // UML found message: it comes from outside the diagram, a filled dot.
+    g.classList.add("bynk-msg--found");
+    svg("circle", { class: "bynk-found-dot", cx: px(m.x1), cy: m.y, r: 4 }, g);
+    identify(g, m.ref, `Found message to ${lifelineName(to)}${what}`);
+    return;
+  }
+  const from = scene.lifelines[m.from];
   identify(g, m.ref, `${ARROW_WORD[m.arrow]} from ${lifelineName(from)} to ${lifelineName(to)}${what}`);
+  if (m.callee) drawCalleeLink(m, g);
+}
+
+/** The drill-down link after a boundary call's label: opens the callee's own
+ *  sequence diagram (a UML `ref`, model-diagrams slice 3). Its own focusable
+ *  button, marked `data-bynk-open` so the interaction layer opens rather than
+ *  reveals. */
+function drawCalleeLink(m: PlacedMessage, parent: Element): void {
+  const c = m.callee;
+  if (!c) return;
+  const description = `Open the sequence diagram of ${c.name}`;
+  const link = svg("g", {
+    class: "bynk-ref-link",
+    "data-bynk-ref": `${m.ref.id}.ref`,
+    "data-bynk-focusable": "",
+    "data-bynk-open": "",
+    tabindex: "-1",
+    role: "button",
+    "aria-label": description,
+  }, parent);
+  svg("rect", { class: "bynk-ref-hit", x: px(c.x - 7), y: px(c.y - 11), width: 14, height: 14 }, link);
+  svgText("↗", { class: "bynk-ref-glyph", x: px(c.x), y: px(c.y), "text-anchor": "middle" }, link);
+  svgTitle(`${description}.`, link);
 }
 
 function drawNote(n: PlacedNote, parent: Element): void {

@@ -14,6 +14,16 @@ version).
 
 ### Added
 
+- The sequence diagram draws what a `bynk` language server with model-diagrams slice 3 (bynk-lang/bynk#3651) now reports. With an older server the diagram is as before.
+  - A `?` is a dashed **`break`** fragment, `[stored?]`, holding the early return.
+  - A handler with no principal starts from a UML **found message** (a filled dot) labelled by its trigger: `call hit`, `cron "…"`, `event`, `message`.
+  - An agent lifeline names the instance called: `«agent» Limiter[client]`.
+  - A call into an agent or a consumed context has a **↗ link** after its label that opens the callee's own sequence diagram (a UML `ref`), moving the editor there too. Click it, or focus it and press Enter.
+  - A branch's guard links to its own arm rather than the whole `if`/`match`.
+  - **Copy as Mermaid** writes a `break` as a Mermaid `break` block.
+
+### Added
+
 - The sequence diagram has reading aids (model-diagrams track, slice 2):
   - **Pinned lifelines:** the lifeline heads stay at the top while you scroll a long diagram.
   - **Folding:** fold an `alt`/`opt` fragment from the triangle on its tab (or Space on the tab) to a one-line summary. Fragments nested three deep start folded, and your folds are kept as the diagram refreshes.

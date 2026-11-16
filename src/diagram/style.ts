@@ -33,6 +33,10 @@ export const DIAGRAM_CSS = `
 .bynk-diagram .bynk-head-filled { fill: var(--vscode-editor-foreground); }
 .bynk-diagram .bynk-head-open { fill: none; stroke: var(--vscode-editor-foreground); stroke-width: 1.2; }
 .bynk-diagram .bynk-hit { fill: none; stroke: transparent; stroke-width: 12; }
+.bynk-diagram .bynk-found-dot { fill: var(--vscode-editor-foreground); }
+.bynk-diagram .bynk-ref-glyph { font-size: 12px; font-weight: 600; fill: var(--vscode-textLink-foreground); }
+.bynk-diagram .bynk-ref-hit { fill: transparent; }
+.bynk-diagram .bynk-frag--break .bynk-frag-box { stroke-dasharray: 6 3; }
 
 .bynk-diagram .bynk-note-box {
   fill: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));

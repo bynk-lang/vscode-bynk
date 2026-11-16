@@ -27,6 +27,14 @@ export interface SaveFileMessage {
   data: string;
 }
 
+/** Model-diagrams slice 3: open the callee's own sequence diagram (a `ref`
+ *  link's drill-down), at the handler declaration the server located. */
+export interface OpenSequenceMessage {
+  type: "openSequence";
+  uri: string;
+  range: RevealRange;
+}
+
 /** Something the page could not do, to show the user. */
 export interface PageErrorMessage {
   type: "error";
@@ -71,6 +79,11 @@ export function isSaveFile(message: unknown): message is SaveFileMessage {
     m.data.length <= MAX_SAVE &&
     (m.format === "svg" ? m.data.trimStart().startsWith("<svg") : /^[A-Za-z0-9+/]+=*$/.test(m.data))
   );
+}
+
+export function isOpenSequence(message: unknown): message is OpenSequenceMessage {
+  const m = message as { type?: unknown; uri?: unknown; range?: unknown } | null | undefined;
+  return m?.type === "openSequence" && typeof m.uri === "string" && m.uri !== "" && isRange(m.range);
 }
 
 export function isPageError(message: unknown): message is PageErrorMessage {

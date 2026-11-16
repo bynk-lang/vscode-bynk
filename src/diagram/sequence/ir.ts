@@ -40,6 +40,14 @@ export type NoteTone =
   /** A write to the agent's own state. */
   | "state";
 
+/** Where a boundary call leads: the callee handler, to open its own diagram
+ *  (a UML `ref`, model-diagrams slice 3). */
+export interface CalleeLink {
+  /** `Limiter.hit`, `platform.Pinger`. */
+  name: string;
+  location: { uri: string; range: Range };
+}
+
 export interface MessageEvent {
   type: "message";
   ref: SourceRef;
@@ -48,6 +56,8 @@ export interface MessageEvent {
   to: number;
   arrow: ArrowKind;
   label: string;
+  /** Set when the server located the handler this call reaches. */
+  callee?: CalleeLink;
 }
 
 export interface NoteEvent {
@@ -70,13 +80,23 @@ export interface Operand {
 export interface FragmentEvent {
   type: "fragment";
   ref: SourceRef;
-  operator: "alt" | "opt";
+  /** `break` (model-diagrams slice 3): a `?`'s early return. */
+  operator: "alt" | "opt" | "break";
   operands: Operand[];
 }
 
 export type SequenceEvent = MessageEvent | NoteEvent | FragmentEvent;
 
+/** What starts a handler that has no principal: drawn as a UML found message
+ *  (from a filled dot) into the entry lifeline. */
+export interface FoundMessage {
+  ref: SourceRef;
+  label: string;
+}
+
 export interface SequenceDiagram {
   lifelines: Lifeline[];
   events: SequenceEvent[];
+  /** Model-diagrams slice 3: set when the handler has no principal. */
+  found?: FoundMessage;
 }

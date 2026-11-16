@@ -21,8 +21,8 @@
 // Unlike Mermaid, UML needs no label on a reply arrow, so an empty return label
 // stays empty, and labels need no escaping (drawing sets text, never markup).
 
-import type { AltBlock, Message, MessageKind, Participant, ParticipantKind, Range, SequenceModel } from "../../webview/types";
-import type { ArrowKind, Lifeline, LifelineKind, NoteTone, SequenceDiagram, SequenceEvent } from "./ir";
+import type { AltBlock, Callee, Message, MessageKind, Participant, ParticipantKind, Range, SequenceModel, Trigger } from "../../webview/types";
+import type { ArrowKind, CalleeLink, FoundMessage, Lifeline, LifelineKind, NoteTone, SequenceDiagram, SequenceEvent } from "./ir";
 
 const LIFELINE: Record<ParticipantKind, { kind: LifelineKind; stereotype: string | null }> = {
   Actor: { kind: "actor", stereotype: null },
@@ -63,7 +63,10 @@ export function toSequenceDiagram(model: SequenceModel): SequenceDiagram {
   const lifelines: Lifeline[] = model.participants.map((p: Participant, i) => {
     indexOf.set(p.id, i);
     const { kind, stereotype } = LIFELINE[p.kind] ?? { kind: "capability", stereotype: null };
-    return { ref: { id: ids.participant(p.id), range: p.range }, kind, name: clean(p.name), stereotype };
+    // Model-diagrams slice 3: an agent lifeline names the instance called,
+    // `Limiter[client]` (UML's selector), when the server says which.
+    const key = kind === "agent" && p.key ? `[${clean(p.key)}]` : "";
+    return { ref: { id: ids.participant(p.id), range: p.range }, kind, name: `${clean(p.name)}${key}`, stereotype };
   });
   const entry = Math.max(0, lifelines.findIndex((l) => l.kind === "entry"));
   const lifelineOf = (participantId: number): number => indexOf.get(participantId) ?? entry;
@@ -93,6 +96,7 @@ export function toSequenceDiagram(model: SequenceModel): SequenceDiagram {
 
   const messageEvent = (m: Message, index: number): SequenceEvent => {
     if (m.kind === "StateWrite") return note(m.range, clean(m.label), "state");
+    const callee = calleeLink(m.callee);
     return {
       type: "message",
       ref: { id: ids.message(index), range: m.range },
@@ -100,6 +104,7 @@ export function toSequenceDiagram(model: SequenceModel): SequenceDiagram {
       to: lifelineOf(m.to),
       arrow: ARROW[m.kind] ?? "sync",
       label: clean(m.label),
+      ...(callee ? { callee } : {}),
     };
   };
 
@@ -113,12 +118,13 @@ export function toSequenceDiagram(model: SequenceModel): SequenceDiagram {
       const events = content(branchMessages, children);
       if (branch.reply) events.push(note(block.range, clean(branch.reply), "reply"));
       if (events.length === 0) events.push(note(block.range, "…", "empty"));
-      return { ref: { id: ids.operand(block.id, b), range: block.range }, guard: clean(branch.label), events };
+      // ADR 0853: an operand links to its own arm when the server says where.
+      return { ref: { id: ids.operand(block.id, b), range: branch.range ?? block.range }, guard: clean(branch.label), events };
     });
     return {
       type: "fragment",
       ref: { id: ids.block(block.id), range: block.range },
-      operator: block.branches.length <= 1 ? "opt" : "alt",
+      operator: block.kind === "Break" ? "break" : block.branches.length <= 1 ? "opt" : "alt",
       operands,
     };
   };
@@ -127,5 +133,33 @@ export function toSequenceDiagram(model: SequenceModel): SequenceDiagram {
     model.messages.filter((m) => m.block === null),
     model.blocks.filter((b) => b.parent === null),
   );
-  return { lifelines, events };
+  const found = foundMessage(model.trigger, lifelines);
+  return found ? { lifelines, events, found } : { lifelines, events };
+}
+
+/** A handler with no principal starts from a found message labelled by its
+ *  trigger (model-diagrams slice 3); one with a principal already has the
+ *  actor's inbound message. `null` from an older server, which sends none. */
+function foundMessage(trigger: Trigger | undefined, lifelines: Lifeline[]): FoundMessage | null {
+  if (!trigger || lifelines.some((l) => l.kind === "actor")) return null;
+  const label = TRIGGER_WORD[trigger.kind]?.(clean(trigger.label)) ?? clean(trigger.label);
+  return { ref: { id: "t", range: null }, label };
+}
+
+const TRIGGER_WORD: Record<Trigger["kind"], (label: string) => string> = {
+  Request: (l) => l,
+  Call: (l) => (l === "call" ? "call" : `call ${l}`),
+  Schedule: (l) => l,
+  Event: () => "event",
+  Message: () => "message",
+  Connection: (l) => l,
+  Rejected: () => "rejected request",
+};
+
+/** A located callee as a drill-down link; `undefined` when the server did not
+ *  find (or, being older, does not send) one. */
+function calleeLink(callee: Callee | null | undefined): CalleeLink | undefined {
+  if (!callee?.location) return undefined;
+  const owner = callee.unit ? `${callee.unit}.${callee.owner}` : callee.owner;
+  return { name: callee.method ? `${owner}.${callee.method}` : owner, location: callee.location };
 }
