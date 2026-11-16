@@ -19,12 +19,15 @@
 
 import type { Range } from "../webview/types";
 
-export interface DiagramHost {
-  reveal(range: Range): void;
+/** What a diagram's host does with its elements. `T` is an element's source:
+ *  a `Range` in the one file a sequence diagram shows, or a `{uri, range}` in
+ *  a project-wide diagram (the architecture map). */
+export interface DiagramHost<T = Range> {
+  reveal(target: T): void;
   /** Fold or unfold the fragment with IR id `id`. */
   toggleFold?(id: string): void;
   /** The source of the element under the pointer or focus; `null` when none. */
-  hover?(range: Range | null): void;
+  hover?(target: T | null): void;
   /** Open what an element marked `data-bynk-open` (IR id `id`) leads to:
    *  the callee's own diagram, for a `ref` link. */
   open?(id: string): void;
@@ -40,7 +43,7 @@ export function initTabOrder(root: Element): void {
  *  events arrive, so `root`'s drawing can be replaced underneath them (call
  *  `initTabOrder` after each). `ranges` maps each IR id to its source; it is
  *  read at event time, so a caller may refill it on each redraw. */
-export function wireInteraction(root: Element, ranges: ReadonlyMap<string, Range>, host: DiagramHost): void {
+export function wireInteraction<T = Range>(root: Element, ranges: ReadonlyMap<string, T>, host: DiagramHost<T>): void {
   const focusables = (): SVGElement[] => Array.from(root.querySelectorAll<SVGElement>("[data-bynk-focusable]"));
   initTabOrder(root);
 

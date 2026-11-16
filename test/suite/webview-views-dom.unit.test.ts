@@ -379,57 +379,66 @@ function archPayload(): ArchPayload {
   };
 }
 
-describe("architecture view (jsdom)", () => {
+describe("architecture view (jsdom, model-diagrams slice 4)", () => {
   let dom: Dom;
+  /** ELK lays out asynchronously: wait for the drawing (or a message). */
+  const drawn = async (): Promise<void> => {
+    for (let i = 0; i < 200; i++) {
+      if (dom.root.querySelector("svg.bynk-struct[role=group]") || dom.root.textContent?.startsWith("No contexts")) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  };
   const open = async (payload: ArchPayload | null = archPayload()): Promise<void> => {
     dom = setupDom({ __BYNK_ARCH_MODEL__: payload });
-    dom.mermaid.svg =
-      '<svg><g id="m-flowchart-ctx0-1"></g><g id="m-flowchart-ctx0_t-2"></g><g id="m-flowchart-ctx1-3"></g></svg>';
     dom.load("architecture");
     await settle();
+    await drawn();
   };
   afterEach(() => dom.dispose());
+  const q = (sel: string): Element | null => dom.root.querySelector(sel);
 
-  it("embeds the diagram and wires a box to reveal and the toggle to expand", async () => {
+  it("draws each unit as a component inside the system boundary, without Mermaid", async () => {
     await open();
-    assert.strictEqual(dom.mermaid.calls.length, 1);
-    (dom.root.querySelector('[id*="flowchart-ctx0-"]') as HTMLElement).dispatchEvent(new dom.window.Event("click"));
-    assert.deepStrictEqual(dom.posted.slice(-1), [{ type: "reveal", uri: "file:///a.bynk", range }]);
-
-    assert.ok(!dom.mermaid.calls[0].text.includes("Clock"));
-    (dom.root.querySelector('[id*="flowchart-ctx0_t-"]') as HTMLElement).dispatchEvent(new dom.window.Event("click"));
-    await settle();
-    assert.strictEqual(dom.mermaid.calls.length, 2);
-    assert.ok(dom.mermaid.calls[1].text.includes("Clock"));
-    assert.notStrictEqual(dom.mermaid.calls[0].id, dom.mermaid.calls[1].id);
+    assert.strictEqual(dom.mermaid.calls.length, 0);
+    assert.ok(q('[data-bynk-ref="system"] .bynk-boundary'));
+    assert.ok(q('[data-bynk-ref="u:Billing"].bynk-snode--context'));
+    assert.ok(q(".bynk-snode--adapter"));
   });
 
-  it("shows a failed render, and a payload string, as text", async () => {
+  it("reveals a unit's own file on a click", async () => {
     await open();
-    dom.mermaid.fail = new Error(HOSTILE);
+    (q('[data-bynk-ref="u:Billing"]') as Element).dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    assert.deepStrictEqual(dom.posted.slice(-1), [{ type: "reveal", uri: "file:///a.bynk", range }]);
+  });
+
+  it("opens a unit in place from its toggle, and keeps it open across an update", async () => {
+    await open();
+    assert.ok(!q('[data-bynk-ref="cap:Billing/Clock"]'));
+    (q('[data-bynk-fold-toggle="u:Billing"]') as Element).dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    await settle();
+    await drawn();
+    for (let i = 0; i < 100 && !q('[data-bynk-ref="cap:Billing/Clock"]'); i++) await new Promise((r) => setTimeout(r, 10));
+    assert.ok(q('[data-bynk-ref="cap:Billing/Clock"]'), "the capability is drawn inside");
+    assert.strictEqual(q('[data-bynk-foldable="u:Billing"]')?.getAttribute("aria-expanded"), "true");
     dom.post({ type: "update", payload: archPayload(), view: { target: { uri: "file:///a.bynk" }, followsCursor: false } });
     await settle();
-    assert.ok(dom.root.textContent?.startsWith("Failed to render diagram: "));
-    noMarkup(dom.root);
-    // The node name carrying markup is escaped into the diagram source.
-    assert.ok(dom.mermaid.calls[0].text.includes("Other"));
+    for (let i = 0; i < 100; i++) await new Promise((r) => setTimeout(r, 5));
+    assert.strictEqual(q('[data-bynk-foldable="u:Billing"]')?.getAttribute("aria-expanded"), "true");
   });
 
-  it("redraws when VS Code switches colour theme", async () => {
+  it("renders every payload string as text, never as elements", async () => {
     await open();
-    assert.strictEqual(dom.mermaid.calls.length, 1);
-    dom.document.body.className = "vscode-dark";
-    await settle();
-    assert.strictEqual(dom.mermaid.calls.length, 2);
-    // An attribute change that is not a theme switch draws nothing new.
-    dom.document.body.setAttribute("data-other", "x");
-    await settle();
-    assert.strictEqual(dom.mermaid.calls.length, 2);
+    noMarkup(dom.root);
+    assert.ok(dom.root.textContent?.includes("Other<img"));
+  });
+
+  it("hides the events toggle when the model has no events", async () => {
+    await open();
+    assert.strictEqual((dom.document.getElementById("bynk-toggle-events") as HTMLElement).hidden, true);
   });
 
   it("says so when the project has no contexts", async () => {
     await open({ model: { nodes: [], edges: [] } });
-    assert.strictEqual(dom.mermaid.calls.length, 0);
     assert.strictEqual(dom.root.textContent, "No contexts found in this project.");
   });
 });

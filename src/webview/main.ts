@@ -20,11 +20,11 @@
 //   in the editor (`{type: "highlight"}` to the host);
 // - Copy as Mermaid, and Save as SVG or PNG (the host shows the save dialog).
 
-import { exportSvg, svgToPngBase64 } from "../diagram/export";
 import { focusedRef, initTabOrder, restoreFocus, wireInteraction } from "../diagram/interact";
 import { canvasMeasurer, type TextMeasurer } from "../diagram/measure";
 import { elementAt, renderSequence, type SequenceRender } from "../diagram/sequence/render";
-import { DIAGRAM_CSS, ensureDiagramStyles } from "../diagram/style";
+import { ensureDiagramStyles } from "../diagram/style";
+import { buildToolbar } from "../diagram/toolbar";
 import { DiagramViewport } from "../diagram/viewport";
 import { type LiveView, startLiveView, type VsCodeApi } from "./live";
 import { toMermaid } from "./mermaid-gen";
@@ -74,69 +74,20 @@ function reveal(range: Range): void {
   post(message);
 }
 
-function button(label: string, title: string, id: string, onClick: () => void): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.id = id;
-  b.textContent = label;
-  b.title = title;
-  b.addEventListener("click", onClick);
-  return b;
-}
-
-function sep(): HTMLElement {
-  const s = document.createElement("span");
-  s.className = "bynk-sep";
-  return s;
-}
-
 function buildActions(): HTMLElement {
-  const bar = document.createElement("div");
-  bar.className = "bynk-diagram-actions";
-  const zoomLabel = document.createElement("span");
-  zoomLabel.className = "bynk-zoom-label";
-  zoomLabel.id = "bynk-zoom-label";
-  const showZoom = (): void => {
-    zoomLabel.textContent = `${Math.round(viewport.zoom * 100)}%${viewport.isFit ? " (fit)" : ""}`;
-  };
-  viewport.onZoomChange(showZoom);
-  showZoom();
-  bar.append(
-    button("Copy as Mermaid", "Copy this diagram as Mermaid text, to paste into Markdown", "bynk-copy-mermaid", () => {
-      if (payload) post({ type: "copyText", text: toMermaid(payload.model).text, what: "Mermaid" });
-    }),
-    button("Save as SVG…", "Save this diagram as an SVG file, in the current theme's colours", "bynk-save-svg", () => void save("svg")),
-    button("Save as PNG…", "Save this diagram as a PNG image, in the current theme's colours", "bynk-save-png", () => void save("png")),
-    sep(),
-    button("−", "Zoom out (−)", "bynk-zoom-out", () => viewport.zoomOut()),
-    zoomLabel,
-    button("+", "Zoom in (+)", "bynk-zoom-in", () => viewport.zoomIn()),
-    button("Fit", "Fit the width of the panel (0)", "bynk-zoom-fit", () => viewport.setZoom("fit")),
-    button("100%", "Actual size", "bynk-zoom-100", () => viewport.setZoom(1)),
-  );
-  return bar;
+  return buildToolbar({
+    viewport,
+    post,
+    mermaid: () => (payload ? toMermaid(payload.model).text : null),
+    drawing: () => (current ? { drawing: current.drawing, name: fileName() } : null),
+    fontFamily,
+  });
 }
 
 /** The diagram's file name: the handler's entry lifeline. */
 function fileName(): string {
   const entry = current?.diagram.lifelines.find((l) => l.kind === "entry")?.name ?? "sequence";
   return entry.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "sequence";
-}
-
-async function save(format: "svg" | "png"): Promise<void> {
-  if (!current) return;
-  try {
-    const style = getComputedStyle(document.body);
-    const markup = exportSvg(current.drawing, {
-      css: DIAGRAM_CSS,
-      lookup: (name) => style.getPropertyValue(name),
-      fontFamily: fontFamily(),
-    });
-    const { width, headHeight, bodyHeight } = current.drawing;
-    const data = format === "svg" ? markup : await svgToPngBase64(markup, width, headHeight + bodyHeight);
-    post({ type: "saveFile", format, name: fileName(), data });
-  } catch (err) {
-    post({ type: "error", message: `Could not make the ${format.toUpperCase()}: ${String(err)}` });
-  }
 }
 
 function toggleFold(id: string): void {

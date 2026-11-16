@@ -18,6 +18,7 @@
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
+import { diagramMessages } from "./diagramHost";
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
 import { projectRootFor } from "./projectRoots";
 import type { ViewRefresh } from "./viewRefresh";
@@ -51,11 +52,12 @@ export function registerArchitectureMap(
   context: vscode.ExtensionContext,
   hub: ViewRefresh,
 ): LivePanel<ArchPayload> {
+  // Model-diagrams slice 4: drawn by the diagram engine with ELK, not Mermaid.
+  const shared = diagramMessages(context, "architecture map");
   const view = new LivePanel<ArchPayload>(context, {
     viewType: "bynkArchitectureMap",
     commandLabel: "Show Architecture Map",
     script: "architecture.js",
-    vendorScripts: ["mermaid.js"],
     globalName: "__BYNK_ARCH_MODEL__",
     followsCursor: false,
     title: () => "Bynk Architecture Map",
@@ -65,6 +67,8 @@ export function registerArchitectureMap(
     },
     missMessage:
       "Bynk: no architecture model for this project (not a project file, or no committed analysis yet).",
+    onMessage: (message) => void shared.handle(message),
+    onDispose: () => shared.dispose(),
   }, hub);
   context.subscriptions.push(
     view,

@@ -47,6 +47,12 @@ export interface ArchService {
   name: string;
   handlerCount: number;
   loc: ArchLoc;
+  /** Model-diagrams slice 4 (bynk-lang/bynk#3654): how it is reached —
+   *  `call`, `http`, `cron`, `queue`, `websocket`, `events` or `email`.
+   *  Absent from older servers. */
+  protocol?: string;
+  /** Model-diagrams slice 4: the actors its handlers admit, sorted. */
+  actors?: string[];
 }
 
 export interface ArchAgent {
@@ -63,6 +69,8 @@ export interface ArchNode {
   providers: ArchProvider[];
   services: ArchService[];
   agents: ArchAgent[];
+  /** ADR 0854 (bynk v0.625.3). Absent from older servers. */
+  uses?: ArchHandlerUses[];
 }
 
 export interface ArchEdge {
@@ -74,9 +82,44 @@ export interface ArchEdge {
   loc: ArchLoc;
 }
 
+/** ADR 0854: a handler, service operation or provider operation. */
+export interface ArchMember {
+  unit: string;
+  kind: "service" | "agent" | "provider";
+  container: string;
+  handler: string;
+  loc: ArchLoc;
+}
+
+/** ADR 0854: one capability a handler uses (its resolved `given`). */
+export interface ArchUse {
+  capability: string;
+  /** The unit declaring the capability: this unit, a consumed one, or `bynk`. */
+  from: string | null;
+  inherited: boolean;
+  loc: ArchLoc;
+  stubbedIn: { suite: string; loc: ArchLoc }[];
+}
+
+export interface ArchHandlerUses {
+  member: ArchMember;
+  uses: ArchUse[];
+}
+
+/** ADR 0854: a declared event, who emits it and who subscribes. */
+export interface ArchEvent {
+  owner: string;
+  name: string;
+  loc: ArchLoc;
+  emitters: { member: ArchMember; loc: ArchLoc }[];
+  subscribers: { member: ArchMember; delivery: string; loc: ArchLoc }[];
+}
+
 export interface ArchModel {
   nodes: ArchNode[];
   edges: ArchEdge[];
+  /** ADR 0854 (bynk v0.625.3). Absent from older servers. */
+  events?: ArchEvent[];
 }
 
 /** The payload the extension host embeds into the webview. Unlike
