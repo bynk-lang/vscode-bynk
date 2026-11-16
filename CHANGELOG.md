@@ -12,6 +12,18 @@ version).
 
 ## [Unreleased]
 
+### Changed
+
+- **The architecture map is redrawn** by the extension's own diagram engine, not Mermaid (model-diagrams track, slice 4). It is now a UML system view:
+  - The project's contexts and adapters are **components inside a system boundary**. A collapsed one summarises what it holds (`http · 2 services · 1 agent`). Open it in place from the triangle on it (or Space on it) to see its services, agents, capabilities and providers. Which units are open is kept as the map refreshes.
+  - **`consumes` cycles are marked** in the warning colour, on the units and the edges.
+  - **Actors** (a service's `by` principals) stand outside the boundary, with a call into the service labelled by its protocol (`http`, `queue`, `cron`, …).
+  - **Platform wiring:** a capability bound from a platform unit (`from bynk`) draws a dotted edge to that unit, from the service or agent that uses it when the unit is open.
+  - **Events**, with who emits and who subscribes to them; **Events** in the toolbar hides them.
+  - Clicking any element opens its source, and pointing at one marks its source in the editor, as on the sequence diagram. The map has the same zoom, pan, minimap, **Copy as Mermaid** and **Save as SVG/PNG**.
+  - Actors, protocols and member-level wiring need a `bynk` language server with bynk-lang/bynk#3654; an older server's map draws without them.
+- The layout comes from ELK (`elkjs`), bundled into the architecture page only.
+
 ### Added
 
 - The sequence diagram draws what a `bynk` language server with model-diagrams slice 3 (bynk-lang/bynk#3651) now reports. With an older server the diagram is as before.

@@ -24,7 +24,7 @@ const common = { absWorkingDir: root, bundle: true, minify: !watch, sourcemap: w
 // instead of bundling their own. Their `import mermaid from "mermaid"` resolves
 // to the global that script sets; the host loads it first (`vendorScripts` in
 // `livePanel.ts`).
-const SHARED_MERMAID = new Set(["architecture", "state", "model-diff"]);
+const SHARED_MERMAID = new Set(["state", "model-diff"]);
 const sharedMermaid = {
   name: "shared-mermaid",
   setup(build) {

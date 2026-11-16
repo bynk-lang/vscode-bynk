@@ -38,6 +38,34 @@ export const DIAGRAM_CSS = `
 .bynk-diagram .bynk-ref-hit { fill: transparent; }
 .bynk-diagram .bynk-frag--break .bynk-frag-box { stroke-dasharray: 6 3; }
 
+.bynk-diagram .bynk-snode-box {
+  fill: var(--vscode-editor-inactiveSelectionBackground);
+  stroke: var(--vscode-panel-border, var(--vscode-editor-foreground));
+}
+.bynk-diagram .bynk-snode--open > .bynk-snode-box { fill: var(--vscode-editor-background); }
+.bynk-diagram .bynk-snode--service > .bynk-snode-box,
+.bynk-diagram .bynk-snode--agent > .bynk-snode-box,
+.bynk-diagram .bynk-snode--capability > .bynk-snode-box,
+.bynk-diagram .bynk-snode--provider > .bynk-snode-box { fill: var(--vscode-textCodeBlock-background, var(--vscode-editor-background)); }
+.bynk-diagram .bynk-snode--adapter > .bynk-snode-box { stroke-dasharray: 5 3; }
+.bynk-diagram .bynk-snode--platform > .bynk-snode-box { fill: none; stroke-dasharray: 3 3; }
+.bynk-diagram .bynk-snode--platform text { fill: var(--vscode-descriptionForeground); }
+.bynk-diagram .bynk-snode--event > .bynk-snode-box { stroke: var(--vscode-charts-purple, var(--vscode-editor-foreground)); }
+.bynk-diagram .bynk-component-icon { fill: none; stroke: var(--vscode-descriptionForeground); }
+.bynk-diagram .bynk-detail { font-size: 11px; fill: var(--vscode-descriptionForeground); }
+.bynk-diagram .bynk-boundary { fill: none; stroke: var(--vscode-descriptionForeground); stroke-dasharray: 8 4; }
+.bynk-diagram .bynk-boundary-label { font-size: 11px; font-style: italic; fill: var(--vscode-descriptionForeground); }
+.bynk-diagram .bynk-sedge-line { fill: none; stroke: var(--vscode-editor-foreground); stroke-width: 1.2; }
+.bynk-diagram .bynk-sedge--consumes .bynk-sedge-line,
+.bynk-diagram .bynk-sedge--wires .bynk-sedge-line { stroke-dasharray: 6 4; }
+.bynk-diagram .bynk-sedge--wires .bynk-sedge-line { stroke: var(--vscode-descriptionForeground); }
+.bynk-diagram .bynk-sedge--emits .bynk-sedge-line,
+.bynk-diagram .bynk-sedge--subscribes .bynk-sedge-line { stroke: var(--vscode-charts-purple, var(--vscode-editor-foreground)); stroke-dasharray: 2 3; }
+.bynk-diagram .bynk-sedge-label { font-size: 11px; }
+.bynk-diagram .bynk-sedge-label-box { fill: var(--vscode-editor-background); opacity: 0.85; }
+.bynk-diagram .bynk-cycle > .bynk-snode-box,
+.bynk-diagram .bynk-cycle .bynk-sedge-line { stroke: var(--vscode-editorWarning-foreground, #cca700); stroke-width: 2; }
+
 .bynk-diagram .bynk-note-box {
   fill: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
   stroke: var(--vscode-panel-border, var(--vscode-editor-foreground));
@@ -74,12 +102,16 @@ const INTERACTIVE_CSS = `
 .bynk-diagram .bynk-fold:hover .bynk-fold-glyph { fill: var(--vscode-focusBorder); }
 .bynk-diagram .bynk-fold { cursor: pointer; }
 .bynk-diagram [data-bynk-focusable] { cursor: pointer; outline: none; }
+.bynk-diagram [data-bynk-focusable]:hover > .bynk-snode-box,
+.bynk-diagram [data-bynk-focusable]:hover .bynk-sedge-line,
 .bynk-diagram [data-bynk-focusable]:hover .bynk-msg-line,
 .bynk-diagram [data-bynk-focusable]:hover .bynk-head-box,
 .bynk-diagram [data-bynk-focusable]:hover .bynk-note-box,
 .bynk-diagram [data-bynk-focusable]:hover .bynk-frag-tab-box { stroke: var(--vscode-focusBorder); }
 .bynk-diagram [data-bynk-focusable]:hover > text,
 .bynk-diagram text[data-bynk-focusable]:hover { fill: var(--vscode-textLink-foreground); }
+.bynk-diagram [data-bynk-focusable]:focus-visible > .bynk-snode-box,
+.bynk-diagram [data-bynk-focusable]:focus-visible .bynk-sedge-line,
 .bynk-diagram [data-bynk-focusable]:focus-visible .bynk-msg-line,
 .bynk-diagram [data-bynk-focusable]:focus-visible .bynk-head-box,
 .bynk-diagram [data-bynk-focusable]:focus-visible .bynk-note-box,

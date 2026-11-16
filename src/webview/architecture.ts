@@ -1,167 +1,152 @@
 // @webview-entry
-// #851: the architecture-map webview's own bundle entry (`out/architecture.js`,
-// an esbuild target alongside `out/webview.js` (#846) and `out/docview.js`
-// (#847) — see scripts/build.mjs). Runs inside the webview's
-// browser context, never the extension host.
+// #851: the architecture-map webview's own bundle entry (`out/architecture.js`).
+// Runs inside the webview's browser context, never the extension host.
 //
-// Reads the `ArchPayload` the extension host embeds as
-// `window.__BYNK_ARCH_MODEL__`, renders it via vendored Mermaid `flowchart`
-// (no CDN — the page's CSP forbids one), and wires two click behaviours,
-// looked up by the Mermaid node id `architecture-gen.ts` assigned (NOT a
-// DOM-order zip — see that module's doc for why a flowchart doesn't need
-// the sequence view's `participant-map.ts`-style workaround):
-//   - a context/adapter box or a declaration-level member -> `reveal`,
-//     posted to the extension host exactly like the sequence/doc views;
-//   - the small +/− toggle next to each box -> DECISION A's expand-on-demand,
-//     handled entirely client-side (flips membership in `expanded`, re-renders).
+// Model-diagrams slice 4: the map is drawn by the diagram engine, not
+// Mermaid. `diagram/structure/architecture.ts` turns the `ArchModel` the host
+// embeds as `window.__BYNK_ARCH_MODEL__` into a system view: the project's
+// contexts and adapters as UML components inside a system boundary, their
+// `consumes` dependencies (cycles marked), the actors that call in, the
+// platform units capabilities are bound from, and events. ELK lays it out
+// (`structure/layout.ts`); `structure/draw.ts` draws it.
+//
+// - A unit opens in place (its fold toggle, or Space on it) to show its
+//   services, agents, capabilities and providers inside it (ADR 0302's
+//   context-level default). Which units are open is kept across live updates.
+// - Every element links to its source by identity, through the shared
+//   interaction layer; pointing at one marks its source in the editor.
+// - The shared viewport and toolbar: zoom, pan, minimap, Copy as Mermaid
+//   (`architecture-gen.ts`, now an exporter), Save as SVG or PNG, and a toggle
+//   for events.
 
-import mermaid from "mermaid";
-
-import { type ClickTarget, toMermaidArch } from "./architecture-gen";
-import { toClassDefColor } from "./classdef-color";
-import type { ArchPayload, ArchRevealMessage } from "./architectureTypes";
-import { startLiveView, type VsCodeApi } from "./live";
-import { watchTheme } from "./theme";
+import { focusedRef, initTabOrder, restoreFocus, wireInteraction } from "../diagram/interact";
+import { canvasMeasurer, type TextMeasurer } from "../diagram/measure";
+import { toArchitectureDiagram } from "../diagram/structure/architecture";
+import { drawStructure } from "../diagram/structure/draw";
+import type { StructDiagram, StructNode } from "../diagram/structure/ir";
+import { layoutStructure } from "../diagram/structure/layout";
+import { ensureDiagramStyles } from "../diagram/style";
+import { buildToolbar, toolbarButton } from "../diagram/toolbar";
+import type { Drawing } from "../diagram/viewport";
+import { DiagramViewport } from "../diagram/viewport";
+import { toMermaidArch } from "./architecture-gen";
+import type { ArchLoc, ArchPayload, ArchRevealMessage } from "./architectureTypes";
+import { type LiveView, startLiveView, type VsCodeApi } from "./live";
 
 declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscodeApi = acquireVsCodeApi();
 
-function reveal(uri: string, range: ArchRevealMessage["range"]): void {
-  const message: ArchRevealMessage = { type: "reveal", uri, range };
+function post(message: unknown): void {
   vscodeApi.postMessage(message);
 }
 
-/** Same convention as `main.ts`'s `vscodeCssVar` — read the live VS Code
- *  theme's palette off `--vscode-*` custom properties, snapshotted once per
- *  render rather than left as raw `var(...)` in the Mermaid `classDef` text
- *  (Mermaid bakes `classDef` into a `<style>` block it generates itself, and
- *  snapshotting here — not depending on CSS cascade into that block — is the
- *  same posture `mermaidThemeVariables()` already established). */
-function vscodeCssVar(name: string, fallback: string): string {
-  const value = getComputedStyle(document.body).getPropertyValue(name).trim();
-  return value || fallback;
+function fontFamily(): string {
+  const value = getComputedStyle(document.body).getPropertyValue("--vscode-font-family").trim();
+  return value || "sans-serif";
 }
 
-/** `vscodeCssVar`, but safe inside a `classDef`: resolved through the browser
- *  to hex, because a theme's `rgba(38, 79, 120, 0.5)` has commas, and a
- *  `classDef` splits its properties on them (the parse error that blanked the
- *  map). */
-function classDefVar(name: string, fallback: string): string {
-  const probe = document.createElement("span");
-  probe.style.color = vscodeCssVar(name, fallback);
-  document.body.appendChild(probe);
-  const resolved = getComputedStyle(probe).color;
-  probe.remove();
-  return toClassDefColor(resolved) ?? toClassDefColor(fallback) ?? fallback;
+let measurer: { font: string; measure: TextMeasurer } | undefined;
+function measurerFor(font: string): TextMeasurer {
+  if (measurer?.font !== font) measurer = { font, measure: canvasMeasurer(font) };
+  return measurer.measure;
 }
 
-function mermaidThemeVariables(): Record<string, string> {
-  const editorBg = vscodeCssVar("--vscode-editor-background", "#1e1e1e");
-  const editorFg = vscodeCssVar("--vscode-editor-foreground", "#cccccc");
-  const panelBorder = vscodeCssVar("--vscode-panel-border", editorFg);
-  const selectionBg = vscodeCssVar("--vscode-editor-inactiveSelectionBackground", editorBg);
+// -- Page state, kept across live updates (not across a reload). --
 
-  return {
-    background: editorBg,
-    primaryColor: selectionBg,
-    primaryTextColor: editorFg,
-    primaryBorderColor: panelBorder,
-    lineColor: editorFg,
-    textColor: editorFg,
-    edgeLabelBackground: editorBg,
-    clusterBkg: editorBg,
-    clusterBorder: panelBorder,
-  };
-}
-
-function classDefBlock(): string {
-  const editorBg = classDefVar("--vscode-editor-background", "#1e1e1e");
-  const editorFg = classDefVar("--vscode-editor-foreground", "#cccccc");
-  const panelBorder = classDefVar("--vscode-panel-border", editorFg);
-  const selectionBg = classDefVar("--vscode-editor-inactiveSelectionBackground", editorBg);
-  const codeBg = classDefVar("--vscode-textCodeBlock-background", editorBg);
-  const descFg = classDefVar("--vscode-descriptionForeground", editorFg);
-  return [
-    `classDef contextNode fill:${selectionBg},stroke:${panelBorder},color:${editorFg};`,
-    `classDef adapterNode fill:${codeBg},stroke:${panelBorder},color:${editorFg},stroke-dasharray: 4 2;`,
-    `classDef memberNode fill:${editorBg},stroke:${panelBorder},color:${descFg};`,
-    `classDef toggleNode fill:transparent,stroke:${descFg},color:${descFg};`,
-  ].join("\n");
-}
-
-function wireClicks(root: ParentNode, clickTargets: Map<string, ClickTarget>, onToggle: (name: string) => void): void {
-  for (const [mermaidId, target] of clickTargets) {
-    // Mermaid 12.2 prefixes node ids with the SVG's id (`<svg id>-flowchart-…`),
-    // so match anywhere, not at the start.
-    const el = root.querySelector(`[id*="flowchart-${mermaidId}-"]`);
-    if (!el) continue;
-    (el as HTMLElement).style.cursor = "pointer";
-    el.addEventListener("click", () => {
-      if (target.kind === "reveal") reveal(target.loc.uri, target.loc.range);
-      else onToggle(target.name);
-    });
-  }
-}
-
-// `mermaid.render` looks up its temp container by this id and, on a second
-// call with the *same* id, finds the previous render's SVG already sitting in
-// the live DOM (`root.innerHTML = svg` below put it there) instead of a fresh
-// container — DECISION A's expand/collapse toggle re-renders in place, so a
-// fixed id broke on exactly the second render (the first click). The
-// sequence/documentation views never hit this: each of their invocations
-// reassigns `panel.webview.html`, giving Mermaid a fresh document every time.
-let renderSeq = 0;
-
-async function render(root: HTMLElement, payload: ArchPayload, expanded: Set<string>): Promise<void> {
-  const { text, clickTargets } = toMermaidArch(payload.model, expanded);
-  const fullText = `${text}\n${classDefBlock()}`;
-  let svg: string;
-  try {
-    ({ svg } = await mermaid.render(`bynk-architecture-map-${renderSeq++}`, fullText));
-  } catch (err) {
-    root.textContent = `Failed to render diagram: ${String(err)}`;
-    return;
-  }
-  root.innerHTML = svg;
-  wireClicks(root, clickTargets, (name) => {
-    if (expanded.has(name)) expanded.delete(name);
-    else expanded.add(name);
-    void render(root, payload, expanded);
-  });
-}
-
-// #2093: which boxes the reader expanded, kept across live updates so a
-// refresh redraws the map they were looking at (names that no longer exist
-// simply match nothing).
+let live: LiveView | undefined;
+let payload: ArchPayload | null = null;
+let drawing: Drawing | undefined;
+/** Which units the reader opened (names that no longer exist match nothing). */
 const expanded = new Set<string>();
-let mermaidReady = false;
+let showEvents = true;
+/** Sources by IR id for the current drawing, refilled on each render. */
+const locs = new Map<string, ArchLoc>();
 
-async function renderPayload(root: HTMLElement, payload: ArchPayload | null): Promise<void> {
-  if (!payload || payload.model.nodes.length === 0) {
+const viewport = new DiagramViewport(document);
+const eventsToggle = toolbarButton("Events", "Show or hide events and who emits and subscribes to them", "bynk-toggle-events", () => {
+  showEvents = !showEvents;
+  live?.rerender();
+});
+const actionsBar = buildToolbar({
+  viewport,
+  post,
+  mermaid: () => (payload ? toMermaidArch(payload.model, expanded).text : null),
+  drawing: () => (drawing ? { drawing, name: "architecture" } : null),
+  fontFamily,
+  extra: [eventsToggle],
+});
+let wired = false;
+
+function reveal(loc: ArchLoc): void {
+  const message: ArchRevealMessage = { type: "reveal", uri: loc.uri, range: loc.range };
+  post(message);
+}
+
+function toggleFold(id: string): void {
+  if (!id.startsWith("u:")) return;
+  const name = id.slice(2);
+  if (expanded.has(name)) expanded.delete(name);
+  else expanded.add(name);
+  live?.rerender();
+}
+
+/** Every IR id with a source, for the interaction layer. */
+function locsOf(diagram: StructDiagram): Map<string, ArchLoc> {
+  const out = new Map<string, ArchLoc>();
+  const walk = (ns: StructNode[]): void => {
+    for (const n of ns) {
+      if (n.ref.loc) out.set(n.ref.id, n.ref.loc);
+      walk(n.children);
+    }
+  };
+  walk(diagram.nodes);
+  for (const e of diagram.edges) if (e.ref.loc) out.set(e.ref.id, e.ref.loc);
+  return out;
+}
+
+async function render(root: HTMLElement, next: ArchPayload | null): Promise<void> {
+  payload = next;
+  if (!next || next.model.nodes.length === 0) {
+    drawing = undefined;
     root.textContent = "No contexts found in this project.";
     return;
   }
+  ensureDiagramStyles(document);
+  const hasEvents = (next.model.events ?? []).some((e) => e.emitters.length + e.subscribers.length > 0);
+  eventsToggle.hidden = !hasEvents;
+  eventsToggle.setAttribute("aria-pressed", String(showEvents));
 
-  if (!mermaidReady) {
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      theme: "base",
-      themeVariables: mermaidThemeVariables(),
-      flowchart: { htmlLabels: false },
-    });
-    mermaidReady = true;
+  const keep = focusedRef(viewport.element);
+  const font = fontFamily();
+  let diagram: StructDiagram;
+  try {
+    diagram = toArchitectureDiagram(next.model, { expanded, events: showEvents });
+    const scene = await layoutStructure(diagram, measurerFor(font));
+    drawing = drawStructure(scene, { title: "Architecture map", fontFamily: font });
+  } catch (err) {
+    drawing = undefined;
+    root.textContent = `Failed to render diagram: ${String(err)}`;
+    return;
   }
+  locs.clear();
+  for (const [id, loc] of locsOf(diagram)) locs.set(id, loc);
 
-  await render(root, payload, expanded);
+  if (actionsBar.parentElement !== root || viewport.element.parentElement !== root) {
+    root.replaceChildren(actionsBar, viewport.element);
+    document.body.appendChild(viewport.minimapElement);
+  }
+  if (!wired) {
+    wired = true;
+    wireInteraction<ArchLoc>(viewport.element, locs, {
+      reveal,
+      toggleFold,
+      hover: (loc) => post({ type: "highlight", uri: loc?.uri ?? "", range: loc?.range ?? null }),
+    });
+  }
+  viewport.show(drawing);
+  initTabOrder(viewport.element);
+  restoreFocus(viewport.element, keep);
 }
 
-const live = startLiveView<ArchPayload>(vscodeApi, "__BYNK_ARCH_MODEL__", renderPayload);
-
-// Mermaid snapshots the theme's colours into its configuration and SVG, so a
-// theme switch re-initialises it and redraws.
-watchTheme(() => {
-  mermaidReady = false;
-  live?.rerender();
-});
+live = startLiveView<ArchPayload>(vscodeApi, "__BYNK_ARCH_MODEL__", render);
