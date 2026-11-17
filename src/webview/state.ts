@@ -310,6 +310,7 @@ function liveSection(root: HTMLElement, payload: AgentStatePayload, machine: Sta
   if (selectedRef === undefined || !data.instances.some((i) => i.ref === selectedRef)) {
     selectedRef = undefined;
     instance = undefined;
+    instanceFailure = undefined;
     selectedStep = undefined;
   }
   const row = el("div", undefined, "row");
@@ -335,7 +336,10 @@ function liveSection(root: HTMLElement, payload: AgentStatePayload, machine: Sta
   });
   label.append(select);
   const refresh = el("button", "Refresh");
-  refresh.addEventListener("click", () => vscodeApi.postMessage({ type: "refresh" }));
+  refresh.addEventListener("click", () => {
+    vscodeApi.postMessage({ type: "refresh" });
+    requestInstance(); // the listing may be unchanged while the instance moved on
+  });
   row.append(label, refresh);
   box.append(row);
 

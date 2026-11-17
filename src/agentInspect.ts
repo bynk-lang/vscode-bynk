@@ -30,13 +30,28 @@ import type { AgentStateModel, InstanceMessage, LiveInstances } from "./webview/
  *  instance the host listed and never supplies a key of its own. */
 const listed = new Map<string, Map<string, AgentInstanceRef>>();
 
+/** How long one `bynk dev inspect` may run. A Worker that is slow or not
+ *  answering must not hold back the view: the listing is fetched before the
+ *  model is shown. The CLI's own per-request limit is 15 s; this is shorter. */
+export const INSPECT_TIMEOUT_MS = 8000;
+
 async function run(args: string[], root: vscode.Uri): Promise<{ ok: true; stdout: string } | { ok: false; reason: string }> {
+  const source = new vscode.CancellationTokenSource();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    source.cancel(); // `runBynk` stops the whole process tree
+  }, INSPECT_TIMEOUT_MS);
   try {
-    const { code, stdout, stderr } = await runBynk(args, root.fsPath);
+    const { code, stdout, stderr } = await runBynk(args, root.fsPath, source.token);
+    if (timedOut) return { ok: false, reason: `no answer from the dev server within ${INSPECT_TIMEOUT_MS / 1000} s` };
     return code === 0 ? { ok: true, stdout } : { ok: false, reason: inspectFailure(stderr) };
   } catch (e) {
     if (e instanceof BynkNotFoundError) return { ok: false, reason: "the `bynk` command was not found" };
     return { ok: false, reason: "bynk dev inspect could not run" };
+  } finally {
+    clearTimeout(timer);
+    source.dispose();
   }
 }
 

@@ -214,9 +214,10 @@ export function keyText(key: unknown): string {
   return typeof key === "string" ? key : renderWireValue(key);
 }
 
-/** An instance's identity within a listing: its class and wire key. */
-export function instanceId(ref: { class: string; key: unknown }): string {
-  return `${ref.class}\u0000${JSON.stringify(ref.key)}`;
+/** An instance's identity within a listing: its context, class and wire key
+ *  (two contexts can each have a `Cart` keyed `u1`). */
+export function instanceId(ref: { context?: string; class: string; key: unknown }): string {
+  return `${ref.context ?? ""}\u0000${ref.class}\u0000${JSON.stringify(ref.key)}`;
 }
 
 const MAX_DEPTH = 6;

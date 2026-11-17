@@ -211,7 +211,14 @@ describe("toInstanceView and liveInstances", () => {
     assert.ok(l);
     const carts = liveInstances(l, "Cart");
     assert.deepStrictEqual(carts.map((c) => c.key), ["7", "u1"]);
-    assert.ok(carts.every((c) => c.ref.startsWith("Cart")));
+    assert.ok(carts.every((c) => c.ref.includes("\u0000Cart\u0000")));
+    // Two contexts can each have a `Cart` keyed `u1`: they must not share a ref.
+    const twin = parseAgentListing(
+      '{"agents":[{"context":"shop","class":"Cart","key":"u1","id":"a"},{"context":"billing","class":"Cart","key":"u1","id":"b"}],"errors":[]}',
+    );
+    assert.ok(twin);
+    const refs = liveInstances(twin, "Cart").map((c) => c.ref);
+    assert.strictEqual(new Set(refs).size, 2);
     assert.deepStrictEqual(liveInstances(l, "Nothing"), []);
   });
 });

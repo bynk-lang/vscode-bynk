@@ -233,8 +233,22 @@ describe("agent state view: live instances (#145)", () => {
   });
 
   it("reads only an instance it listed", async () => {
-    const msg = await vscode.commands.executeCommand("bynk._readLiveInstance", "Order\u0000\"nobody\"");
+    const msg = await vscode.commands.executeCommand("bynk._readLiveInstance", "orders\u0000Order\u0000\"nobody\"");
     assert.strictEqual(msg, undefined);
+  });
+
+  it("shows the view without instances, saying so, when the dev server does not answer", async function () {
+    this.timeout(60_000);
+    process.env.BYNK_FAKE_INSPECT = "hang";
+    try {
+      await show();
+      const l = await waitFor(live, (v) => (v?.problems.length ?? 0) > 0, "the timeout to be reported", 30_000);
+      assert.deepStrictEqual(l?.instances, []);
+      assert.ok(l?.problems[0].includes("no answer"), l?.problems[0]);
+      assert.ok((await state()).hasPayload, "the model itself is shown");
+    } finally {
+      delete process.env.BYNK_FAKE_INSPECT;
+    }
   });
 
   it("says why when the inspection fails, and stops offering instances when the server stops", async function () {
