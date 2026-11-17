@@ -14,7 +14,8 @@
 //     it, and the contract diff's reading of it against the locks (a changed
 //     event or agent schema, and the deployed service contracts that changed,
 //     each with its environment). Whether a type sits in an *unchanged* lock
-//     entry is not in any request, so that is not claimed;
+//     entry is not in any request (bynk-lang/bynk#3688 proposes one), so that
+//     is not claimed;
 //   - the generated client: the carrying `from http` routes, when `bynk.toml`
 //     has `[build.client]`, narrowed to the services it names;
 //   - tests: the cases whose source holds a reference to it.

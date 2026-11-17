@@ -388,7 +388,8 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   (`[build.client]`) that carry it; and the **tests** that mention it, by case.
   References are by name, as the language server resolves them. Whether a type
   sits in an *unchanged* lock entry is not in any language-server request, so the
-  view says only what the contract diff reports. It builds on the Query view's
+  view says only what the contract diff reports (bynk-lang/bynk#3688 proposes a
+  request that would list them). It builds on the Query view's
   models and needs a language server from bynk v0.625.3 (v0.634.4 for the calls
   between handlers); the view says what an older one could not tell it.
 - **Live model views** — the sequence diagram, documentation page, architecture
