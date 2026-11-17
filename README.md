@@ -286,7 +286,7 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   in `bynk.toml` is refused, and the target's declared `secrets` are hidden from
   the results like every `{{env.…}}` value.
 - **Notebooks** — **Bynk: New Notebook** creates a `.bynknb` notebook of
-  Markdown and Bynk cells, on desktop. Running a code cell evaluates it with
+  Markdown and Bynk cells. On vscode.dev a `.bynknb` opens and edits but has no kernel to run it (that needs the `bynk` CLI); on desktop, running a code cell evaluates it with
   `bynk eval`, which compiles and runs it as a one-case suite for a unit of your
   project, under the test runtime, and shows the value of its last expression
   with its type, in Bynk's terms (`Ok(25)`, `Some(3)`, `Err({ field: "Percent", … })`).
@@ -294,6 +294,10 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   an unstubbed capability or a timeout shows as the cell's error. Nothing is
   deployed and nothing reaches the network: a capability the cell calls needs a
   `stub` line in the cell, as in a suite.
+  - **Re-run effects are named.** A `let x <- …` from an earlier cell runs again in
+    every later cell, so a stub that counts calls can answer differently: the
+    output says "Re-ran `let x <- …` from cell N". A cell edited since it last ran
+    is left out, and the output says so.
   - **A cell runs only when you run it**, never on open, hover or save: it is
     your code, at the trust of `bynk test`. A notebook in an untrusted workspace
     won't run. A cell is stopped after `bynk.notebook.timeoutSeconds` (60).
