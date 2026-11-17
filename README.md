@@ -308,6 +308,21 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   opens its source; handler nodes have inline **Sequence Diagram** and
   **Wire Contract** actions, and unit nodes **Show Documentation**. The view
   refreshes on the same trigger as the live views below.
+- **Query view** — a **Query** view under the Bynk activity bar answers four
+  ready-made questions about the open project (the active file's, else the
+  workspace's), each a list that opens its source:
+  **Events** (who emits each event and who subscribes, and how it is delivered),
+  **Capabilities** (per context: what it declares, consumes and provides, the
+  handlers that use each through `given`, and the suites that `stub` it),
+  **Reachability** (the handlers from which a capability can be reached, through
+  `given` and the calls between handlers, across contexts; pick the capability
+  with the view's title button) and **Untested** (routes, handlers and agent
+  transitions no line of which ran in the last **Run with Coverage**: whole-run
+  line coverage, so it never says which test reached what). It needs a language
+  server from bynk v0.625.3 for events and capabilities, and v0.634.4 for the
+  calls Reachability follows; it says so when the server is older. For a single
+  function or handler, VS Code's own **Show Call Hierarchy** works on Bynk
+  and follows calls across contexts (bynk v0.626.1 and later).
 - **Live model views** — the sequence diagram, documentation page, architecture
   map, wire contract, agent state view and contract diff (see Commands) open
   beside the editor and stay current: they refresh when you save (or as you type,
