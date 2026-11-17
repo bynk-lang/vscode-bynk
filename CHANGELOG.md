@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+## [0.639.3] - 2026-11-17
+
+Built against `bynk` v0.639.1. Handler and refined-type cells in Bynk notebooks; coverage on the project sidebar.
+
 ### Added
 
 - **Handler cells in Bynk notebooks** (#191). A code cell that starts with `// @handler` calls a handler of its unit the way a unit-tier test case does (`stub` lines, then `let r <- api.POST("/todos", Todo { … }) by User(UserId.unsafe("bob"))`) and shows the response as the `HttpResult` variant and its payload, in Bynk's terms (`Created({ done: false, title: "a" })`, with the status), with the JSON as an alternate output. It is ordinary Bynk source, not a request form. **Bynk: Insert Handler Call…** picks a route of the cell's unit from the language server's wire contract and writes the typed call with placeholder arguments of the right types and the `by` clause for an actor the route admits. A cell runs in the unit's own unit-tier suite (`bynk eval --suite`) when it has one, so the suite's `stub`s, `fn`s and fixtures apply (the output says so, and that the suite's stub answers where it and the cell both stub an operation), and without one otherwise. When the call is the cell's last statement the extension reads the response by appending a `match`; a cell that ends in something of its own is shown as an expression is. `trace(Cap.op)` records are not shown: a snippet can read them (`trace(Cap.op).length()`) but not return them, since `bynk eval` has no wire shape for `HttpResult` or for the record type of a call (bynk v0.639.1; bynk-lang/bynk#3699, #3700).
