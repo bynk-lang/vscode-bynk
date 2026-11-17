@@ -151,6 +151,15 @@ Content-Type: application/json
 ### fine
 GET /ping
 X: {{create.body}}
+
+? status == 200
+? body == "pong"
+
+### also_fine
+PUT /items/{{create.body}}
+Content-Type: application/json
+
+{ "name": {{create.body}}, "qty": 1 }
 `,
     );
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
@@ -164,7 +173,9 @@ X: {{create.body}}
     assert.match(at(9)[0].message, /^`\? body\.nope`: `String` has no field `nope` \(`PUT \/items\/:id` answers 200\)/);
     assert.match(at(12)[0].message, /`\{\{create\.body\.nope\}\}`: `String` has no field `nope`/);
     assert.match(at(15)[0].message, /body\.qty: `\{\{create\.body\}\}` is String \(string\), but number is expected here/);
-    assert.deepStrictEqual(at(19), []);
+    // The correct ones, against the same real contract: a header capture, a `? body ==` the
+    // String response can hold, a path parameter and a body field that are Strings: nothing.
+    for (const l of [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]) assert.deepStrictEqual(at(l), [], `line ${l}`);
     // Every response-side diagnostic is a warning.
     assert.ok([9, 12, 15].every((l) => at(l).every((d) => d.severity === vscode.DiagnosticSeverity.Warning)), JSON.stringify(ds.map((d) => d.message)));
   });

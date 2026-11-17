@@ -37,6 +37,8 @@
     "src/doctorReport.ts",
     "src/approveReport.ts",
     "src/coverageModel.ts",
+    "src/modelCoverageCore.ts",
+    "src/webview/coverageMarks.ts",
     "src/testPlan.ts",
     "src/testStream.ts",
     "src/testTargets.ts",

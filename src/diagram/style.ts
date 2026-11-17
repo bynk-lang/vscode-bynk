@@ -93,6 +93,26 @@ export const DIAGRAM_CSS = `
 .bynk-diagram .bynk-diff-removed { opacity: 0.6; }
 .bynk-diagram .bynk-diff-removed > .bynk-snode-box,
 .bynk-diagram .bynk-diff-removed .bynk-sedge-line { stroke: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39); stroke-width: 2; stroke-dasharray: 4 3; }
+.bynk-cov-bar { margin: 0.4em 0; font-size: 0.95em; }
+.bynk-cov-bar .bynk-cov-count { color: var(--vscode-descriptionForeground); }
+.bynk-cov-bar p { margin: 0.2em 0; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
+.bynk-cov-bar p.bynk-cov-stale { color: var(--vscode-editorWarning-foreground, #cca700); }
+.bynk-cov-uncovered-entry { color: var(--vscode-editorWarning-foreground, #cca700); font-style: italic; }
+/* #144: test coverage. Untested is dashed and amber; tested is solid green;
+   partly tested is dotted green. The words are on the accessible names. */
+.bynk-diagram .bynk-cov-uncovered > .bynk-snode-box,
+.bynk-diagram .bynk-cov-uncovered .bynk-sedge-line,
+.bynk-diagram .bynk-cov-uncovered .bynk-msg-line { stroke: var(--vscode-editorWarning-foreground, #cca700); stroke-width: 2; stroke-dasharray: 5 3; }
+.bynk-diagram .bynk-cov-covered > .bynk-snode-box,
+.bynk-diagram .bynk-cov-covered .bynk-sedge-line,
+.bynk-diagram .bynk-cov-covered .bynk-msg-line { stroke: var(--vscode-testing-iconPassed, #73c991); stroke-width: 2; }
+.bynk-diagram .bynk-cov-partial > .bynk-snode-box,
+.bynk-diagram .bynk-cov-partial .bynk-sedge-line,
+.bynk-diagram .bynk-cov-partial .bynk-msg-line { stroke: var(--vscode-testing-iconPassed, #73c991); stroke-width: 2; stroke-dasharray: 2 3; }
+.bynk-diagram .bynk-cov-uncovered .bynk-label,
+.bynk-diagram .bynk-cov-uncovered .bynk-sedge-label,
+.bynk-diagram .bynk-guard.bynk-cov-uncovered { fill: var(--vscode-editorWarning-foreground, #cca700); font-style: italic; }
+.bynk-diagram .bynk-guard.bynk-cov-covered, .bynk-diagram .bynk-guard.bynk-cov-partial { fill: var(--vscode-testing-iconPassed, #73c991); }
 .bynk-diagram .bynk-cycle > .bynk-snode-box,
 .bynk-diagram .bynk-cycle .bynk-sedge-line { stroke: var(--vscode-editorWarning-foreground, #cca700); stroke-width: 2; }
 
