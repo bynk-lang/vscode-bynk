@@ -151,17 +151,12 @@ export type WcResponseOrigin =
   | { kind: "BoundaryImplicit"; why: string };
 
 /** #3632 (v0.633.9): what a response body is, the classification `bynk openapi`
- *  makes. */
+ *  makes. `ref` is the same ref as the response's `payload`. */
 export type WcResponseBody =
-  /** `T`, JSON-encoded: the same ref as `payload`. */
   | { kind: "Value"; ref: WcRef }
-  /** `{ "error": String }`. */
-  | { kind: "Message" }
-  /** No body; the target is in the `Location` header. */
+  | { kind: "Message" } // `{ "error": String }`
   | { kind: "Redirect"; header: string }
-  /** Author-owned bytes, no codec. */
   | { kind: "Raw" }
-  /** `text/event-stream`. */
   | { kind: "Stream" };
 
 export interface WcHttpResponse {
@@ -169,11 +164,10 @@ export interface WcHttpResponse {
   variant: string;
   origin: WcResponseOrigin;
   /** #3609 (v0.633.4): `T` for a value variant, `null` otherwise. Absent from
-   *  an older server. */
+   *  an older language server. */
   payload?: WcRef | null;
-  /** #3632 (v0.633.9): the response's body; `null` when there is none to
-   *  describe (a no-payload variant, a `()` value, a boundary-implicit
-   *  response). Absent from an older server. */
+  /** #3632 (v0.633.9): the body of every kind of response; `null` when there
+   *  is none to describe. Absent from an older language server. */
   body?: WcResponseBody | null;
 }
 
@@ -193,9 +187,9 @@ export interface WcModel {
   recursive: string[];
   /** Empty for a non-HTTP handler. */
   responses: WcHttpResponse[];
-  /** #3609 (v0.633.4): the `T` of an HTTP handler's `HttpResult[T]`, resolved
-   *  against `types` and `instantiations`; `null` for a non-HTTP handler and
-   *  for a raw or unit-payload return. Absent from an older server. */
+  /** #3609 (v0.633.4): the `T` of the handler's `HttpResult[T]`; `null` for a
+   *  non-HTTP handler and for a raw or unit-payload return. Absent from an
+   *  older language server. */
   success?: WcRef | null;
   noCrossContext: WcNoCrossContextReason | null;
 }

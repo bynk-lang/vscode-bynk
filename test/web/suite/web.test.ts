@@ -290,4 +290,19 @@ describe("Bynk web extension", () => {
     const labels = list.items.map((i) => (typeof i.label === "string" ? i.label : i.label.label));
     ok(labels.includes("now"), `completion offers Clock.now: ${JSON.stringify(labels.slice(0, 20))}`);
   });
+  it("opens a .bynknb as a notebook, but offers no way to run it (#151)", async () => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+    ok(root, "a workspace folder is open");
+    const uri = vscode.Uri.joinPath(root, "tour.bynknb");
+    await createFile(uri, JSON.stringify({ version: 1, cells: [{ kind: "markdown", source: ["# Hi"] }, { kind: "code", source: ["1 + 1"] }] }));
+    try {
+      const doc = await vscode.workspace.openNotebookDocument(uri);
+      ok(doc.notebookType === "bynk-notebook", `opened as ${doc.notebookType}`);
+      ok(doc.cellCount === 2 && doc.cellAt(1).document.getText() === "1 + 1", "both cells are read");
+      const commands = await vscode.commands.getCommands(true);
+      ok(!commands.includes("bynk.notebook.new"), "running needs the desktop CLI, so its commands are not here");
+    } finally {
+      await deleteFile(uri);
+    }
+  });
 });

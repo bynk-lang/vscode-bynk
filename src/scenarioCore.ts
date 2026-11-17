@@ -707,7 +707,7 @@ export interface RouteInfo {
   method: WcHttpMethod;
   /** As declared, `/items/:id`. */
   path: string;
-  model: Pick<WcModel, "envelope" | "types" | "instantiations">;
+  model: Pick<WcModel, "envelope" | "types" | "instantiations" | "success">;
   /** The service the handler is in, what a test case addresses. */
   service?: string;
   /** The statuses the handler can answer, from the contract. */
@@ -763,7 +763,14 @@ export function unitMatches(unit: string, named: string): boolean {
 
 /** The problems with a step as written, against its route's contract, and
  *  against the steps before it. `names` are the steps before this one. */
-export function validateStep(step: Step, resolved: Resolved | undefined, before: ReadonlySet<string>, all: ReadonlySet<string>): Problem[] {
+export function validateStep(
+  step: Step,
+  resolved: Resolved | undefined,
+  before: ReadonlySet<string>,
+  all: ReadonlySet<string>,
+  /** The earlier steps and the routes they resolved to, to check what a capture reads (#160). */
+  earlier: ReadonlyMap<string, EarlierStep> = new Map(),
+): Problem[] {
   const out: Problem[] = [];
   const add = (line: number, message: string, severity: Problem["severity"] = "error"): void => {
     out.push(problem(line, message, severity));
@@ -776,6 +783,9 @@ export function validateStep(step: Step, resolved: Resolved | undefined, before:
       if ("error" in p) add(line, p.error);
       else if (p.kind !== "env" && !before.has(p.step)) {
         add(line, all.has(p.step) ? `\`${p.step}\` runs after this step, so \`{{${ref.text}}}\` has nothing yet.` : `There is no earlier step named \`${p.step}\`.`);
+      } else if (p.kind === "body") {
+        const issue = captureIssue(p, earlier);
+        if (issue) add(line, `\`{{${ref.text}}}\`: ${issue}`, "warning");
       }
     }
   };
@@ -797,6 +807,8 @@ export function validateStep(step: Step, resolved: Resolved | undefined, before:
   }
   const { envelope, types, instantiations } = resolved.route.model;
   const params = envelope.kind === "Keyed" ? envelope.params : envelope.kind === "Bare" ? [{ name: envelope.param, shape: envelope.shape }] : [];
+  out.push(...checkResponseExpectations(step, resolved.route));
+  out.push(...checkPathCaptures(step, resolved.route, params, earlier));
   if (envelope.kind === "Raw") {
     if (!step.body) add(step.requestLine, `\`${step.method} ${resolved.route.path}\` takes a ${envelope.contentType} body.`);
     return out;
@@ -810,8 +822,15 @@ export function validateStep(step: Step, resolved: Resolved | undefined, before:
     add(step.requestLine, `\`${step.method} ${resolved.route.path}\` takes a JSON body.`);
     return out;
   }
-  // Unquoted captures stand for any value; mask them so the rest parses.
-  const masked = step.body.text.replace(/\{\{[^{}]*\}\}/g, (m, off: number, s: string) => (insideString(s, off) ? m : `"${WILDCARD}"`));
+  // Unquoted captures stand for any value; mask them so the rest parses. Each
+  // marker is numbered, so the type of what it reads can be checked against
+  // the field it lands in (#160).
+  const captures: { text: string; line: number }[] = [];
+  const masked = step.body.text.replace(/\{\{[^{}]*\}\}/g, (m, off: number, s: string) => {
+    if (insideString(s, off)) return m;
+    captures.push({ text: m.slice(2, -2).trim(), line: step.body!.line + s.slice(0, off).split("\n").length - 1 });
+    return `"${WILDCARD}${captures.length - 1}__"`;
+  });
   const parsed = parseJson(masked);
   if (!parsed) {
     const err = (() => {
@@ -825,7 +844,18 @@ export function validateStep(step: Step, resolved: Resolved | undefined, before:
     add(step.body.line, `The body isn't valid JSON: ${err}`);
     return out;
   }
-  for (const issue of validateValue(parsed.value, bodyParam.shape, { types, instantiations }, "body")) {
+  const env: Env = {
+    types,
+    instantiations,
+    capture: (n, expected, where) => {
+      const c = captures[n];
+      const p = c && parseRef(c.text);
+      if (!p || "error" in p || p.kind !== "body") return;
+      const warning = captureFit(p, expected, { types, instantiations }, where, earlier, c.text);
+      if (warning) add(c.line, warning, "warning");
+    },
+  };
+  for (const issue of validateValue(parsed.value, bodyParam.shape, env, "body")) {
     add(step.body.line, issue);
   }
   return out;
@@ -843,11 +873,18 @@ function insideString(src: string, offset: number): boolean {
   return inStr;
 }
 
-type Env = Pick<WcModel, "types" | "instantiations">;
+type Env = Pick<WcModel, "types" | "instantiations"> & {
+  /** Called where an unquoted capture (marker number `n`) stands for a value of `expected`. */
+  capture?: (n: number, expected: WcRef, where: string) => void;
+};
 
 /** What is wrong with `value` as a `ref` on the wire, each as `where: what`. */
 export function validateValue(value: unknown, ref: WcRef, env: Env, where: string, seen: ReadonlySet<string> = new Set()): string[] {
-  if (value === WILDCARD) return [];
+  if (typeof value === "string" && value.startsWith(WILDCARD)) {
+    const n = /^__bynk_capture__(\d+)__$/.exec(value);
+    if (n) env.capture?.(Number(n[1]), ref, where);
+    return [];
+  }
   const kind = (v: unknown): string => (v === null ? "null" : Array.isArray(v) ? "an array" : typeof v === "object" ? "an object" : `a ${typeof v}`);
   const json = (want: string, v: unknown): string[] => {
     const ok =
@@ -975,6 +1012,273 @@ function validateFields(
   const known = new Set(fields.map((f) => f.name));
   if (discriminant) known.add(discriminant);
   for (const k of Object.keys(obj)) if (!known.has(k)) out.push(`${where}: "${k}" isn't a field of ${typeName}.`);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// What a response carries (#160)
+//
+// Every diagnostic in this section is a warning: the contract says what a
+// handler declares, not what a running service answers, so an uncertain
+// reading must never show as a false error.
+
+/** An earlier step, and the route it resolved to (when the server could say). */
+export interface EarlierStep {
+  step: Step;
+  route?: RouteInfo;
+}
+
+/** The status a step expects, from its first `? status == N`. */
+export function expectedStatus(step: Pick<Step, "expects">): number | undefined {
+  const e = step.expects.find((x) => x.subject.kind === "status" && x.op === "==" && typeof x.value === "number");
+  return e ? (e.value as number) : undefined;
+}
+
+/** What a route's answer carries, for the checks below. */
+export type ResponseShape =
+  /** A value of this type, JSON-encoded. */
+  | { kind: "value"; ref: WcRef }
+  /** `{ "error": String }`. */
+  | { kind: "message" }
+  /** Raw, a stream, a redirect, nothing, or not known: not checked. */
+  | { kind: "skip" };
+
+const SKIP: ResponseShape = { kind: "skip" };
+
+/** The shape a route answers `status` with, or, with no status, its declared
+ *  success. The rule agreed on #160: every value variant carries the one `T`;
+ *  a message variant carries only `error`; raw, a redirect, no body and a
+ *  status the route does not name are skipped, and so is a status whose
+ *  answers differ in kind. The boundary's own rejections (`BoundaryImplicit`)
+ *  have no body described, so they never decide. */
+export function responseShape(route: Pick<RouteInfo, "model" | "responses">, status?: number): ResponseShape {
+  if (status === undefined) {
+    const ref = route.model.success;
+    return ref ? { kind: "value", ref } : SKIP;
+  }
+  const answers = (route.responses ?? []).filter((r) => r.status === status && r.origin.kind !== "BoundaryImplicit");
+  if (answers.length === 0) return SKIP;
+  // `body` is v0.633.9; `payload` (a value's `T`) is v0.633.4. An older server has neither.
+  const bodies = answers.map((a) => a.body ?? (a.payload ? ({ kind: "Value", ref: a.payload } as const) : null));
+  const first = bodies[0];
+  if (first?.kind === "Value" && bodies.every((b) => b?.kind === "Value")) return { kind: "value", ref: first.ref };
+  if (bodies.every((b) => b?.kind === "Message")) return { kind: "message" };
+  return SKIP;
+}
+
+const STRING_REF: WcRef = { kind: "Base", base: "String", json: "String", guards: [], expected: { kind: "Json", json: "String" } };
+
+type Fields = readonly { name: string; shape: WcRef }[];
+
+/** How a ref looks on the wire, as far as a path is concerned. */
+type Look =
+  | { kind: "record"; fields: Fields }
+  | { kind: "sum"; discriminant: string; fields: Fields }
+  | { kind: "list"; elem: WcRef }
+  | { kind: "map" }
+  | { kind: "option"; inner: WcRef }
+  | { kind: "result"; ok: WcRef; err: WcRef }
+  | { kind: "scalar"; name: string; json: string; base: string; integral: boolean }
+  | { kind: "unknown" };
+
+type TypeEnv = Pick<WcModel, "types" | "instantiations">;
+
+function look(ref: WcRef, env: TypeEnv): Look {
+  switch (ref.kind) {
+    case "Base":
+      return { kind: "scalar", name: ref.base, json: ref.json, base: ref.base, integral: ref.guards.includes("Integral") };
+    case "Bytes":
+      return { kind: "scalar", name: "Bytes", json: "String", base: "Bytes", integral: false };
+    case "Named": {
+      const t = env.types.find((x) => x.name === ref.name);
+      if (!t) return { kind: "unknown" };
+      const b = t.body;
+      if (b.kind === "Scalar") return { kind: "scalar", name: ref.name, json: b.json, base: b.base, integral: b.baseGuards.includes("Integral") };
+      if (b.kind === "Record") return { kind: "record", fields: b.fields };
+      return { kind: "sum", discriminant: b.wireDiscriminant, fields: b.variants.flatMap((v) => v.payload) };
+    }
+    case "Inst": {
+      const inst = env.instantiations.find((i) => i.key === ref.key);
+      // A generic record or sum is left alone: its fields are in terms of
+      // type parameters this walk does not substitute.
+      if (inst?.kind === "ListInst") return { kind: "list", elem: inst.elem };
+      if (inst?.kind === "MapInst") return { kind: "map" };
+      if (inst?.kind === "OptionInst") return { kind: "option", inner: inst.inner };
+      if (inst?.kind === "ResultInst") return { kind: "result", ok: inst.ok, err: inst.err };
+      return { kind: "unknown" };
+    }
+    default:
+      return { kind: "unknown" };
+  }
+}
+
+/** The JSON kind a shape is on the wire, when it can be told. */
+function jsonKind(l: Look): string | undefined {
+  switch (l.kind) {
+    case "scalar":
+      return l.json;
+    case "record":
+    case "sum":
+    case "option":
+    case "result":
+      return "Object";
+    case "list":
+    case "map":
+      return "Array";
+    default:
+      return undefined;
+  }
+}
+
+function describeRef(ref: WcRef, l: Look): string {
+  if (ref.kind === "Named") return `\`${ref.name}\``;
+  if (l.kind === "scalar") return `\`${l.name}\``;
+  return l.kind === "list" ? "a list" : l.kind === "map" ? "a map" : l.kind === "option" ? "an Option" : l.kind === "result" ? "a Result" : "that value";
+}
+
+/** Walk `path` down `ref`. `ref` is what the path ends on, when that is
+ *  known; `issue` says where it names something that isn't there; neither
+ *  means the path leaves what the contract describes. */
+export function walkPath(ref: WcRef, path: readonly PathSeg[], env: TypeEnv): { ref?: WcRef; issue?: string; plain?: boolean } {
+  let cur = ref;
+  let plain = true;
+  for (const seg of path) {
+    const l = look(cur, env);
+    if (l.kind === "unknown") return {};
+    // Through a sum's variants, an Option, a Result or a list, a suite has no direct spelling.
+    if (l.kind !== "record") plain = false;
+    const noField = { issue: `${describeRef(cur, l)} has no field \`${String(seg)}\`` };
+    if (typeof seg === "number") {
+      if (l.kind === "map") return {};
+      if (l.kind !== "list") return { issue: `${describeRef(cur, l)} is not a list, so \`[${seg}]\` names nothing` };
+      cur = l.elem;
+      continue;
+    }
+    switch (l.kind) {
+      case "record":
+      case "sum": {
+        const f = l.fields.find((x) => x.name === seg);
+        if (f) cur = f.shape;
+        else if (l.kind === "sum" && seg === l.discriminant) cur = STRING_REF;
+        else return noField;
+        break;
+      }
+      // An Option is `{ kind: "Some", value }` or `{ kind: "None" }`; a Result, `Ok(value)` or `Err(error)`.
+      case "option":
+        if (seg === "value") cur = l.inner;
+        else if (seg === "kind") cur = STRING_REF;
+        else return noField;
+        break;
+      case "result":
+        if (seg === "value") cur = l.ok;
+        else if (seg === "error") cur = l.err;
+        else if (seg === "kind") cur = STRING_REF;
+        else return noField;
+        break;
+      default:
+        return noField;
+    }
+  }
+  return { ref: cur, plain };
+}
+
+/** What `path` finds in what a route answers `status` with. `plain` is true
+ *  when every step was a field of a record, which a suite can read directly. */
+export function checkResponsePath(route: Pick<RouteInfo, "model" | "responses">, status: number | undefined, path: readonly PathSeg[]): { ref?: WcRef; issue?: string; plain?: boolean } {
+  const shape = responseShape(route, status);
+  if (shape.kind === "skip") return {};
+  if (shape.kind === "message") {
+    if (path.length === 0) return {};
+    if (path[0] !== "error") return { issue: `an error answer carries only \`error\`, not \`${String(path[0])}\`` };
+    return path.length === 1 ? { ref: STRING_REF, plain: true } : { issue: "`error` is a String, which has no members" };
+  }
+  return walkPath(shape.ref, path, route.model);
+}
+
+/** What a field is, for spelling an expectation about it in a suite (#160):
+ *  a String can be searched with `contains`; an Option may be absent; the rest
+ *  are always there when the answer has them. `undefined` when not known. */
+export function fieldKind(ref: WcRef, env: TypeEnv): "string" | "option" | "required" | undefined {
+  const l = look(ref, env);
+  if (l.kind === "unknown") return undefined;
+  if (l.kind === "option") return "option";
+  return l.kind === "scalar" && l.json === "String" ? "string" : "required";
+}
+
+function answerOf(route: Pick<RouteInfo, "method" | "path">, status: number | undefined): string {
+  return `\`${route.method} ${route.path}\` answers ${status === undefined ? "its declared success" : String(status)}`;
+}
+
+/** Why a `{{step.body.path}}` names nothing in what `step` answers. */
+function captureIssue(p: { step: string; path: PathSeg[] }, earlier: ReadonlyMap<string, EarlierStep>): string | undefined {
+  const e = earlier.get(p.step);
+  if (!e?.route) return undefined;
+  const status = expectedStatus(e.step);
+  const r = checkResponsePath(e.route, status, p.path);
+  return r.issue ? `${r.issue} (${answerOf(e.route, status)}).` : undefined;
+}
+
+/** Whether a capture's value can stand where `expected` is wanted: its JSON
+ *  kind must match, and a Float can't fill an integer. Anything not known is
+ *  left alone. The message is a warning. */
+function captureFit(
+  p: { step: string; path: PathSeg[] },
+  expected: WcRef,
+  env: TypeEnv,
+  where: string,
+  earlier: ReadonlyMap<string, EarlierStep>,
+  text: string,
+): string | undefined {
+  const e = earlier.get(p.step);
+  if (!e?.route) return undefined;
+  const got = checkResponsePath(e.route, expectedStatus(e.step), p.path).ref;
+  if (!got) return undefined;
+  // `got` is a ref in the earlier route's model; `expected` is in this one's.
+  const a = look(got, e.route.model);
+  const b = look(expected, env);
+  const ka = jsonKind(a);
+  const kb = jsonKind(b);
+  const name = a.kind === "scalar" ? a.name : (ka ?? "a value").toLowerCase();
+  if (ka && kb && ka !== kb) return `${where}: \`{{${text}}}\` is ${name} (${ka.toLowerCase()}), but ${kb.toLowerCase()} is expected here.`;
+  if (a.kind === "scalar" && b.kind === "scalar" && a.base === "Float" && b.integral) {
+    return `${where}: \`{{${text}}}\` is a Float, but an integer is expected here.`;
+  }
+  return undefined;
+}
+
+/** A step's own `? body…` expectations, against what its route answers. */
+function checkResponseExpectations(step: Step, route: RouteInfo): Problem[] {
+  const out: Problem[] = [];
+  const status = expectedStatus(step);
+  for (const e of step.expects) {
+    if (e.subject.kind !== "body") continue;
+    const r = checkResponsePath(route, status, e.subject.path);
+    const subject = `\`? ${e.subject.text}\``;
+    if (r.issue) {
+      out.push(problem(e.line, `${subject}: ${r.issue} (${answerOf(route, status)}).`, "warning"));
+    } else if (r.ref && (e.op === "==" || e.op === "!=") && e.value !== undefined) {
+      for (const issue of validateValue(e.value, r.ref, route.model, e.subject.text)) out.push(problem(e.line, `${subject}: ${issue}`, "warning"));
+    }
+  }
+  return out;
+}
+
+/** A path parameter filled by a capture alone (`/items/{{create.body.id}}`),
+ *  against the parameter's type. */
+function checkPathCaptures(step: Step, route: RouteInfo, params: Fields, earlier: ReadonlyMap<string, EarlierStep>): Problem[] {
+  const out: Problem[] = [];
+  const pattern = route.path.split("/");
+  const given = step.path.split(/[?#]/, 1)[0].split("/");
+  pattern.forEach((seg, i) => {
+    if (!seg.startsWith(":") || given[i] === undefined) return;
+    const param = params.find((p) => p.name === seg.slice(1));
+    const refs = findRefs(given[i]);
+    if (!param || refs.length !== 1 || refs[0].start !== 0 || refs[0].end !== given[i].length) return;
+    const p = parseRef(refs[0].text);
+    if ("error" in p || p.kind !== "body") return;
+    const w = captureFit(p, param.shape, route.model, `path parameter \`${seg}\``, earlier, refs[0].text);
+    if (w) out.push(problem(step.requestLine, w, "warning"));
+  });
   return out;
 }
 

@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Coverage on the model views** (review of #144): an `else if` arm, and an `if` arm whose condition ran, are no longer marked tested when only a later arm, or only the condition, ran: each arm is judged by its own body lines (the first line of an `if`'s `then` arm and the lines of later arms are left out, and a `then` arm on its condition's line reads as not measured). A Run All with Coverage over several projects keeps every project's coverage instead of only the last project's. A run's time is taken before it starts, so a file saved during a long run reads as changed since. The legend gives the run's time of day instead of an age that goes stale while the page stays open.
+
 ### Added
 
 - **Compare Model compares agent invariants** (#154). An agent's `invariant`s and `transition` rules, which `bynk/agentStateModel` now reports (bynk#3608, v0.633.5), appear under **Agent states** as added, removed, or changed (with the predicate before and after). A rule is identified by its kind and name, and a change to its documentation alone is not reported. Against an older server nothing is reported, as before.
@@ -20,8 +24,14 @@ version).
 - **Test coverage on the model views** (#144). After **Run with Coverage**, the agent state view and the sequence diagram mark what no test ran, by projecting the run's line coverage onto each element's source range:
   - **Agent state view:** a transition is dashed amber when none of its lines ran, solid green when they did; a state no tested transition enters is marked too, and the handler × state table adds `✗ not tested`. The counts read "3 of 5 transitions tested". Clicking a transition still opens its source.
   - **Sequence diagram:** calls and sends, and each branch of an `if` or `match` (using the arm's own range, bynk v0.625.2 and later), are marked the same way, with "N of M calls tested" and "N of M branches tested".
-  - **Honest about what it is:** coverage is line-level and whole-run, so an element counts as tested when its lines ran; the view says it cannot say which test reached it. It also says how old the run is, and warns when the source has changed since (an unsaved edit, or a newer file). A path or branch whose lines hold no executable statement is left unmarked rather than claimed.
+  - **Honest about what it is:** coverage is line-level and whole-run, so an element counts as tested when its lines ran; the view says it cannot say which test reached it. It also says when the run started, and warns when the source has changed since (an unsaved edit, or a newer file). A path or branch whose lines hold no executable statement is left unmarked rather than claimed.
   - A **Show test coverage** checkbox hides the overlay, and **Bynk: Clear Model Coverage** removes it; the next coverage run replaces it. Marks never depend on colour alone: each carries a word on its tooltip and accessible name.
+- **Request scenarios check captures and expectations against the response type** (#160). With `bynk/wireContract`'s `success` and per-response `payload`/`body` (`bynk-lang/bynk#3609`, v0.633.4 and v0.633.9), `{{create.body.id}}` and `? body.id exists` are checked against what the earlier route answers: `T` for a status that carries a value (or the declared success when the step expects no status), and only `error` for an error message. Raw bodies, redirects and statuses the handler doesn't name are skipped. A captured value is also checked against where it lands, in a body field or a path parameter (a string into an `Int`), and `? body.x == <json>` against the field's type. Every one of these is a warning, never an error. A server that doesn't send the types checks as before.
+- **Promote to test suite writes more of a scenario** (#160): with the response type known, `? body.name contains "x"` on a String field becomes `expect item.name.contains("x")`, and `? body.id exists` on a field the type requires is noted as holding by its type.
+
+### Fixed
+
+- **Worker groups (`[deploy.workers.<key>]`) are understood** (#182). A context in a group runs as part of the group's one Worker, which Bynk names by the group's key, but the extension assumed one Worker per context. It now reads the groups from `bynk.toml` and routes every context → Worker lookup through them: the Environments view shows a group as one node holding its members (not as "not deployed" contexts beside an unrecognised Worker), Send Request and scenarios on the dev server go to the group's single port, scenarios against a `[test.targets]` target use the URL keyed by the group, and the Contract Diff filter on a group covers every member. Deploy and Show Deploy Plan offer a group as one choice and pass `--worker <key>` (`bynk deploy --context <member>` is refused); Tail Deployed Logs tails the group with `--context <key>`. Sweep Migrations declines to sweep a group member's classes, because `bynk migrate sweep` aims them at the wrong Worker (bynk-lang/bynk#3686). Projects with no groups behave as before.
 
 ### Fixed
 
@@ -42,6 +52,7 @@ version).
 
 ### Added
 
+- **Bynk notebooks** (#151, expression cells): a `.bynknb` notebook of Markdown and Bynk cells, made with **Bynk: New Notebook**. Running a cell evaluates it with `bynk eval` (`bynk-lang/bynk#3585`, v0.629.3 and later) in a unit of the project, shows the value and its type in Bynk's terms, and puts a cell's compile errors on the cell. A cell runs only when run, never on open, hover or save, and stops after `bynk.notebook.timeoutSeconds` (60). A cell's unit is its first line's `// @unit name`, else the notebook's (**Bynk: Choose Notebook Unit…**). Earlier cells' `let`s carry forward: the extension sends them ahead of the cell, since `bynk eval` keeps no state between runs. Unsaved `.bynk` edits are evaluated, and outputs are never saved to the file. Desktop only; handler and refined-type cells are to follow.
 - **Bynk: Show Component View** (model-diagrams track, slice 5): one context opened up as a UML component diagram. It is also on the editor title bar of a `.bynk` file.
   - **Inside:** the context's services, agents and providers as parts. Each service lists its handlers as operations, and each agent shows its key, its `store` fields and its handlers.
   - **On the border:** a provided port (UML ball) for each service, and a required port (socket) for each capability the context needs from outside and each consumed service it calls. Connectors show which part realises or needs each port.

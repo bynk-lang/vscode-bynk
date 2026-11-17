@@ -23,6 +23,7 @@ import {
 } from "vscode-languageclient/browser";
 
 import { registerInlineDocRendering } from "../inlineDocRendering";
+import { registerNotebookSerializer } from "../notebookSerializer";
 import { registerPlaygroundCommands } from "../playgroundCommands";
 import { registerCoreLmTools } from "../lmToolsCore";
 import {
@@ -64,6 +65,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   registerInlineDocRendering(context);
+  // #151: a `.bynknb` opens and edits here; running a cell needs the desktop `bynk` CLI.
+  context.subscriptions.push(registerNotebookSerializer());
   // #2480: playground links need only the VS Code API.
   registerPlaygroundCommands(context);
   // #2463 (DECISION D): the language-model tools that need only the VS Code

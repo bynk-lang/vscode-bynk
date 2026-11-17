@@ -56,7 +56,7 @@ export function coverageBar(
   }
   const notes = document.createElement("div");
   notes.className = "bynk-cov-note";
-  for (const line of coverageNote(cov, Date.now())) {
+  for (const line of coverageNote(cov)) {
     const p = document.createElement("p");
     p.textContent = line;
     if (line.startsWith("The source has changed")) p.classList.add("bynk-cov-stale");

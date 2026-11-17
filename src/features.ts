@@ -39,6 +39,7 @@ import { registerFileDecorations } from "./fileDecorations";
 import { registerInlineDocRendering } from "./inlineDocRendering";
 import { registerLmTools } from "./lmTools";
 import { registerModelDiff } from "./modelDiff";
+import { registerNotebook } from "./notebook";
 import { registerOpenapi } from "./openapi";
 import { registerPlaygroundCommands } from "./playgroundCommands";
 import { registerRefinedExplorer } from "./refinedExplorer";
@@ -100,6 +101,8 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context, client, viewRefresh }) => registerLmTools(context, client, viewRefresh),
   // #147: "Bynk: Compare Model with…", the model against a git revision.
   ({ context, client, viewRefresh }) => registerModelDiff(context, viewRefresh, client),
+  // #151: Bynk notebooks (`.bynknb`), cells run with `bynk eval`.
+  ({ context }) => registerNotebook(context),
   // #16: "Bynk: Export OpenAPI", a wrapper over `bynk openapi`.
   ({ context }) => registerOpenapi(context),
   // #2480: share a selection or a single-file program as a playground link.

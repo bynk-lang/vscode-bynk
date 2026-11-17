@@ -22,6 +22,24 @@ const model: CdModel = {
   services: [svc("shop.payment", "staging"), svc("shop.payment", "prod"), svc("shop.cart", "staging")],
 };
 
+describe("contract diff filter for a Worker group (#182)", () => {
+  const group = { context: "core", contexts: ["shop.payment", "shop.cart"], environment: "staging" };
+
+  it("shows every member's services, and only in its environment", () => {
+    assert.deepStrictEqual(
+      applyFilter(model, group).model.services.map((s) => `${s.context}/${s.environment}`),
+      ["shop.payment/staging", "shop.cart/staging"],
+    );
+    assert.ok(!matchesService(group, svc("shop.other", "staging")));
+  });
+
+  it("reads the members from an untrusted argument, dropping anything not a string list", () => {
+    assert.deepStrictEqual(parseFilter(group), group);
+    assert.deepStrictEqual(parseFilter({ context: "core", contexts: [1] }), { context: "core" });
+    assert.deepStrictEqual(parseFilter({ context: "core", contexts: [] }), { context: "core" });
+  });
+});
+
 describe("contract diff filter (#157)", () => {
   it("leaves the model untouched without an active filter", () => {
     for (const f of [undefined, null, {}, { context: "" }]) {

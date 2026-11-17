@@ -6,6 +6,9 @@ import * as assert from "assert";
 import {
   appendStep,
   checkExpectations,
+  checkResponsePath,
+  responseShape,
+  walkPath,
   formatStep,
   parseExpectation,
   parseScenario,
@@ -23,7 +26,7 @@ import {
   type Sent,
   type Step,
 } from "../../src/scenarioCore";
-import type { WcRef, WcType } from "../../src/webview/wireContractTypes";
+import type { WcHttpResponse, WcRef, WcType } from "../../src/webview/wireContractTypes";
 
 const SCENARIO = `# Create an item, read it, change it.
 @context shop
@@ -493,5 +496,167 @@ describe("saving a step (#149)", () => {
     const other = appendStep(second.text, { ...spec, unit: "other", headers: "", body: undefined, status: undefined, method: "POST", path: "/x" });
     assert.ok(other.text.includes("### post_x\n@context other\nPOST /x"));
     assert.deepStrictEqual(parseScenario(other.text).problems, []);
+  });
+});
+
+describe("what a response carries (#160)", () => {
+  const item: WcRef = { kind: "Named", name: "Item" };
+  const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
+  const resp = (status: number, variant: string, body: WcHttpResponse["body"], origin: WcHttpResponse["origin"] = { kind: "Constructed", range }): WcHttpResponse => ({
+    status,
+    variant,
+    origin,
+    payload: body?.kind === "Value" ? body.ref : null,
+    body,
+  });
+  const create: RouteInfo = {
+    ...route("shop", "POST", "/items", item),
+    responses: [
+      resp(201, "Created", { kind: "Value", ref: item }, { kind: "DeclaredSuccess" }),
+      resp(200, "Ok", { kind: "Value", ref: item }),
+      resp(409, "Conflict", { kind: "Message" }),
+      resp(302, "Found", { kind: "Redirect", header: "Location" }),
+      resp(204, "NoContent", null),
+      resp(400, "BadRequest", null, { kind: "BoundaryImplicit", why: "decode" }),
+    ],
+  };
+  create.model = { ...create.model, success: item };
+  const get: RouteInfo = { ...route("shop", "GET", "/items/:id"), responses: create.responses, model: { ...route("shop", "GET", "/items/:id").model, success: item } };
+
+  it("picks the shape a status answers with", () => {
+    assert.deepStrictEqual(responseShape(create), { kind: "value", ref: item });
+    assert.deepStrictEqual(responseShape(create, 201), { kind: "value", ref: item });
+    assert.deepStrictEqual(responseShape(create, 409), { kind: "message" });
+  });
+
+  it("skips what it can't check: raw, a redirect, no body, an unknown or boundary status, an older server", () => {
+    for (const status of [302, 204, 400, 418]) assert.deepStrictEqual(responseShape(create, status), { kind: "skip" }, String(status));
+    const raw: RouteInfo = { ...create, responses: [resp(200, "Raw", { kind: "Raw" })], model: { ...create.model, success: null } };
+    assert.deepStrictEqual(responseShape(raw), { kind: "skip" });
+    assert.deepStrictEqual(responseShape(raw, 200), { kind: "skip" });
+    const old: RouteInfo = { ...create, responses: [{ status: 200, variant: "Ok", origin: { kind: "DeclaredSuccess" } }], model: { ...create.model, success: undefined } };
+    assert.deepStrictEqual(responseShape(old), { kind: "skip" });
+    assert.deepStrictEqual(responseShape(old, 200), { kind: "skip" });
+    // Answers of one status that differ in kind are not guessed at.
+    const mixed: RouteInfo = { ...create, responses: [resp(200, "Ok", { kind: "Value", ref: item }), resp(200, "Raw", { kind: "Raw" })] };
+    assert.deepStrictEqual(responseShape(mixed, 200), { kind: "skip" });
+  });
+
+  it("falls back to `payload` when a server has no `body` (v0.633.4)", () => {
+    const r: RouteInfo = { ...create, responses: [{ status: 200, variant: "Ok", origin: { kind: "DeclaredSuccess" }, payload: item }] };
+    assert.deepStrictEqual(responseShape(r, 200), { kind: "value", ref: item });
+  });
+
+  it("walks a path down the type: fields, a sum's tag, a list, an Option", () => {
+    const env = create.model;
+    const list: WcRef = { kind: "Inst", key: "List<Int>" };
+    const opt: WcRef = { kind: "Inst", key: "Option<Int>" };
+    assert.deepStrictEqual(walkPath(item, ["qty"], env), { ref: int, plain: true });
+    assert.deepStrictEqual(walkPath(item, [], env), { ref: item, plain: true });
+    assert.deepStrictEqual(walkPath(item, ["qtty"], env), { issue: "`Item` has no field `qtty`" });
+    assert.deepStrictEqual(walkPath(item, ["name", "x"], env), { issue: "`String` has no field `x`" });
+    assert.ok(walkPath({ kind: "Named", name: "Shape" }, ["r"], env).ref);
+    assert.ok(walkPath({ kind: "Named", name: "Shape" }, ["kind"], env).ref);
+    assert.deepStrictEqual(walkPath({ kind: "Named", name: "Shape" }, ["z"], env), { issue: "`Shape` has no field `z`" });
+    assert.deepStrictEqual(walkPath(list, [0], env), { ref: int, plain: false });
+    assert.deepStrictEqual(walkPath(item, [0], env), { issue: "`Item` is not a list, so `[0]` names nothing" });
+    assert.deepStrictEqual(walkPath(opt, ["value"], env), { ref: int, plain: false });
+    assert.strictEqual(walkPath({ kind: "Named", name: "Shape" }, ["r"], env).plain, false);
+    assert.deepStrictEqual(walkPath({ kind: "Named", name: "Unknown" }, ["x"], env), {});
+    assert.deepStrictEqual(walkPath({ kind: "Unchecked", reason: "Effect" }, ["x"], env), {});
+  });
+
+  it("a message answer carries only `error`", () => {
+    assert.ok(checkResponsePath(create, 409, ["error"]).ref);
+    assert.match(checkResponsePath(create, 409, ["id"]).issue ?? "", /only `error`/);
+    assert.match(checkResponsePath(create, 409, ["error", "x"]).issue ?? "", /no members/);
+    assert.deepStrictEqual(checkResponsePath(create, 302, ["x"]), {});
+  });
+
+  describe("in a scenario", () => {
+    const check = (text: string, routes: RouteInfo[] = [create, get]): { message: string; severity: string }[] => {
+      const sc = parseScenario(text);
+      const earlier = new Map<string, { step: Step; route?: RouteInfo }>();
+      const names = new Set(sc.steps.map((x) => x.name));
+      const before = new Set<string>();
+      const out: { message: string; severity: string }[] = [];
+      for (const st of sc.steps) {
+        const resolved = resolveRoute(routes, st);
+        out.push(...validateStep(st, resolved, before, names, earlier).map((p) => ({ message: p.message, severity: p.severity })));
+        before.add(st.name);
+        earlier.set(st.name, { step: st, route: "route" in resolved ? resolved.route : undefined });
+      }
+      return out;
+    };
+    const head = "@context shop\n\n### create\nPOST /items\n\n{ \"name\": \"w\", \"qty\": 1 }\n\n";
+
+    it("accepts a capture or an expectation naming a field", () => {
+      assert.deepStrictEqual(check(`${head}? status == 201\n? body.name == "w"\n? body.qty exists\n\n### fetch\nGET /items/{{create.body.name}}\n? body.qty == 1\n`), []);
+    });
+
+    it("warns, never errors, when a capture names a field the response lacks", () => {
+      const got = check(`${head}? status == 201\n\n### fetch\nGET /items/{{create.body.idd}}\n`);
+      assert.deepStrictEqual(got, [{ message: "`{{create.body.idd}}`: `Item` has no field `idd` (`POST /items` answers 201).", severity: "warning" }]);
+    });
+
+    it("checks against the declared success when the step expects no status", () => {
+      const got = check(`${head}### fetch\nGET /items/{{create.body.idd}}\n`);
+      assert.match(got[0].message, /answers its declared success/);
+    });
+
+    it("checks only `error` for a message status, and nothing for a redirect or raw", () => {
+      assert.deepStrictEqual(check(`${head}? status == 409\n\n### fetch\nGET /items/{{create.body.error}}\n`), []);
+      assert.match(check(`${head}? status == 409\n\n### fetch\nGET /items/{{create.body.name}}\n`)[0].message, /only `error`/);
+      assert.deepStrictEqual(check(`${head}? status == 302\n\n### fetch\nGET /items/{{create.body.name}}\n`), []);
+    });
+
+    it("warns on a body expectation naming a missing field, or a value of the wrong type", () => {
+      const missing = check(`${head}? status == 201\n? body.nope exists\n`);
+      assert.deepStrictEqual(missing.map((m) => m.severity), ["warning"]);
+      assert.match(missing[0].message, /^`\? body\.nope`: `Item` has no field `nope`/);
+      const wrong = check(`${head}? status == 201\n? body.qty == "many"\n`);
+      assert.deepStrictEqual(wrong.map((m) => m.severity), ["warning"]);
+      assert.match(wrong[0].message, /expected number, found a string/);
+    });
+
+    it("warns when a captured value can't fit where it is used", () => {
+      const put = route("shop", "PUT", "/items/:id", item);
+      const got = check(`${head}? status == 201\n\n### change\nPUT /items/1\n\n{ "name": {{create.body.qty}}, "qty": {{create.body.name}} }\n`, [create, put]);
+      assert.deepStrictEqual(got.map((m) => m.severity), ["warning", "warning"]);
+      assert.match(got[0].message, /body\.name: `\{\{create\.body\.qty\}\}` is Int \(number\), but string is expected here/);
+      assert.match(got[1].message, /body\.qty: `\{\{create\.body\.name\}\}` is String \(string\), but number is expected here/);
+      // Same kind: fine.
+      assert.deepStrictEqual(check(`${head}? status == 201\n\n### change\nPUT /items/1\n\n{ "name": {{create.body.name}}, "qty": {{create.body.qty}} }\n`, [create, put]), []);
+    });
+
+    it("checks a capture that is the whole of a path parameter", () => {
+      const byInt: RouteInfo = { ...route("shop", "GET", "/n/:id"), model: { ...route("shop", "GET", "/n/:id").model, envelope: { kind: "Bare", param: "id", shape: int } } };
+      const got = check(`${head}? status == 201\n\n### fetch\nGET /n/{{create.body.name}}\n`, [create, byInt]);
+      assert.deepStrictEqual(got.map((m) => m.severity), ["warning"]);
+      assert.match(got[0].message, /path parameter `:id`: `\{\{create\.body\.name\}\}` is String/);
+    });
+
+    it("resolves a captured type in the earlier route's model, not the current one's (#185)", () => {
+      // `Made` is a type only the earlier handler reaches; the current route's model has never heard of it.
+      const made: WcType = { name: "Made", codecSuffix: "Made", provenance: { kind: "Owned" }, loc: null, body: { kind: "Record", fields: [field("id", int), field("label", str)] } };
+      const makes: RouteInfo = {
+        ...route("shop", "POST", "/make"),
+        responses: [resp(201, "Created", { kind: "Value", ref: { kind: "Named", name: "Made" } }, { kind: "DeclaredSuccess" })],
+        model: { ...route("shop", "POST", "/make").model, types: [made], success: { kind: "Named", name: "Made" } },
+      };
+      const put = route("shop", "PUT", "/items/:id", item);
+      const got = check(`@context shop\n\n### make\nPOST /make\n\n? status == 201\n\n### change\nPUT /items/1\n\n{ "name": {{make.body.id}}, "qty": {{make.body.id}} }\n`, [makes, put]);
+      assert.deepStrictEqual(got.map((m) => m.severity), ["warning"]);
+      assert.match(got[0].message, /body\.name: `\{\{make\.body\.id\}\}` is Int \(number\), but string is expected here/);
+      // The same name meaning something else in the current model doesn't change what the earlier one is.
+      const clash: RouteInfo = { ...put, model: { ...put.model, types: [{ ...made, body: { kind: "Record", fields: [field("id", str)] } }, ...put.model.types] } };
+      assert.match(check(`@context shop\n\n### make\nPOST /make\n\n? status == 201\n\n### change\nPUT /items/1\n\n{ "name": {{make.body.id}}, "qty": 1 }\n`, [makes, clash])[0].message, /is Int/);
+    });
+
+    it("says nothing when the earlier step has no route, or the server gave no types", () => {
+      assert.deepStrictEqual(check("@context shop\n\n### a\nGET /nowhere\n\n### b\nGET /items/{{a.body.x}}\n", [get]).map((m) => m.severity), ["error"]);
+      const old: RouteInfo = { ...create, responses: [{ status: 201, variant: "Created", origin: { kind: "DeclaredSuccess" } }], model: { ...create.model, success: undefined } };
+      assert.deepStrictEqual(check(`${head}? status == 201\n\n### fetch\nGET /items/{{create.body.idd}}\n? body.zz exists\n`, [old, { ...get, responses: old.responses, model: { ...get.model, success: undefined } }]), []);
+    });
   });
 });

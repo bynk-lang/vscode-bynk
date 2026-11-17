@@ -10,30 +10,31 @@
 import * as fs from "node:fs/promises";
 import * as vscode from "vscode";
 
-import type { FileLines } from "./coverageModel";
-import { type ModelCoverage, modelCoverageFor } from "./modelCoverageCore";
-
-export interface CoverageRun {
-  files: FileLines[];
-  /** What the run measured: `the whole project`, or `the case "…"`. */
-  scope: string;
-  runAt: number;
-}
+import { type CoverageRun, type ModelCoverage, mergeRun, modelCoverageFor } from "./modelCoverageCore";
 
 export class ModelCoverageStore implements vscode.Disposable {
   private run: CoverageRun | undefined;
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChange = this.emitter.event;
 
-  /** Record a finished coverage run, replacing the last one. */
-  set(run: CoverageRun): void {
-    this.run = run;
+  /** The test run whose projects are being merged into `run`. */
+  private owner: object | undefined;
+
+  /** Record one project's part of a coverage run. A Run All with Coverage
+   *  reports each project in turn under the same `owner` (the `TestRun`), and
+   *  their files are merged, so no project's coverage is dropped; the next run
+   *  replaces the last. `runAt` is when the earliest part started, so a file
+   *  saved while any part was running reads as changed since. */
+  record(owner: object, part: CoverageRun): void {
+    this.run = mergeRun(this.run, this.owner === owner, part);
+    this.owner = owner;
     this.emitter.fire();
   }
 
   clear(): void {
     if (!this.run) return;
     this.run = undefined;
+    this.owner = undefined;
     this.emitter.fire();
   }
 
