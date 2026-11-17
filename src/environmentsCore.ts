@@ -297,7 +297,8 @@ function effectiveGroups(manifest: readonly WorkerGroup[], workers: readonly Wor
 /** `bynk migrate status` says where a class is deployed by the Worker named
  *  for its context (`bynk/src/migrate.rs` `worker_of`), which is not a group's
  *  Worker: a class in a group member reads as deployed nowhere. The ledger knows
- *  better, so a class whose member's group Worker is deployed here is too. */
+ *  better, so a class whose member's group Worker is deployed here is too.
+ *  A workaround for bynk-lang/bynk#3686; drop it when the driver reports groups. */
 function groupedDeployments(classes: ClassStatus[], env: LedgerEnvironment, groups: readonly WorkerGroup[]): ClassStatus[] {
   if (groups.length === 0) return classes;
   return classes.map((c) => {

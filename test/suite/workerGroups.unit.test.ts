@@ -8,7 +8,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { groupByKey, groupHolding, sameWorker, workerKey } from "../../src/contextNames";
-import { parseWorkerGroups, resolveScope, scriptName, workerScopes } from "../../src/workerGroups";
+import { groupedSweepIssue, parseWorkerGroups, resolveScope, scriptName, workerScopes } from "../../src/workerGroups";
 
 const FIXTURE = path.resolve(__dirname, "../../../test/fixtures/groups");
 const MANIFEST = fs.readFileSync(path.join(FIXTURE, "bynk.toml"), "utf8");
@@ -116,5 +116,25 @@ describe("workerScopes and resolveScope (#182)", () => {
     assert.ok(key.kind === "worker" && key.worker === "core" && !key.member);
     assert.deepStrictEqual(resolveScope("shop.payment", groups), { kind: "context", context: "shop.payment" });
     assert.deepStrictEqual(resolveScope("shop-payment", []), { kind: "context", context: "shop-payment" });
+  });
+});
+
+describe("groupedSweepIssue (#182, bynk-lang/bynk#3686)", () => {
+  const groups = parseWorkerGroups(MANIFEST);
+
+  it("refuses a sweep of a group member or of the group, naming the upstream issue", () => {
+    assert.match(groupedSweepIssue("shop.orders", [], groups) ?? "", /Worker group `core`.*bynk-lang\/bynk#3686/);
+    assert.match(groupedSweepIssue("core", [], groups) ?? "", /bynk#3686/);
+  });
+
+  it("refuses the whole project only when a grouped member has classes", () => {
+    assert.match(groupedSweepIssue("", ["shop.orders", "shop.payment"], groups) ?? "", /shop\.orders.*bynk#3686/);
+    assert.strictEqual(groupedSweepIssue("", ["shop.payment"], groups), undefined);
+  });
+
+  it("leaves an ungrouped context, or a project with no groups, alone", () => {
+    assert.strictEqual(groupedSweepIssue("shop.payment", [], groups), undefined);
+    assert.strictEqual(groupedSweepIssue("shop.orders", ["shop.orders"], []), undefined);
+    assert.strictEqual(groupedSweepIssue("", ["shop.orders"], []), undefined);
   });
 });

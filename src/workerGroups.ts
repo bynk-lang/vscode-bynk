@@ -175,3 +175,25 @@ export function resolveScope(
   if (held) return { kind: "worker", worker: held.key, group: held, member: true };
   return { kind: "context", context: name };
 }
+
+/** Why a sweep must not be offered, or `undefined`. `bynk migrate sweep` still
+ *  plans a grouped member's classes against the dasherised context Worker, which
+ *  is not the group's Worker (`bynk/src/migrate.rs` `worker_of`; bynk-lang/bynk#3686),
+ *  so a sweep that covers one would be aimed at the wrong Worker. `scope` is the
+ *  context the sweep is limited to (`""` or absent: the whole project);
+ *  `classContexts` are the contexts of the agent classes it would cover. */
+export function groupedSweepIssue(
+  scope: string | undefined,
+  classContexts: readonly string[],
+  groups: readonly WorkerGroup[],
+): string | undefined {
+  const note = "needs bynk-lang/bynk#3686: `bynk migrate sweep` plans a group member's classes against the wrong Worker";
+  if (scope) {
+    const group = groupHolding(scope, groups) ?? groupByKey(scope, groups);
+    return group ? `${scope} is in the Worker group \`${group.key}\`, and sweeping it ${note}.` : undefined;
+  }
+  const held = [...new Set(classContexts)].filter((c) => groupHolding(c, groups));
+  return held.length > 0
+    ? `Sweeping the whole project would cover ${held.join(", ")}, in a Worker group; that ${note}. Sweep the other contexts one at a time.`
+    : undefined;
+}
