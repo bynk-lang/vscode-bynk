@@ -60,8 +60,11 @@ describe("Worker groups (#182)", () => {
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     seen = fake.read().length;
+    // The project is the active .bynk file's: a plan panel opened by an earlier test takes the
+    // focus, and the next command would then run against the workspace's own project.
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(orders));
   });
 
   it("shows the group as one node holding its members in the Environments view", async function () {
@@ -211,6 +214,22 @@ describe("Worker groups (#182)", () => {
 
     after(async () => {
       await new Promise((r) => server.close(r));
+      // A workspace remembers the last target it ran against (`bynk.test.lastTarget`) and
+      // offers it first. Finish on `dev`, the picker's default, so later suites see the order
+      // they expect.
+      const quick = win.showQuickPick;
+      const warn = win.showWarningMessage;
+      win.showQuickPick = async (items: { label: string }[]) => items.find((i) => i.label === "dev");
+      win.showWarningMessage = async () => undefined;
+      try {
+        await vscode.commands.executeCommand(
+          "bynk.scenario.runAgainst",
+          vscode.Uri.file(path.join(dir, "scenarios", "orders.bynk-http")).toString(),
+        );
+      } finally {
+        win.showQuickPick = quick;
+        win.showWarningMessage = warn;
+      }
     });
 
     it("sends a member's step to the URL keyed by the group, not by the member", async function () {
