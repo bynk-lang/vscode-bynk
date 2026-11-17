@@ -210,3 +210,13 @@ describe("architecture diff marks (adapter)", () => {
     assert.deepStrictEqual(strip(marked), strip(plain));
   });
 });
+
+describe("toStateDiagram: a live instance (#145)", () => {
+  it("marks the state an instance is in, and only that one", () => {
+    const d = toStateDiagram(machine(), { uri: URI, showUnchanged: false, current: machine().states[0] });
+    const current = d.nodes.filter((n) => n.current).map((n) => n.name);
+    assert.deepStrictEqual(current, [machine().states[0]]);
+    const none = toStateDiagram(machine(), { uri: URI, showUnchanged: false, current: null });
+    assert.ok(none.nodes.every((n) => !n.current));
+  });
+});

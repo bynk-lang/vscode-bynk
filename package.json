@@ -640,6 +640,28 @@
         "category": "Bynk"
       },
       {
+        "command": "bynk.showQuery",
+        "title": "Show Query View",
+        "category": "Bynk"
+      },
+      {
+        "command": "bynk.query.refresh",
+        "title": "Refresh Query",
+        "category": "Bynk",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "bynk.query.pickCapability",
+        "title": "Choose a Capability to Reach…",
+        "category": "Bynk",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "bynk.query.open",
+        "title": "Open Query Result",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.showComponentView",
         "title": "Show Component View",
         "category": "Bynk",
@@ -1032,6 +1054,22 @@
           "when": "!isWeb"
         },
         {
+          "command": "bynk.showQuery",
+          "when": "bynk.hasProject && !isWeb"
+        },
+        {
+          "command": "bynk.query.refresh",
+          "when": "false"
+        },
+        {
+          "command": "bynk.query.pickCapability",
+          "when": "bynk.hasProject && !isWeb"
+        },
+        {
+          "command": "bynk.query.open",
+          "when": "false"
+        },
+        {
           "command": "bynk.showComponentView",
           "when": "editorLangId == bynk && !isWeb"
         },
@@ -1288,6 +1326,16 @@
       ],
       "view/title": [
         {
+          "command": "bynk.query.pickCapability",
+          "when": "view == bynk.query && !isWeb",
+          "group": "navigation@1"
+        },
+        {
+          "command": "bynk.query.refresh",
+          "when": "view == bynk.query && !isWeb",
+          "group": "navigation@2"
+        },
+        {
           "command": "bynk.project.refresh",
           "when": "view == bynk.project && !isWeb",
           "group": "navigation@1"
@@ -1420,6 +1468,12 @@
         {
           "id": "bynk.project",
           "name": "Project",
+          "when": "bynk.hasProject && !isWeb",
+          "contextualTitle": "Bynk"
+        },
+        {
+          "id": "bynk.query",
+          "name": "Query",
           "when": "bynk.hasProject && !isWeb",
           "contextualTitle": "Bynk"
         },

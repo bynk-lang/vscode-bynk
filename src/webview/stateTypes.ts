@@ -107,10 +107,57 @@ export interface AgentStateModel {
   effects?: HandlerEffects[];
 }
 
+/** #145: a live instance of the agent, as `bynk dev inspect agents` lists it. */
+export interface LiveInstance {
+  /** The page names an instance by this, never by its key: the host maps it
+   *  back to a listed instance before it runs anything. */
+  ref: string;
+  /** The key, rendered in Bynk's terms. */
+  key: string;
+  context: string;
+}
+
+/** #145: what the host knows of the running dev server's instances of this
+ *  agent. Absent when no dev server runs (or on the web build). */
+export interface LiveInstances {
+  instances: LiveInstance[];
+  /** A context that could not be asked, or why the listing failed. */
+  problems: string[];
+}
+
 export interface AgentStatePayload {
   model: AgentStateModel;
   uri: string;
+  live?: LiveInstances;
   /** #144: the last coverage run's lines for this file; client-only, never on
    *  the wire. Absent when there is no run, or it did not measure the file. */
   coverage?: ModelCoverage;
 }
+
+/** #145: host → page, answering `{type: "inspectInstance"}`. Never part of
+ *  the payload, and never logged: it holds the instance's stored values. */
+export type InstanceMessage =
+  | { type: "instance"; ref: string; agent: string; inspection: InstanceView }
+  | { type: "instance"; ref: string; agent: string; failure: string };
+
+/** An inspected instance with its values already rendered as Bynk text. */
+export type InstanceView =
+  | { exists: false }
+  | { exists: true; readable: false; fault: string }
+  | {
+      exists: true;
+      readable: true;
+      schema: { text: string; behind: boolean };
+      cells: Array<{ name: string; text: string }>;
+      /** The state each machine field holds, by field. */
+      states: Record<string, string | null>;
+      collections: Array<{ name: string; kind: string; size: number | null; shown: number }>;
+      /** Oldest first; per machine field, the state before and after. */
+      history: Array<{
+        handler: string | null;
+        at: number;
+        changes: Array<{ cell: string; before: string | undefined; after: string }>;
+        sizes: Array<{ field: string; before: number | null | undefined; after: number | null }>;
+        states: Record<string, { from: string | null; to: string | null }>;
+      }>;
+    };

@@ -177,6 +177,7 @@ const INTERACTIVE_CSS = `
 .bynk-diagram .bynk-current .bynk-head-box,
 .bynk-diagram .bynk-current.bynk-snode > .bynk-snode-box,
 .bynk-diagram .bynk-current.bynk-sedge .bynk-sedge-line { stroke: var(--vscode-editorCursor-foreground, var(--vscode-focusBorder)); stroke-width: 2.5; }
+.bynk-diagram .bynk-current.bynk-snode--state > .bynk-snode-box { fill: var(--vscode-editor-selectionBackground, var(--vscode-list-activeSelectionBackground)); }
 .bynk-diagram .bynk-current > text,
 .bynk-diagram text.bynk-current { font-weight: 600; }
 `;

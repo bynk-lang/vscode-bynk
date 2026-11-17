@@ -319,6 +319,21 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   opens its source; handler nodes have inline **Sequence Diagram** and
   **Wire Contract** actions, and unit nodes **Show Documentation**. The view
   refreshes on the same trigger as the live views below.
+- **Query view** — a **Query** view under the Bynk activity bar answers four
+  ready-made questions about the open project (the active file's, else the
+  workspace's), each a list that opens its source:
+  **Events** (who emits each event and who subscribes, and how it is delivered),
+  **Capabilities** (per context: what it declares, consumes and provides, the
+  handlers that use each through `given`, and the suites that `stub` it),
+  **Reachability** (the handlers from which a capability can be reached, through
+  `given` and the calls between handlers, across contexts; pick the capability
+  with the view's title button) and **Untested** (routes, handlers and agent
+  transitions no line of which ran in the last **Run with Coverage**: whole-run
+  line coverage, so it never says which test reached what). It needs a language
+  server from bynk v0.625.3 for events and capabilities, and v0.634.4 for the
+  calls Reachability follows; it says so when the server is older. For a single
+  function or handler, VS Code's own **Show Call Hierarchy** works on Bynk
+  and follows calls across contexts (bynk v0.626.1 and later).
 - **Live model views** — the sequence diagram, documentation page, architecture
   map, wire contract, agent state view and contract diff (see Commands) open
   beside the editor and stay current: they refresh when you save (or as you type,
@@ -462,7 +477,7 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Run Scenario** | Run the `.bynk-http` scenario in the active editor on the dev server, with the results inline. Also a `Run scenario` / `Run step` CodeLens in the file. |
 | **Bynk: Promote Scenario to Test Suite** | Write the scenario as a `system`-tier test suite under `tests/`, listing what a suite cannot express, after the compiler has checked it. Also a `Promote to test suite` CodeLens. |
 | **Bynk: Run Scenario Against…** | Run the scenario against `dev` or a `[test.targets]` target from `bynk.toml`, confirming a deployed target first, refusing one marked `production = true`, and asking for the name of a production-named target before a write. Also a `Run against…` CodeLens. |
-| **Bynk: Show Agent State** | The state machines of the agent at the cursor: for each `store` Cell of an enum or sum type, a UML state machine generated from its handlers (the initial state, a dashed `?` where a computed write lands, unreachable states faded) and a handler × state table of what each handler does from each state, with moves a `transition` would refuse at commit marked ⚠, and each handler's effects — what it writes, reads and calls on each path (shown instead for an agent with no state field). Click a state or transition to open its source; zoom, **Copy as Mermaid**, **Save as SVG…** and **Save as PNG…** as on the other diagrams. Follows the cursor from agent to agent, highlighting the handler under it and its transitions. |
+| **Bynk: Show Agent State** | The state machines of the agent at the cursor: for each `store` Cell of an enum or sum type, a UML state machine generated from its handlers (the initial state, a dashed `?` where a computed write lands, unreachable states faded) and a handler × state table of what each handler does from each state, with moves a `transition` would refuse at commit marked ⚠, and each handler's effects — what it writes, reads and calls on each path (shown instead for an agent with no state field). Click a state or transition to open its source; zoom, **Copy as Mermaid**, **Save as SVG…** and **Save as PNG…** as on the other diagrams. Follows the cursor from agent to agent, highlighting the handler under it and its transitions. While `bynk dev` runs, a **Live instances** section lists the agent's running instances by key; choose one to see its stored state in Bynk's own terms, its schema version against the class's (linking to State Migrations when behind), and its recent transitions to step through, and the diagram marks the state it is in. Read-only, local dev server only (`bynk dev inspect`). |
 | **Bynk: Show Contract Diff** | Boundary changes since `bynk.schema.lock` and service contracts that differ from `bynk.deploy.lock`'s live record, each marked compatible or breaking. Refreshes when either lock changes. |
 | **Bynk: Compare Model with…** | Pick a git ref (the first choice is the merge base with the default branch) and see what changed in the project's model against the working tree: contexts, adapters, `consumes` edges, services and agents added, removed or changed; boundary and service-contract changes, classified compatible or breaking where the language server classifies them; a compatible or breaking verdict, with reasons, for each handler's wire contract; agent states, handlers and transitions; and capabilities and their providers. Each row opens its source in the working tree, and the differences are also drawn on the architecture map and on the state diagram of each agent whose states changed: added elements green, changed amber, removed ones as dashed ghosts. **Bynk: Compare Model Between Revisions…** compares any two refs (or a ref and the working tree), and a pull request in the GitHub Pull Requests view has **Compare Bynk Model for Pull Request**. A revision whose locked dependencies were never fetched (`bynk fetch`) is analysed without them, and the page says so. Also on the Source Control view's title bar. |
 | **Bynk: Show Compiled Output** | The TypeScript the compiler emits for the active file, read-only, beside it. Compiled from your unsaved buffers through `bynk compile`; the cursor in either editor highlights the matching lines in the other, and the output follows your edits. |
