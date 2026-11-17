@@ -17,6 +17,10 @@ import * as vscode from "vscode";
 
 import { requestArchitectureModel } from "./architectureMap";
 import { loadDependencies } from "./dependencies";
+import { modelCoverage } from "./modelCoverage";
+import { type ModelCoverage, stateCoverage } from "./modelCoverageCore";
+import { agentCoverage, handlerCoverage, handlerMark, type NodeCoverage } from "./projectCoverageCore";
+import type { AgentStateModel } from "./webview/stateTypes";
 import type { DepRow } from "./dependenciesCore";
 import {
   buildProjectModel,
@@ -52,7 +56,7 @@ type Node =
   | { type: "edge"; dir: "consumes" | "consumedBy"; edge: EdgeRef }
   | { type: "migrations"; root: vscode.Uri }
   | { type: "migrationClass"; root: vscode.Uri; status: ClassStatus }
-  | { type: "decl"; uri: string; symbol: SymbolLike; handler: boolean; label: string; http?: boolean }
+  | { type: "decl"; uri: string; symbol: SymbolLike; handler: boolean; label: string; http?: boolean; coverage?: NodeCoverage }
   | { type: "message"; label: string };
 
 interface Project {
@@ -315,6 +319,11 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
           hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
         );
         item.iconPath = new vscode.ThemeIcon(SYMBOL_ICONS[s.kind] ?? "symbol-misc");
+        // #188: what the last coverage run says of it (lines ran; not per test).
+        if (node.coverage) {
+          item.description = node.coverage.description;
+          item.tooltip = node.coverage.tooltip;
+        }
         // #67: an HTTP handler is told apart for Send Request; the other
         // handler actions take either.
         item.contextValue = node.http ? "bynkHttpHandler" : node.handler ? "bynkHandler" : "bynkDeclaration";
@@ -535,7 +544,8 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
       // The file's one top-level symbol is the unit; its children are the
       // declarations.
       const decls = symbols.length === 1 ? (symbols[0].children ?? []) : symbols;
-      for (const s of decls) out.push(this.declNode(doc, s, false));
+      const cov = await modelCoverage.forUri(doc.uri.toString());
+      out.push(...(await Promise.all(decls.map((s) => this.declNode(doc, s, false, cov)))));
     }
     if (out.length === 0) out.push({ type: "message", label: "No declarations" });
     return out;
@@ -546,10 +556,34 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     if (children.length === 0) return [];
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(node.uri));
     const isOwner = node.symbol.kind === SYMBOL_KIND_CLASS;
-    return children.map((c) => this.declNode(doc, c, isOwner && c.kind === SYMBOL_KIND_METHOD));
+    const cov = await modelCoverage.forUri(node.uri);
+    return Promise.all(children.map((c) => this.declNode(doc, c, isOwner && c.kind === SYMBOL_KIND_METHOD, cov)));
   }
 
-  private declNode(doc: vscode.TextDocument, symbol: SymbolLike, handler: boolean): Node {
+  /** #188: a handler's, or an agent's, coverage in the last run (if any). */
+  private async coverageOf(doc: vscode.TextDocument, symbol: SymbolLike, handler: boolean, cov: ModelCoverage | undefined): Promise<NodeCoverage | undefined> {
+    if (!cov) return undefined;
+    if (handler) return handlerCoverage(cov, symbol.range);
+    if (symbol.kind !== SYMBOL_KIND_CLASS) return undefined;
+    const marks = (symbol.children ?? []).filter((c) => c.kind === SYMBOL_KIND_METHOD).map((c) => handlerMark(cov, c.range));
+    // Services are class symbols too: only what the server answers with an
+    // agent's state model is an agent, so a service is left unmarked.
+    const client = this.hub.getClient();
+    if (!client) return undefined;
+    let model: AgentStateModel | null;
+    try {
+      model = await client.sendRequest<AgentStateModel | null>("bynk/agentStateModel", {
+        textDocument: { uri: doc.uri.toString() },
+        position: symbol.selectionRange.start,
+      });
+    } catch {
+      return undefined; // an older server: nothing says it is an agent
+    }
+    if (!model || model.agent !== symbol.name) return undefined;
+    return agentCoverage(cov, model.machines.map((m) => stateCoverage(m, cov)), marks);
+  }
+
+  private async declNode(doc: vscode.TextDocument, symbol: SymbolLike, handler: boolean, cov?: ModelCoverage): Promise<Node> {
     return {
       type: "decl",
       uri: doc.uri.toString(),
@@ -557,6 +591,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
       handler,
       label: handler ? handlerLabel(doc, symbol) : symbol.name,
       http: handler && isHttpHandler(doc, symbol.range),
+      coverage: await this.coverageOf(doc, symbol, handler, cov),
     };
   }
 }
@@ -634,6 +669,8 @@ export function registerProjectTree(
     view,
     provider.attach(view),
     migrations.onDidChange(() => provider.refreshNode()),
+    // #188: a coverage run landing, or Clear Model Coverage, repaints the marks.
+    modelCoverage.onDidChange(() => provider.refreshNode()),
     manifests,
     ...(approvals ? [approvals.onDidChange(badge)] : []),
     // The live views' trigger (#2093): saves by default, `bynk.views.refresh`,

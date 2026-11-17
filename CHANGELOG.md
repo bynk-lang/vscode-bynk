@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Coverage on the project sidebar** (#188). After **Run with Coverage**, each handler node in the Bynk sidebar says whether its lines ran (`tested`, `partly tested`, `not tested`; a handler with no executable line is left unmarked), and each agent node says `3 of 5 transitions tested` from its state model, or the share of its handlers tested when the model has none. The marks are cleared by **Bynk: Clear Model Coverage**, refreshed when a coverage run lands, and the tooltip warns when the source has changed since the run. Line-level and whole-run, so it says its lines ran and never which test reached it.
+
 ## [0.639.2] - 2026-11-17
 
 Built against `bynk` v0.639.1. Request traces, live agent instances and test coverage on the model views; the Query and Impact views; Bynk notebooks; Worker groups.

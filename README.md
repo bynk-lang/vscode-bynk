@@ -359,8 +359,13 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   declarations (services and agents expand to their handlers) and to
   **Consumes** / **Consumed by** groups for its `consumes` edges. Every node
   opens its source; handler nodes have inline **Sequence Diagram** and
-  **Wire Contract** actions, and unit nodes **Show Documentation**. The view
-  refreshes on the same trigger as the live views below.
+  **Wire Contract** actions, and unit nodes **Show Documentation**. After
+  **Run with Coverage**, handler nodes say `tested`, `partly tested` or
+  `not tested` and agent nodes `3 of 5 transitions tested` (their handlers'
+  share when the state model has none); this is whole-run line coverage, so it
+  says a handler's lines ran, never which test reached it, and the tooltip warns
+  when the source has changed since. **Bynk: Clear Model Coverage** removes it.
+  The view refreshes on the same trigger as the live views below.
 - **Query view** — a **Query** view under the Bynk activity bar answers four
   ready-made questions about the open project (the active file's, else the
   workspace's), each a list that opens its source:
