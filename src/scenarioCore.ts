@@ -1139,11 +1139,14 @@ function describeRef(ref: WcRef, l: Look): string {
 /** Walk `path` down `ref`. `ref` is what the path ends on, when that is
  *  known; `issue` says where it names something that isn't there; neither
  *  means the path leaves what the contract describes. */
-export function walkPath(ref: WcRef, path: readonly PathSeg[], env: TypeEnv): { ref?: WcRef; issue?: string } {
+export function walkPath(ref: WcRef, path: readonly PathSeg[], env: TypeEnv): { ref?: WcRef; issue?: string; plain?: boolean } {
   let cur = ref;
+  let plain = true;
   for (const seg of path) {
     const l = look(cur, env);
     if (l.kind === "unknown") return {};
+    // Through a sum's variants, an Option, a Result or a list, a suite has no direct spelling.
+    if (l.kind !== "record") plain = false;
     const noField = { issue: `${describeRef(cur, l)} has no field \`${String(seg)}\`` };
     if (typeof seg === "number") {
       if (l.kind === "map") return {};
@@ -1176,17 +1179,18 @@ export function walkPath(ref: WcRef, path: readonly PathSeg[], env: TypeEnv): { 
         return noField;
     }
   }
-  return { ref: cur };
+  return { ref: cur, plain };
 }
 
-/** What `path` finds in what a route answers `status` with. */
-export function checkResponsePath(route: Pick<RouteInfo, "model" | "responses">, status: number | undefined, path: readonly PathSeg[]): { ref?: WcRef; issue?: string } {
+/** What `path` finds in what a route answers `status` with. `plain` is true
+ *  when every step was a field of a record, which a suite can read directly. */
+export function checkResponsePath(route: Pick<RouteInfo, "model" | "responses">, status: number | undefined, path: readonly PathSeg[]): { ref?: WcRef; issue?: string; plain?: boolean } {
   const shape = responseShape(route, status);
   if (shape.kind === "skip") return {};
   if (shape.kind === "message") {
     if (path.length === 0) return {};
     if (path[0] !== "error") return { issue: `an error answer carries only \`error\`, not \`${String(path[0])}\`` };
-    return path.length === 1 ? { ref: STRING_REF } : { issue: "`error` is a String, which has no members" };
+    return path.length === 1 ? { ref: STRING_REF, plain: true } : { issue: "`error` is a String, which has no members" };
   }
   return walkPath(shape.ref, path, route.model);
 }
@@ -1229,7 +1233,8 @@ function captureFit(
   if (!e?.route) return undefined;
   const got = checkResponsePath(e.route, expectedStatus(e.step), p.path).ref;
   if (!got) return undefined;
-  const a = look(got, env);
+  // `got` is a ref in the earlier route's model; `expected` is in this one's.
+  const a = look(got, e.route.model);
   const b = look(expected, env);
   const ka = jsonKind(a);
   const kb = jsonKind(b);

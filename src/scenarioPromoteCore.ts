@@ -581,6 +581,9 @@ function typedAssertion(e: Expectation, path: readonly PathSeg[], variable: stri
   if (!target) return { why: "that path has no typed spelling (a list index)" };
   const found = checkResponsePath(route, status, path);
   if (!found.ref) return { why: found.issue ? `${found.issue}, so there is nothing to assert` : `\`${e.op}\` has no typed spelling: the field's type is not in the contract` };
+  // Only a path of record fields is read directly in a suite: a field of one sum
+  // variant, or what is inside a `Some`, `Ok` or `Err`, is matched, not selected.
+  if (!found.plain) return { why: "a field reached through a sum variant, an Option, a Result or a list can't be read directly in a suite" };
   const kind = fieldKind(found.ref, route.model);
   if (e.op === "contains") {
     const v = e.value;

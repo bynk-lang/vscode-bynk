@@ -414,6 +414,26 @@ Content-Type: application/json
       assert.match(c.unsupported[3].why, /takes a string/);
     });
 
+    it("spells a typed expectation only for a path of record fields (#185)", () => {
+      const str = baseRef("String");
+      const SHAPE: WcType = { name: "Shape", codecSuffix: "Shape", provenance: { kind: "Owned" }, loc: null, body: { kind: "Sum", wireDiscriminant: "kind", memoryDiscriminant: "tag", variants: [{ name: "Circle", payload: [{ name: "label", shape: str, pathSegment: "label", default: null }] }, { name: "Dot", payload: [] }] } };
+      const HOLDER: WcType = { name: "Holder", codecSuffix: "Holder", provenance: { kind: "Owned" }, loc: null, body: { kind: "Record", fields: [{ name: "shape", shape: { kind: "Named", name: "Shape" }, pathSegment: "shape", default: null }, { name: "maybe", shape: { kind: "Inst", key: "Option<String>" }, pathSegment: "maybe", default: null }, { name: "name", shape: str, pathSegment: "name", default: null }] } };
+      const holder = { kind: "Named" as const, name: "Holder" };
+      const r = route({
+        method: "GET",
+        path: "/h",
+        model: { envelope: { kind: "Empty" }, types: [SHAPE, HOLDER], instantiations: [{ kind: "OptionInst", key: "Option<String>", inner: str }], success: holder },
+        responses: [{ status: 200, variant: "Ok", origin: { kind: "DeclaredSuccess" }, payload: holder, body: { kind: "Value", ref: holder } }],
+      });
+      const a = promote(sc('### a\nGET /h\n\n? status == 200\n? body.name contains "x"\n? body.shape.label exists\n? body.shape.label contains "x"\n? body.maybe.value contains "x"\n? body.maybe.value exists\n'), [{ route: r }], opts);
+      assert.ok(a.ok);
+      assert.ok(text(a).includes('expect v_a.name.contains("x")'), text(a));
+      assert.ok(!text(a).includes("v_a.shape.label.contains") && !text(a).includes("maybe.value.contains"), text(a));
+      assert.ok(!text(a).includes("required by its type: v_a.shape") && !text(a).includes("required by its type: v_a.maybe"), text(a));
+      assert.strictEqual(a.unsupported.length, 4);
+      assert.ok(a.unsupported.every((u) => /sum variant, an Option/.test(u.why)), JSON.stringify(a.unsupported));
+    });
+
     it("binds only what a later step reads, and refuses a capture it cannot spell", () => {
       const r = withResponses([200, "Ok", true]);
       const redirect = withResponses([302, "Found"]);
