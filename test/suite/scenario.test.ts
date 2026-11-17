@@ -124,6 +124,51 @@ describe("Request scenarios (#149)", () => {
     assert.ok(ds.every((d) => d.source === "bynk scenario"));
   });
 
+  // #160: the contract carries `success` and each response's `payload`/`body`
+  // (v0.633.4, v0.633.9), so a capture is checked against what the handler
+  // answers. This fails, rather than skips, if the pinned server stops sending them.
+  it("warns when a capture names nothing in the response, or can't fit where it is used (#160)", async function () {
+    this.timeout(90_000);
+    const uri = write(
+      "scenarios/types.bynk-http",
+      `@context shop
+
+### create
+PUT /items/abc
+Content-Type: application/json
+
+{ "name": "x", "qty": 2 }
+
+? status == 200
+? body.nope exists
+
+### again
+PUT /items/{{create.body.nope}}
+Content-Type: application/json
+
+{ "name": "x", "qty": {{create.body}} }
+
+### fine
+GET /ping
+X: {{create.body}}
+`,
+    );
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+    const ds = await waitFor(
+      () => vscode.languages.getDiagnostics(uri),
+      (d) => d.some((x) => x.message.includes("has no field")),
+      "the response-type warnings",
+      60_000,
+    );
+    const at = (line: number) => ds.filter((d) => d.range.start.line === line);
+    assert.match(at(9)[0].message, /^`\? body\.nope`: `String` has no field `nope` \(`PUT \/items\/:id` answers 200\)/);
+    assert.match(at(12)[0].message, /`\{\{create\.body\.nope\}\}`: `String` has no field `nope`/);
+    assert.match(at(15)[0].message, /body\.qty: `\{\{create\.body\}\}` is String \(string\), but number is expected here/);
+    assert.deepStrictEqual(at(19), []);
+    // Every response-side diagnostic is a warning.
+    assert.ok([9, 12, 15].every((l) => at(l).every((d) => d.severity === vscode.DiagnosticSeverity.Warning)), JSON.stringify(ds.map((d) => d.message)));
+  });
+
   it("puts Run lenses on the scenario and on each step", async function () {
     this.timeout(30_000);
     const uri = write("scenarios/run.bynk-http", RUN);

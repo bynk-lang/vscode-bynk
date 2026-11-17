@@ -244,7 +244,15 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   wire contract, asking the language server for the project's HTTP handlers:
   the route must exist (name the `@context` when several contexts serve it),
   a JSON body must match the handler's `body` type, and captures must name an
-  earlier step. A contract change shows up as a diagnostic. A `Run scenario`
+  earlier step. What an earlier step's response carries is checked too, as
+  warnings only (the contract says what a handler declares, not what a running
+  service answers): `{{create.body.id}}` and `? body.id exists` are checked
+  against the response's type, `T` for a status the handler answers with a
+  value (or its declared success when the step expects no status) and only
+  `error` for an error message; a raw body, a redirect and a status the
+  handler does not name are left alone. A captured value is also checked against
+  where it is used, in a body field or a path parameter (a string into an `Int`).
+  A contract change shows up as a diagnostic. A `Run scenario`
   CodeLens runs every step on the dev server, `Run step` runs one with the
   steps it reads, and the results appear inline (status, timing and each
   expectation) and in the **Bynk Scenario** output channel. A step that reads a
@@ -261,9 +269,12 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   case's `by <Actor>`, which you pick; a suite never carries a header credential
   or an environment value. Whatever a suite cannot express is listed at the top
   of the file and in the summary you confirm before it is written: response
-  headers other than a redirect's `Location` (a test cannot read them), `exists`
-  and `contains` checks and list-index paths (they need the field's type), a
-  query string, and a step that reads any of these, which is left out. The suite
+  headers other than a redirect's `Location` (a test cannot read them), list-index
+  paths, a query string, and a step that reads any of these, which is left out.
+  With the response's type known (a server from `v0.633.4`), `? body.name
+  contains "x"` on a String field is written as `expect item.name.contains("x")`,
+  and `? body.id exists` on a field the type requires is noted as holding by its
+  type; `absent`, an Option field and a field the contract doesn't type stay listed. The suite
   is checked with `bynk check` first, in a scratch copy of the project that
   includes your unsaved buffers, and nothing is written if it does not check. It is a one-way copy: the scenario and the suite are not kept in
   sync.

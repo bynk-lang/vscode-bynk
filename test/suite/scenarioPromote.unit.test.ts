@@ -387,6 +387,33 @@ Content-Type: application/json
       assert.match(set.unsupported.map((u) => u.why).join("\n"), /cookies a result sets/);
     });
 
+    it("spells contains and exists once the response type is known (#160)", () => {
+      const item = { kind: "Named" as const, name: "Item" };
+      const typed = route({
+        method: "GET",
+        path: "/h",
+        model: { envelope: { kind: "Empty" }, types: [ITEM, ITEM_ID], instantiations: [{ kind: "OptionInst", key: "Option<Int>", inner: baseRef("Int") }], success: item },
+        responses: [{ status: 200, variant: "Ok", origin: { kind: "DeclaredSuccess" }, payload: item, body: { kind: "Value", ref: item } }],
+      });
+      const a = promote(sc('### a\nGET /h\n\n? status == 200\n? body.name contains "wid"\n? body.qty exists\n'), [{ route: typed }], opts);
+      assert.ok(a.ok);
+      assert.deepStrictEqual(a.unsupported, []);
+      assert.ok(text(a).includes('expect v_a.name.contains("wid")'), text(a));
+      assert.ok(text(a).includes("// ? body.qty exists: v_a.qty is required by its type"), text(a));
+      assert.strictEqual(a.expressed, 3);
+      // With no status expectation the declared success is the type.
+      const b = promote(sc('### a\nGET /h\n? body.name contains "wid"\n'), [{ route: typed }], opts);
+      assert.ok(b.ok && text(b).includes('expect v_a.name.contains("wid")'), text(b));
+      // Still listed: a field that isn't a String, one that isn't there, `absent` of a required field.
+      const c = promote(sc('### a\nGET /h\n\n? status == 200\n? body.qty contains "1"\n? body.nope exists\n? body.name absent\n? body.name contains 3\n'), [{ route: typed }], opts);
+      assert.ok(c.ok);
+      assert.strictEqual(c.unsupported.length, 4);
+      assert.match(c.unsupported[0].why, /only for a String/);
+      assert.match(c.unsupported[1].why, /no field `nope`/);
+      assert.match(c.unsupported[2].why, /never absent/);
+      assert.match(c.unsupported[3].why, /takes a string/);
+    });
+
     it("binds only what a later step reads, and refuses a capture it cannot spell", () => {
       const r = withResponses([200, "Ok", true]);
       const redirect = withResponses([302, "Found"]);

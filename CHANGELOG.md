@@ -12,6 +12,11 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Request scenarios check captures and expectations against the response type** (#160). With `bynk/wireContract`'s `success` and per-response `payload`/`body` (`bynk-lang/bynk#3609`, v0.633.4 and v0.633.9), `{{create.body.id}}` and `? body.id exists` are checked against what the earlier route answers: `T` for a status that carries a value (or the declared success when the step expects no status), and only `error` for an error message. Raw bodies, redirects and statuses the handler doesn't name are skipped. A captured value is also checked against where it lands, in a body field or a path parameter (a string into an `Int`), and `? body.x == <json>` against the field's type. Every one of these is a warning, never an error. A server that doesn't send the types checks as before.
+- **Promote to test suite writes more of a scenario** (#160): with the response type known, `? body.name contains "x"` on a String field becomes `expect item.name.contains("x")`, and `? body.id exists` on a field the type requires is noted as holding by its type.
+
 ## [0.639.1] - 2026-11-17
 
 ### Changed
