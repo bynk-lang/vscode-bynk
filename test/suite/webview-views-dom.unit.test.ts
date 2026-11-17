@@ -352,6 +352,56 @@ describe("state view (jsdom, model-diagrams slice 6)", function () {
     assert.ok(byRef("tr:Open->Closed")?.classList.contains("bynk-current"));
   });
 
+  describe("coverage overlay (#144)", () => {
+    // The only edge (Open → Closed) is on line 2 (range line 1, 0-based).
+    const withCoverage = (ran: number[], missed: number[], stale = false): AgentStatePayload => ({
+      ...statePayload(),
+      coverage: { runAt: Date.now(), scope: "the whole project", stale, ran, missed },
+    });
+
+    it("marks an untested transition and its state, in the table too, with the count and the caveat", async () => {
+      await open(withCoverage([], [2]));
+      const tr = byRef("tr:Open->Closed");
+      assert.ok(tr?.classList.contains("bynk-cov-uncovered"), "the transition is marked untested");
+      assert.ok(tr?.getAttribute("aria-label")?.endsWith(", not tested"), "in words, not only colour");
+      assert.ok(byRef("state:Closed")?.classList.contains("bynk-cov-uncovered"), "no tested transition enters Closed");
+      assert.ok(q("table.states .entry.bynk-cov-uncovered-entry")?.textContent?.includes("✗ not tested"));
+      assert.ok(q(".bynk-cov-bar")?.textContent?.includes("0 of 1 transition tested"));
+      assert.ok(q(".bynk-cov-bar")?.textContent?.includes("cannot say which test reached it"));
+      assert.ok(!q(".bynk-cov-stale"));
+    });
+
+    it("marks a tested transition, and warns when the source changed since the run", async () => {
+      await open(withCoverage([2], [], true));
+      assert.ok(byRef("tr:Open->Closed")?.classList.contains("bynk-cov-covered"));
+      assert.ok(!byRef("state:Closed")?.classList.contains("bynk-cov-uncovered"));
+      assert.ok(q(".bynk-cov-bar")?.textContent?.includes("1 of 1 transition tested"));
+      assert.ok(q(".bynk-cov-stale"), "the stale warning");
+    });
+
+    it("hides the overlay with the toggle, and keeps the choice across an update", async () => {
+      await open(withCoverage([], [2]));
+      const box = q("#bynk-coverage-toggle") as HTMLInputElement;
+      box.checked = false;
+      box.dispatchEvent(new dom.window.Event("change"));
+      for (let i = 0; i < 300 && byRef("tr:Open->Closed")?.classList.contains("bynk-cov-uncovered"); i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      await drawn();
+      assert.ok(!byRef("tr:Open->Closed")?.classList.contains("bynk-cov-uncovered"));
+      assert.ok(!q(".entry.bynk-cov-uncovered-entry"));
+      assert.ok(q(".bynk-cov-bar"), "the toggle stays, to turn it back on");
+    });
+
+    it("draws nothing without coverage, or when the run did not measure the transition", async () => {
+      await open();
+      assert.ok(!q(".bynk-cov-bar"));
+      assert.ok(!q("[class*=bynk-cov-]"));
+      await open(withCoverage([], [50]));
+      assert.ok(!byRef("tr:Open->Closed")?.classList.contains("bynk-cov-uncovered"), "unmeasured says nothing");
+    });
+  });
+
   it("reveals source from the table, a state and a transition", async () => {
     await open();
     (q("tr[data-handler] a") as HTMLElement).click();

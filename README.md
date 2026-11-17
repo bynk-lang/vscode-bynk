@@ -116,6 +116,7 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   (`Coverage: <case>`); on anything else it measures the whole project and says
   so in the run output. Reports are never merged across runs, and a case's
   report is not a slice of the whole project's.
+- **Coverage on the model views.** After a coverage run, **Show Agent State** and **Show Sequence Diagram** mark the transitions, calls and branches no test ran (dashed amber; tested ones are green), with counts such as "3 of 5 transitions tested". This projects *line* coverage of the whole run onto each element's source range, so it cannot say which test reached what, and it warns when the source has changed since the run. **Show test coverage** hides it; **Bynk: Clear Model Coverage** removes it.
 - **Watch.** The Run profile has a **Watch** toggle (continuous run). With it on
   for an item, saving a `.bynk` file or `bynk.toml`, or changing one outside the
   editor, reruns that item after a one-second quiet period; several saves in a

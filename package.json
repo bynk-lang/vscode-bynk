@@ -657,6 +657,11 @@
         "icon": "$(symbol-enum)"
       },
       {
+        "command": "bynk.clearModelCoverage",
+        "title": "Clear Model Coverage",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.showComponentView",
         "title": "Show Component View",
         "category": "Bynk",
@@ -1059,6 +1064,10 @@
         {
           "command": "bynk.showAgentState",
           "when": "editorLangId == bynk && !isWeb"
+        },
+        {
+          "command": "bynk.clearModelCoverage",
+          "when": "!isWeb"
         },
         {
           "command": "bynk.showComponentView",
