@@ -21,6 +21,7 @@ import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
 import { diagramMessages } from "./diagramHost";
 import { isOpenSequence } from "./sequenceMessages";
 import type { ViewRefresh } from "./viewRefresh";
+import { allTraceViews, latestTraceLocation, onDidChangeRequestTraces, tracesFor } from "./requestTraces";
 import { allowedPageUri, revealLocation } from "./webviewHost";
 import type { SequenceModel, SequencePayload } from "./webview/types";
 
@@ -60,6 +61,22 @@ export function registerSequenceDiagram(
   }, hub);
   context.subscriptions.push(
     view,
+    // #143: a request reached the dev server: show its trace on the diagram
+    // the panel has, without asking the language server again.
+    onDidChangeRequestTraces(() => view.repost((p) => withTraces(p))),
+    // Not in package.json: every stored trace as the page would be given it,
+    // for the integration tests (a webview cannot be read back).
+    vscode.commands.registerCommand("bynk._requestTraces", () => allTraceViews()),
+    vscode.commands.registerCommand("bynk.showRequestTrace", async () => {
+      const at = latestTraceLocation();
+      if (!at) {
+        void vscode.window.showInformationMessage(
+          "Bynk: no request trace yet. Start the dev server (Bynk: Start Dev Server), send a request, then run this again.",
+        );
+        return;
+      }
+      return view.show({ uri: at.uri, position: { line: at.line, character: at.character } });
+    }),
     vscode.commands.registerCommand(
       "bynk.showSequenceDiagram",
       (uriArg?: unknown, positionArg?: unknown) => {
@@ -87,5 +104,12 @@ async function requestSequence(
     position: target.position,
   };
   const model = await client.sendRequest<SequenceModel | null>("bynk/sequenceModel", params);
-  return model ? { model, uri: target.uri } : null;
+  return model ? withTraces({ model, uri: target.uri }) : null;
+}
+
+/** #143: the payload with the traces that belong on its handler. */
+function withTraces(payload: SequencePayload): SequencePayload {
+  const traces = tracesFor(payload.model, payload.uri);
+  const { traces: _old, ...rest } = payload;
+  return traces.length > 0 ? { ...rest, traces } : rest;
 }

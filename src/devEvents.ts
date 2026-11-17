@@ -4,6 +4,8 @@
 // tests compile against it directly (see tsconfig.test.json); `devServer.ts`
 // wires it to the editor.
 
+import { parseRequestEvent, type RequestTrace } from "./requestTraceCore";
+
 /** One served context, from a `serving` event. */
 export interface ServedContext {
   /** The worker-dir form `--context` accepts (`a-b` for context `a.b`). */
@@ -21,7 +23,9 @@ export type DevEvent =
   | { event: "rebuild_ok" }
   | { event: "rebuild_failed" }
   | { event: "stopped"; code: number | null }
-  | { event: "log"; context: string; level: LogLevel; text: string };
+  | { event: "log"; context: string; level: LogLevel; text: string }
+  /** #143: one request a worker served (`--trace-events`, bynk v0.627.1). */
+  | { event: "request"; trace: RequestTrace };
 
 /** How severe a worker log line is, as `bynk dev --log-events` classifies it. */
 export type LogLevel = "info" | "warn" | "error";
@@ -61,6 +65,10 @@ export function parseDevEvent(line: string): DevEvent | undefined {
       if (typeof obj.context !== "string" || typeof obj.text !== "string") return undefined;
       const level: LogLevel = obj.level === "error" || obj.level === "warn" ? obj.level : "info";
       return { event: "log", context: obj.context, level, text: obj.text };
+    }
+    case "request": {
+      const trace = parseRequestEvent(obj, Date.now());
+      return trace ? { event: "request", trace } : undefined;
     }
     default:
       return undefined;
@@ -135,6 +143,7 @@ export function reduceDevState(state: DevState, t: DevTransition): DevState {
     case "rebuild_failed":
       return { ...state, phase: "failed" };
     case "log":
+    case "request":
       return state; // worker output, not a lifecycle change (see devLogs.ts)
     case "stopped":
       return { ...state, phase: "stopped", exitCode: t.code };
@@ -189,6 +198,7 @@ export function devMarker(t: DevTransition, prev: DevState): string | undefined 
     case "serving":
       return undefined; // the driver's own report says what is starting
     case "log":
+    case "request":
       return undefined;
     case "ready":
       return prev.ready || prev.phase === "starting" || prev.phase === "stopped"
@@ -245,12 +255,16 @@ export interface DevArgsOptions {
   basePort?: number | null;
   /** Forwarded to `wrangler dev` after `--` (`bynk.dev.args`). */
   extraArgs?: string[];
+  /** #143: `--trace-events`, one `request` event per request served. Needs
+   *  bynk v0.627.1; v0.632.2 joins cross-Worker calls. */
+  traceEvents?: boolean;
 }
 
 /** The `bynk dev` argument list for a session. */
 export function devArgs(opts: DevArgsOptions): string[] {
   // `--log-events` (#2474): the workers' output as `log` events, for the logs view.
   const args = ["dev", "--format", "json", "--log-events"];
+  if (opts.traceEvents) args.push("--trace-events");
   for (const c of opts.contexts ?? []) args.push("--context", c);
   if (typeof opts.basePort === "number") args.push("--base-port", String(opts.basePort));
   if (opts.extraArgs && opts.extraArgs.length > 0) args.push("--", ...opts.extraArgs);

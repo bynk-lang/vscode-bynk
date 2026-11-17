@@ -558,6 +558,12 @@
         "icon": "$(symbol-event)"
       },
       {
+        "command": "bynk.showRequestTrace",
+        "title": "Show Last Request Trace",
+        "category": "Bynk",
+        "icon": "$(debug-line-by-line)"
+      },
+      {
         "command": "bynk.showDocumentation",
         "title": "Show Documentation",
         "category": "Bynk",
@@ -969,6 +975,10 @@
         {
           "command": "bynk.showSequenceDiagram",
           "when": "editorLangId == bynk && !isWeb"
+        },
+        {
+          "command": "bynk.showRequestTrace",
+          "when": "!isWeb"
         },
         {
           "command": "bynk.showDocumentation",
@@ -1692,6 +1702,11 @@
           "minimum": 1,
           "maximum": 65535,
           "description": "First port `Bynk: Start Dev Server` and the `bynk: dev` task allocate (`bynk dev --base-port`): context *i* is served on this port + *i*. When empty, `bynk dev` uses wrangler's 8787."
+        },
+        "bynk.dev.traceRequests": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the dev server with `--trace-events`, so each request it serves can be shown as a trace over the handler's sequence diagram (the calls it made, in order, with timings and where it failed). The dev build records each call's kind, target, `.bynk` location, time and outcome, never argument values, and adds the `nodejs_als` compatibility flag to each Worker. Needs `bynk` v0.627.1 or later (v0.632.2 to follow a call across Workers); turn off to run `bynk dev` without it."
         },
         "bynk.dev.args": {
           "type": "array",

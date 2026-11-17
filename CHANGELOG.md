@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Request traces on the sequence diagram** (#143). The dev server now starts with `bynk dev --trace-events`, and each request it serves can be shown over the diagram of the handler it went through: the calls it made (capability, cross-context and agent), in order, coloured with the time each took; the branches and calls it did not take faded; a failing call in red; and the request's error with stack frames that open the `.bynk` source. Pick among the last 20 requests per handler (the latest is shown by default), or compare two to see which calls were slower. **Send Request** has a **Show trace** button, and **Bynk: Show Last Request Trace** opens the newest one. A call into another context shows the callee's own request when it was traced too (bynk v0.632.2). Traces stay in memory, are never written to a log, and carry no argument values. The new `bynk.dev.traceRequests` setting (on by default) turns it off; it needs `bynk` v0.627.1 or later.
+
 ## [0.639.1] - 2026-11-17
 
 ### Changed

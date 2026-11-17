@@ -4,6 +4,8 @@
 // hand alongside the Rust side — the same posture every other custom
 // LSP-adjacent shape in this extension takes.
 
+import type { TraceView } from "../requestTraceCore";
+
 export type ParticipantKind = "Entry" | "Capability" | "Context" | "Agent" | "Actor";
 /** `StateWrite` (#2194): an agent handler's write to its own state (`status :=
  *  Placed`, `items.put(id, …)`). `from === to ===` the entry; rendered as a
@@ -98,6 +100,9 @@ export interface SequenceModel {
 export interface SequencePayload {
   model: SequenceModel;
   uri: string;
+  /** #143: the request traces from the running dev server that belong on this
+   *  handler's diagram, newest first. Absent when there are none. */
+  traces?: TraceView[];
 }
 
 /** A click-to-code message the webview posts back to the extension host. */

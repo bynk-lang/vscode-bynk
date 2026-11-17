@@ -142,4 +142,68 @@ describe("Bynk dev server (#2094)", () => {
       delete process.env.BYNK_FAKE_DEV;
     }
   });
+
+  // #143: `--trace-events`, the `request` events, and the store behind the
+  // sequence diagram's overlay. The stand-in writes bynk v0.639.1's exact shape.
+  it("asks for request traces, and keeps each request with its steps and callee joined (#143)", async function () {
+    if (process.platform === "win32") this.skip();
+    this.timeout(45_000);
+    type Traces = Array<{
+      id: string;
+      context: string;
+      route: string;
+      status: number;
+      steps: Array<{ target: string; outcome: string; at: { uri: string; range: { start: { line: number; character: number } } } | null }>;
+      fault: { message: string; frames: Array<{ text: string; at: unknown }> } | null;
+      callees: Record<number, { id: string; route: string }>;
+    }>;
+    const traces = () => vscode.commands.executeCommand<Traces>("bynk._requestTraces").then((t) => t ?? []);
+    process.env.BYNK_FAKE_DEV = "traces";
+    try {
+      const started = nextTask(vscode.tasks.onDidStartTask);
+      await vscode.commands.executeCommand("bynk.startDevServer");
+      await started;
+      assert.ok(fake.read().some((e) => e.argv?.includes("--trace-events")), "the session asks the driver for traces");
+      const all = await waitFor(traces, (t) => t.some((x) => x.id === "r1"), "the request trace to arrive");
+      const r1 = all.find((t) => t.id === "r1")!;
+      assert.strictEqual(r1.route, "GET /a");
+      assert.strictEqual(r1.status, 500);
+      assert.deepStrictEqual(r1.steps.map((s) => s.target), ["other.authorise", "Ledger.tally"]);
+      assert.ok(r1.steps[0].at?.uri.endsWith("/src/shop.bynk"), "a span resolves into the project");
+      assert.deepStrictEqual(r1.steps[0].at?.range.start, { line: 4, character: 4 }, "1-based line and column become 0-based");
+      assert.strictEqual(r1.steps[1].at, null, "a step with no span has no location");
+      assert.deepStrictEqual(r1.callees[0].id, "c1", "the caller's step is joined to the callee's request");
+      assert.strictEqual(r1.fault?.message, "Error: boom");
+      assert.ok(r1.fault?.frames[0].at, "a .bynk frame links to its source");
+      assert.strictEqual(r1.fault?.frames[1].at, null, "a frame outside .bynk does not");
+      const lines = await vscode.commands.executeCommand<string[]>("bynk.logLines");
+      assert.ok(!(lines ?? []).some((l) => l.includes("GET /a")), "a trace is never written to the logs");
+    } finally {
+      const ended = nextTask(vscode.tasks.onDidEndTask);
+      await vscode.commands.executeCommand("bynk.stopDevServer");
+      await ended;
+      delete process.env.BYNK_FAKE_DEV;
+    }
+  });
+
+  it("starts without --trace-events when bynk.dev.traceRequests is off (#143)", async function () {
+    if (process.platform === "win32") this.skip();
+    this.timeout(45_000);
+    const config = vscode.workspace.getConfiguration("bynk");
+    await config.update("dev.traceRequests", false, vscode.ConfigurationTarget.Global);
+    try {
+      const before = fake.read().filter((e) => e.argv?.[0] === "dev").length;
+      const started = nextTask(vscode.tasks.onDidStartTask);
+      await vscode.commands.executeCommand("bynk.startDevServer");
+      await started;
+      const runs = fake.read().filter((e) => e.argv?.[0] === "dev");
+      assert.ok(runs.length > before);
+      assert.ok(!runs[runs.length - 1].argv!.includes("--trace-events"));
+    } finally {
+      await config.update("dev.traceRequests", undefined, vscode.ConfigurationTarget.Global);
+      const ended = nextTask(vscode.tasks.onDidEndTask);
+      await vscode.commands.executeCommand("bynk.stopDevServer");
+      await ended;
+    }
+  });
 });

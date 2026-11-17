@@ -39,6 +39,8 @@ import {
 import type { LogEntry } from "./devLogs";
 import type { LogLevel } from "./devEvents";
 import { DevLogs } from "./devLogsView";
+import { clearRequestTraces, recordRequestTrace } from "./requestTraces";
+import type { RequestTrace } from "./requestTraceCore";
 import { offerDoctor, reportBynkNotFound } from "./doctor";
 import { bynkPath } from "./tasks";
 
@@ -179,15 +181,18 @@ class DevServerController implements vscode.Disposable {
           ? definition.basePort
           : config.get<number | null>("dev.basePort", null),
       extraArgs: config.get<string[]>("dev.args", []),
+      traceEvents: config.get<boolean>("dev.traceRequests", true),
     });
     this.lastDefinition = definition;
     this.problems.clear();
+    clearRequestTraces(); // a new session: spans from the last build no longer line up
     this.logs.sessionStarted(args.slice(1).join(" "));
     const session = new DevSession(
       root,
       args,
       (prev, t, next) => this.onTransition(session, prev, t, next),
       (entry) => this.logs.push(entry),
+      (trace) => recordRequestTrace(trace, root),
     );
     this.session = session;
     this.render(session.state);
@@ -397,6 +402,7 @@ class DevSession implements vscode.Pseudoterminal {
     private readonly args: string[],
     private readonly onTransition: (prev: DevState, t: DevTransition, next: DevState) => void,
     private readonly onLog: (entry: LogEntry) => void,
+    private readonly onRequest: (trace: RequestTrace) => void,
   ) {
     this.exitedPromise = new Promise((r) => (this.resolveExited = r));
   }
@@ -438,6 +444,12 @@ class DevSession implements vscode.Pseudoterminal {
     if (event.event === "log") {
       // The driver already printed the line on stderr, which the terminal shows.
       this.onLog({ context: event.context, level: event.level, text: event.text });
+      return;
+    }
+    if (event.event === "request") {
+      // Like a log line, never written to the terminal: a trace is opened on
+      // the sequence diagram, and holds routes the user did not ask to log.
+      this.onRequest(event.trace);
       return;
     }
     this.apply(event);

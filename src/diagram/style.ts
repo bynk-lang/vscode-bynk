@@ -151,6 +151,12 @@ const INTERACTIVE_CSS = `
 .bynk-diagram [data-bynk-focusable]:focus-visible > text,
 .bynk-diagram text[data-bynk-focusable]:focus-visible { fill: var(--vscode-textLink-activeForeground, var(--vscode-focusBorder)); text-decoration: underline; }
 
+.bynk-diagram .bynk-trace-miss { opacity: 0.3; }
+.bynk-diagram .bynk-trace-hit .bynk-msg-line { stroke: var(--vscode-charts-green, var(--vscode-testing-iconPassed, #388a34)); stroke-width: 2.5; }
+.bynk-diagram .bynk-trace-pending .bynk-msg-line { stroke: var(--vscode-editorWarning-foreground, #cca700); stroke-width: 2.5; stroke-dasharray: 5 3; }
+.bynk-diagram .bynk-trace-fault .bynk-msg-line { stroke: var(--vscode-errorForeground, #f14c4c); stroke-width: 2.5; }
+.bynk-diagram .bynk-trace-fault .bynk-label { fill: var(--vscode-errorForeground, #f14c4c); }
+.bynk-diagram .bynk-trace-ms { fill: var(--vscode-descriptionForeground); font-size: 0.9em; }
 .bynk-diagram .bynk-current .bynk-msg-line,
 .bynk-diagram .bynk-current .bynk-note-box,
 .bynk-diagram .bynk-current.bynk-frag-tab .bynk-frag-tab-box,
@@ -164,6 +170,22 @@ const INTERACTIVE_CSS = `
 /** The page around the drawing: viewport, sticky heads, minimap, toolbar. */
 const PAGE_CSS = `
 #root .bynk-viewport svg { max-width: none; display: block; }
+.bynk-trace-bar label { display: inline-flex; align-items: center; gap: 4px; }
+.bynk-trace-bar select { max-width: 32em; }
+.bynk-trace-panel { margin-top: 10px; font-size: 0.9em; }
+.bynk-trace-panel p { margin: 4px 0; }
+.bynk-trace-fail { color: var(--vscode-errorForeground, #f14c4c); }
+.bynk-trace-fault-box { margin: 4px 0 8px; padding: 4px 8px; border-left: 3px solid var(--vscode-errorForeground, #f14c4c); }
+.bynk-trace-frame { font-family: var(--vscode-editor-font-family, monospace); white-space: pre-wrap; }
+.bynk-trace-frame--link { cursor: pointer; color: var(--vscode-textLink-foreground); }
+table.bynk-trace-steps { border-collapse: collapse; }
+.bynk-trace-steps th, .bynk-trace-steps td { text-align: left; padding: 2px 10px 2px 0; vertical-align: top; }
+.bynk-trace-step[tabindex] { cursor: pointer; }
+.bynk-trace-step--off { opacity: 0.7; }
+.bynk-trace-fault { color: var(--vscode-errorForeground, #f14c4c); }
+.bynk-trace-pending { color: var(--vscode-editorWarning-foreground, #cca700); }
+.bynk-trace-note { color: var(--vscode-descriptionForeground); }
+.bynk-trace-slower { color: var(--vscode-editorWarning-foreground, #cca700); }
 .bynk-viewport { position: relative; overflow: auto; height: 70vh; outline: none; cursor: default; }
 .bynk-viewport.bynk-viewport--inline { height: auto; }
 .bynk-viewport.bynk-panning { cursor: grabbing; user-select: none; }
