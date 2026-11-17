@@ -243,7 +243,8 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const source = cell.document.getText();
     const { text, cell: observed } = handlerSource(source);
     const snippet = buildSnippet(r.cells.map((c, i) => (i === index ? { ...c, source: text } : c)), index, unit);
-    if (snippet.text.trim() === "") {
+    // The cell's own body, not the snippet: stubs and earlier cells' `let`s fill it too.
+    if (analyseCell(source).body.length === 0) {
       void execution.replaceOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error(new Error("This cell has no call to run: write the handler's call under `// @handler`, or use **Bynk: Insert Handler Call…**."))]));
       execution.end(false, Date.now());
       return;
@@ -277,7 +278,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const notes: string[] = snippetNotes(snippet, (i) => `cell ${codeCells[i].index + 1}`);
     for (const d of shifted.filter((x) => x.cell === undefined || x.cell !== index)) notes.push(describe(d, codeCells, index));
     for (const d of shifted.filter(inAppended)) notes.push(`The extension's \`match\` over the response didn't check (${d.code || d.severity}): ${d.message} End the cell with a \`match\` of your own to show the response.`);
-    const hasStubs = analyseCell(source).header.some((h) => h.text.trimStart().startsWith("stub"));
+    const hasStubs = snippet.stubs.length > 0 || analyseCell(source).header.some((h) => h.text.trimStart().startsWith("stub"));
     if (result.kind !== "diagnostics") notes.push(suiteNote(unit, usedSuite, hasStubs));
 
     let items: vscode.NotebookCellOutputItem[] = [];
