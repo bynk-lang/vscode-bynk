@@ -446,3 +446,26 @@ export function diffWire(before: Record<string, WireHandler>, after: Record<stri
   }
   return out;
 }
+
+/** Where a boundary type travels in a handler's wire contract (#146): in the
+ *  request, in a response, both, or neither. An HTTP handler's response is the
+ *  server's own (`success` and each response's body); an `on call` handler's is
+ *  inferred as the types the request does not reach (bynk-lang/bynk#3687); other
+ *  handlers have no response. A name matches a type by `Name` or `unit.Name`. */
+export function wireCarries(model: WcModel, name: string): { request: boolean; response: boolean } {
+  const side = new Side(model);
+  const is = (n: string): boolean => n === name || n.endsWith(`.${name}`);
+  const request = [...side.closure(requestRefs(model.envelope)).types].some(is);
+  let response = false;
+  if (model.kind.kind === "Http") {
+    const refs: WcRef[] = model.success ? [model.success] : [];
+    for (const r of model.responses) {
+      const body = responseBody(r);
+      if (body?.kind === "Value") refs.push(body.ref);
+    }
+    response = [...side.closure(refs).types].some(is);
+  } else if (model.kind.kind === "Call") {
+    response = !request && model.types.some((t) => is(t.name));
+  }
+  return { request, response };
+}
