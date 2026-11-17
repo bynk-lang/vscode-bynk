@@ -54,7 +54,9 @@ export type WcBoundaryKind =
   | { kind: "Message" }
   | { kind: "Open" }
   | { kind: "Close" }
-  | { kind: "Event" };
+  | { kind: "Event" }
+  /** v0.639.1: a handler that rejects what reaches it. */
+  | { kind: "Rejected" };
 
 export type WcExpected =
   | { kind: "Json"; json: WcJsonKind }

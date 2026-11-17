@@ -28,18 +28,29 @@
 // `test/suite/wireDiffCore.unit.test.ts` are named after. When that file's
 // rules change, update the test it maps to here.
 //
-// `WcModel` has no explicit response shape, so the response side is inferred:
-// the boundary types and instantiations the request does not reach. A type used
-// on both sides is checked as a request only (`WIRE_NOTE` says so). That is an
-// approximation until bynk-lang/bynk#3609 puts the handler's success type
-// (`success: WcRef | null`) into `bynk/wireContract`; replace the inference
-// with that field then.
+// The response side of an HTTP handler is the server's own: `bynk/wireContract`
+// carries the handler's `success` type (bynk#3609, v0.633.4), each response's
+// `payload` and, from v0.633.9 (bynk#3632), its `body` (a value, a message, a
+// redirect, raw bytes or a stream). Each response the two revisions share is
+// compared by that body, the later revision sending and the earlier caller
+// receiving, so a type used on both sides is checked in both directions.
+//
+// Two kinds of handler have no response shape in the model:
+//   - an `on call` handler has a response, but `success` is HTTP-only
+//     (bynk-lang/bynk#3687 asks for it to be filled for `on call` too). Until
+//     then `WcModel.types` holds the request's and the response's boundary
+//     types together, so its response is inferred as the types and
+//     instantiations the request does not reach, and a type used on both sides
+//     is checked as a request only (`WIRE_NOTE` says so). Replace that with
+//     `success` when #3687 lands;
+//   - a cron, event, message or websocket handler has no response at all, so
+//     only its request side is classified.
 
 import type { DiffEntry } from "./modelDiffCore";
-import type { WcEnvelope, WcField, WcInst, WcModel, WcRef, WcType } from "./webview/wireContractTypes";
+import type { WcEnvelope, WcField, WcHttpResponse, WcInst, WcModel, WcRef, WcResponseBody, WcType } from "./webview/wireContractTypes";
 
 export const WIRE_NOTE =
-  "Each handler's wire contract in the two revisions is classified as a caller built against the earlier revision would meet the later one, by the language server's own rules for service contracts: breaking unless every value the sender can produce still decodes. A response's shape is inferred from the boundary types the request does not reach (until bynk-lang/bynk#3609 exposes it), so a type used on both sides is checked as a request only. Where unsure, it says breaking.";
+  "Each handler's wire contract in the two revisions is classified as a caller built against the earlier revision would meet the later one, by the language server's own rules for service contracts: breaking unless every value the sender can produce still decodes. For an HTTP handler each shared response is compared by the body the server reports for it (a value's type, a message, a redirect, raw bytes or a stream), the later revision's body against the earlier caller's, and a response that is new is breaking. The server does not yet report an `on call` handler's response type (bynk-lang/bynk#3687), so that response is inferred from the boundary types the request does not reach, and a type used on both sides is checked as a request only. A cron, event, message or websocket handler has no response, so only its request side applies. Where unsure, it says breaking.";
 
 /** A handler's contract in one revision, and the working-tree file it is in. */
 export interface WireHandler {
@@ -329,11 +340,60 @@ export function classifyWire(before: WcModel, after: WcModel): WireVerdict {
   } else req.out.push("request: its form changed");
   reasons.push(...req.out);
 
-  // Response: the later callee sends, the earlier caller receives. The side
-  // is whatever the request does not reach.
+  // Response: the later callee sends, the earlier caller receives.
+  const res = { sender: a, receiver: b, out: [] as string[], seen: new Set<string>() };
+  if (before.kind.kind === "Http" && after.kind.kind === "Http") {
+    // A server before v0.633.4 (bynk#3609) reports no response shape, not even a
+    // `null` `success`: infer it as before, rather than compare nothing.
+    if (before.success !== undefined && after.success !== undefined) httpResponses(res, before, after);
+    else inferredResponse(res, before, after, b, a);
+  } else if (before.kind.kind === "Call" && after.kind.kind === "Call") inferredResponse(res, before, after, b, a);
+  reasons.push(...res.out);
+
+  // A response the callers never saw is one they may not handle.
+  const had = declared(before);
+  for (const r of declared(after)) if (!had.has(r)) reasons.push(`response ${r}: a new response callers may not handle`);
+
+  return { verdict: reasons.length > 0 ? "breaking" : "compatible", reasons };
+}
+
+const responseKey = (r: WcHttpResponse): string => `${r.status} ${r.variant}`;
+
+/** The body a response carries: the server's `body` (v0.633.9), or for a
+ *  server that sends only `payload` (v0.633.4) a value body; `null` for none. */
+export function responseBody(r: WcHttpResponse): WcResponseBody | null {
+  if (r.body !== undefined) return r.body;
+  return r.payload ? { kind: "Value", ref: r.payload } : null;
+}
+
+/** An HTTP handler's responses, compared by what the server says each body is.
+ *  A boundary-implicit response has no body to describe (the boundary shapes
+ *  it), and a response only the earlier revision declared is one callers
+ *  handle and never receive, which is compatible. */
+function httpResponses(c: Ctx, before: WcModel, after: WcModel): void {
+  const earlier = new Map(before.responses.map((r) => [responseKey(r), r]));
+  for (const r of after.responses) {
+    const prior = earlier.get(responseKey(r));
+    if (!prior || r.origin.kind === "BoundaryImplicit" || prior.origin.kind === "BoundaryImplicit") continue;
+    const at = `response ${responseKey(r)}`;
+    const was = responseBody(prior);
+    const now = responseBody(r);
+    if (was?.kind !== now?.kind) {
+      bad(c, at, `its body is ${now?.kind ?? "none"} where it was ${was?.kind ?? "none"}`);
+    } else if (was?.kind === "Value" && now?.kind === "Value") {
+      flows(c, now.ref, was.ref, at);
+    } else if (was?.kind === "Redirect" && now?.kind === "Redirect" && was.header !== now.header) {
+      bad(c, at, `the redirect is now in ${now.header}, not ${was.header}`);
+    }
+  }
+}
+
+/** An `on call` handler's response, which the model does not carry yet
+ *  (bynk-lang/bynk#3687): the types and instantiations its request does not
+ *  reach. A type used on both sides is checked as a request only. */
+function inferredResponse(res: Ctx, before: WcModel, after: WcModel, b: Side, a: Side): void {
   const bReq = b.closure(requestRefs(before.envelope));
   const aReq = a.closure(requestRefs(after.envelope));
-  const res = { sender: a, receiver: b, out: [] as string[], seen: new Set<string>() };
   for (const t of before.types) {
     if (bReq.types.has(t.name) || aReq.types.has(t.name)) continue;
     if (!a.types.has(t.name)) res.out.push(`response ${t.name}: is no longer part of the contract`);
@@ -344,13 +404,6 @@ export function classifyWire(before: WcModel, after: WcModel): WireVerdict {
     if (!a.insts.has(i.key)) res.out.push(`response ${i.key}: is no longer part of the contract`);
     else flows(res, { kind: "Inst", key: i.key }, { kind: "Inst", key: i.key }, `response ${i.key}`);
   }
-  reasons.push(...res.out);
-
-  // A response the callers never saw is one they may not handle.
-  const had = declared(before);
-  for (const r of declared(after)) if (!had.has(r)) reasons.push(`response ${r}: a new response callers may not handle`);
-
-  return { verdict: reasons.length > 0 ? "breaking" : "compatible", reasons };
 }
 
 /** The contract without positions, with its lists in a fixed order, so two
