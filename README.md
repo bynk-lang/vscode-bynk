@@ -308,7 +308,7 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   - **Earlier cells' `let`s** carry forward: `bynk eval` keeps nothing between
     runs, so the extension sends the top-level `let`s of the earlier cells that
     ran, in the same unit, ahead of the cell. A cell edited since it ran, or never
-    run, contributes nothing; `consumes` and `stub` lines are hoisted, once each.
+    run, contributes nothing; `consumes` and `stub` lines of the cells that send `let`s are hoisted, once each, and a cell's own `stub` for a capability replaces an earlier cell's (the output names the stubs it applied from earlier cells).
     Only `let`s start at the left margin and continue on indented lines. The
     output says which cells' `let`s it used.
   - The file is JSON with each cell's source as lines, so a diff shows what
