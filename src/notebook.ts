@@ -18,16 +18,16 @@ import {
   decodeEval,
   evalArgs,
   isUnitName,
-  parseNotebook,
   placeDiagnostics,
   renderValue,
-  serializeNotebook,
+  snippetNotes,
   unitFor,
   unitNames,
   type CellDiagnostic,
   type CellInput,
   type EvalResult,
 } from "./notebookCore";
+import { registerNotebookSerializer } from "./notebookSerializer";
 import { activeProjectRoot, projectRootFor } from "./projectRoots";
 
 const CONTROLLER_ID = "bynk-notebook-controller";
@@ -51,32 +51,6 @@ async function projectUnits(root: vscode.Uri): Promise<string[]> {
   return [...names].sort();
 }
 
-class BynkNotebookSerializer implements vscode.NotebookSerializer {
-  deserializeNotebook(content: Uint8Array): vscode.NotebookData {
-    const parsed = parseNotebook(new TextDecoder().decode(content));
-    if ("error" in parsed) {
-      // Show the reason in the notebook, rather than an editor that won't open.
-      const data = new vscode.NotebookData([new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, `**This file is not a Bynk notebook.** ${parsed.error}`, "markdown")]);
-      data.metadata = { invalid: true, raw: new TextDecoder().decode(content) };
-      return data;
-    }
-    const data = new vscode.NotebookData(
-      parsed.notebook.cells.map((c) => (c.kind === "markdown" ? new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, c.source, "markdown") : new vscode.NotebookCellData(vscode.NotebookCellKind.Code, c.source, "bynk"))),
-    );
-    if (parsed.notebook.unit) data.metadata = { unit: parsed.notebook.unit };
-    return data;
-  }
-
-  serializeNotebook(data: vscode.NotebookData): Uint8Array {
-    // A file that was not a notebook is written back as it was read, never as
-    // the explanation shown in its place.
-    if (data.metadata?.invalid && typeof data.metadata.raw === "string") return new TextEncoder().encode(data.metadata.raw);
-    const unit = typeof data.metadata?.unit === "string" ? data.metadata.unit : undefined;
-    const cells = data.cells.map((c) => ({ kind: c.kind === vscode.NotebookCellKind.Markup ? ("markdown" as const) : ("code" as const), source: c.value }));
-    return new TextEncoder().encode(serializeNotebook({ unit, cells }));
-  }
-}
-
 /** What a cell last ran as: its source, when it ran without a problem. A cell
  *  edited since counts as not run: its `let`s may no longer hold. */
 type Ran = Map<string, string>;
@@ -88,7 +62,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
   context.subscriptions.push(diagnostics, output);
 
   context.subscriptions.push(
-    vscode.workspace.registerNotebookSerializer(NOTEBOOK_TYPE, new BynkNotebookSerializer(), { transientOutputs: true }),
+    registerNotebookSerializer(),
   );
 
   const controller = vscode.notebooks.createNotebookController(CONTROLLER_ID, NOTEBOOK_TYPE, "Bynk");
@@ -183,7 +157,8 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
       .filter((c) => c.kind === vscode.NotebookCellKind.Code)
       .map((c) => {
         const source = c.document.getText();
-        return { source, unit: analyseCell(source).unit, ran: mine.get(c.document.uri.toString()) === source };
+        const last = mine.get(c.document.uri.toString());
+        return { source, unit: analyseCell(source).unit, ran: last === source, edited: last !== undefined && last !== source };
       });
     const codeCells = nb.getCells().filter((c) => c.kind === vscode.NotebookCellKind.Code);
     const index = codeCells.findIndex((c) => c.index === cell.index);
@@ -199,9 +174,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     showDiagnostics(codeCells, placed);
     const items: vscode.NotebookCellOutputItem[] = [];
     const notes: string[] = [];
-    if (snippet.used.length > 0) {
-      notes.push(`Used the \`let\`s of ${snippet.used.map((i) => `cell ${codeCells[i].index + 1}`).join(", ")}.`);
-    }
+    notes.push(...snippetNotes(snippet, (i) => `cell ${codeCells[i].index + 1}`));
     // Problems that can't sit on this cell's lines are listed here instead.
     const elsewhere = placed.filter((d) => d.cell === undefined || d.cell !== index);
     for (const d of elsewhere) notes.push(describe(d, codeCells, index));

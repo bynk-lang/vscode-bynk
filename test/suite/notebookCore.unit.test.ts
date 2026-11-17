@@ -12,6 +12,7 @@ import {
   placeDiagnostics,
   renderValue,
   serializeNotebook,
+  snippetNotes,
   splitStatements,
   unitFor,
   unitNames,
@@ -128,6 +129,30 @@ describe("buildSnippet (#151)", () => {
       { cell: 1, line: 3 },
       { cell: 1, line: 4 },
     ]);
+  });
+
+  it("says which `let x <- …` runs again, so a value is never shown as if it were the earlier one", () => {
+    const cells = [cell("let n <- Random.int(1, 6)\nn"), cell("let k: Int <- Counter.next()\nlet m = 1\nm"), cell("n", false)];
+    const s = buildSnippet(cells, 2, "u.v");
+    assert.deepStrictEqual(s.rerun, [{ name: "n", cell: 0 }, { name: "k", cell: 1 }]);
+    assert.deepStrictEqual(snippetNotes(s, (i) => `cell ${i + 1}`), [
+      "Used the `let`s of cell 1, cell 2.",
+      "Re-ran `let n <- …` from cell 1; effectful values may differ from that cell's output.",
+      "Re-ran `let k <- …` from cell 2; effectful values may differ from that cell's output.",
+    ]);
+    // A pure let is not an effect, and an `<-` inside a value is not a binding.
+    const pure = buildSnippet([cell("let a = f(x <- y)\na"), cell("a", false)], 1, "u.v");
+    assert.deepStrictEqual(pure.rerun, []);
+  });
+
+  it("says which cell was left out because it was edited since its last run", () => {
+    const cells = [{ ...cell("let a = 1\na", false), edited: true }, { ...cell("1", false), edited: true }, { ...cell("let z = 1\nz", false), edited: true, unit: "other.unit" }, cell("a", false)];
+    const s = buildSnippet(cells, 3, "u.v");
+    assert.strictEqual(s.text, "a");
+    // Only a cell in this unit with a `let` is worth naming; one never run is not "edited".
+    assert.deepStrictEqual(s.skipped, [0]);
+    assert.deepStrictEqual(snippetNotes(s, (i) => `cell ${i + 1}`), ["Skipped cell 1: edited since its last run, so its `let`s were not sent. Run it again to use them."]);
+    assert.deepStrictEqual(buildSnippet([cell("let a = 1\na", false), cell("a", false)], 1, "u.v").skipped, []);
   });
 
   it("places a diagnostic in the cell that wrote the line", () => {

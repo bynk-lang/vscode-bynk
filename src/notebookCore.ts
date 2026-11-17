@@ -144,6 +144,8 @@ export function splitStatements(source: string): Statement[] {
 
 const HEADER = /^(consumes|stub)\b/;
 const LET = /^let\b/;
+/** `let x <- eff`: a binding that runs an effect (`let x: T <- eff` too). */
+const EFFECT_LET = /^let\s+([A-Za-z_][A-Za-z0-9_]*)[^=]*?<-/;
 
 export interface Cell {
   /** The unit named by a leading `// @unit`, if any. */
@@ -199,6 +201,13 @@ export interface Snippet {
   origins: Origin[];
   /** The earlier cells whose `let`s were sent ahead, by index. */
   used: number[];
+  /** The `let x <- …` bindings among them: each runs again, since `bynk eval`
+   *  keeps nothing, so a stub that counts calls or a `Clock` can answer
+   *  differently than it did in the cell that first bound it. */
+  rerun: { name: string; cell: number }[];
+  /** Earlier cells in this unit with `let`s that were left out because they
+   *  were edited after their last successful run. */
+  skipped: number[];
 }
 
 export interface CellInput {
@@ -208,6 +217,8 @@ export interface CellInput {
   unit: string | undefined;
   /** Whether it has run without a problem since it was last edited. */
   ran: boolean;
+  /** Whether it did run without a problem, but has been edited since. */
+  edited?: boolean;
 }
 
 const squash = (s: string): string => s.replace(/\s+/g, " ").trim();
@@ -227,11 +238,18 @@ export function buildSnippet(cells: readonly CellInput[], index: number, unit: s
   const out: { text: string; origin: Origin }[] = [];
   const seen = new Set<string>();
   const used: number[] = [];
+  const rerun: { name: string; cell: number }[] = [];
+  const skipped: number[] = [];
   const earlier: { index: number; cell: Cell }[] = [];
   for (let i = 0; i < index; i++) {
     const c = cells[i];
-    if (!c.ran) continue;
     if ((c.unit ?? unit) !== unit) continue;
+    if (!c.ran) {
+      // Say so when an edit is why its `let`s are missing, or a later cell's
+      // "unknown name" would have no visible cause.
+      if (c.edited && analyseCell(c.source).body.some((s) => LET.test(s.text.trimStart()))) skipped.push(i);
+      continue;
+    }
     earlier.push({ index: i, cell: analyseCell(c.source) });
   }
   const current = analyseCell(cells[index].source);
@@ -251,7 +269,11 @@ export function buildSnippet(cells: readonly CellInput[], index: number, unit: s
     const lets = cell.body.filter((s) => LET.test(s.text.trimStart()));
     if (lets.length === 0) continue;
     used.push(i);
-    for (const s of lets) push(s, i);
+    for (const s of lets) {
+      push(s, i);
+      const eff = EFFECT_LET.exec(s.text.trimStart());
+      if (eff) rerun.push({ name: eff[1], cell: i });
+    }
   }
   if (current.body.length > 0) {
     // The body as written, comments and blank lines among its statements included.
@@ -259,7 +281,18 @@ export function buildSnippet(cells: readonly CellInput[], index: number, unit: s
     const last = current.body[current.body.length - 1].end;
     for (let l = first; l <= last; l++) out.push({ text: current.lines[l], origin: { cell: index, line: l } });
   }
-  return { text: out.map((o) => o.text).join("\n"), origins: out.map((o) => o.origin), used };
+  return { text: out.map((o) => o.text).join("\n"), origins: out.map((o) => o.origin), used, rerun, skipped };
+}
+
+/** The lines a cell's output adds about what was sent ahead of it. `label`
+ *  names a cell the way the notebook shows it ("cell 3"). Never silent about a
+ *  value that is run again, or a cell that was left out. */
+export function snippetNotes(s: Pick<Snippet, "used" | "rerun" | "skipped">, label: (cell: number) => string): string[] {
+  const notes: string[] = [];
+  if (s.used.length > 0) notes.push(`Used the \`let\`s of ${s.used.map(label).join(", ")}.`);
+  for (const r of s.rerun) notes.push(`Re-ran \`let ${r.name} <- …\` from ${label(r.cell)}; effectful values may differ from that cell's output.`);
+  for (const i of s.skipped) notes.push(`Skipped ${label(i)}: edited since its last run, so its \`let\`s were not sent. Run it again to use them.`);
+  return notes;
 }
 
 // ---------------------------------------------------------------------------
