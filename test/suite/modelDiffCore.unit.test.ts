@@ -238,6 +238,37 @@ describe("snapshots and agents (#147)", () => {
     assert.strictEqual(agents.entries.find((e) => e.element === "state machine")?.detail, "states +Shipped");
   });
 
+  it("diffs an agent's invariants and transition rules, by kind and name (#154, bynk#3608)", () => {
+    const rule = (kind: "invariant" | "transition", name: string, predicate: string, doc?: string) => ({ kind, name, predicate, range: rng, ...(doc ? { doc } : {}) });
+    const withRules = (invariants?: AgentStateModel["invariants"]): AgentStateModel => ({ ...model(["New"], ["place"]), ...(invariants ? { invariants } : {}) });
+    const snap = (m: AgentStateModel): ModelSnapshot => ({ architecture: arch, contracts: null, agents: { [agentKey("shop", "Order")]: m } });
+    const entries = (b: AgentStateModel, a: AgentStateModel) =>
+      diffSnapshots(snap(b), snap(a)).sections.find((s) => s.id === "agents")!.entries;
+
+    const d = entries(
+      withRules([rule("invariant", "positive", "total > 0"), rule("invariant", "old", "x", "doc"), rule("transition", "forward", "next > prev")]),
+      withRules([rule("invariant", "positive", "total >= 0"), rule("invariant", "fresh", "y"), rule("transition", "forward", "next > prev", "now documented")]),
+    );
+    assert.deepStrictEqual(
+      d.map((e) => `${e.change} ${e.element} ${e.name}: ${e.detail ?? ""}`).sort(),
+      [
+        "added invariant shop.Order: fresh: y",
+        "changed invariant shop.Order: positive: total > 0 → total >= 0",
+        "removed invariant shop.Order: old: ",
+      ],
+      "documentation alone is not a change",
+    );
+    assert.strictEqual(d[0].loc?.uri, "file:///w/o.bynk");
+
+    // The same name as an invariant and as a transition are two rules.
+    const kinds = entries(withRules([rule("invariant", "r", "a")]), withRules([rule("invariant", "r", "a"), rule("transition", "r", "b")]));
+    assert.deepStrictEqual(kinds.map((e) => `${e.change} ${e.element}`), ["added transition rule"]);
+    // An agent with none sends no field, and an unchanged set is no change.
+    assert.deepStrictEqual(entries(withRules(), withRules()), []);
+    assert.deepStrictEqual(entries(withRules([rule("invariant", "r", "a")]), withRules([rule("invariant", "r", "a")])), []);
+    assert.deepStrictEqual(entries(withRules([rule("invariant", "r", "a")]), withRules()).map((e) => e.change), ["removed"]);
+  });
+
   it("marks a section unavailable instead of reporting no differences", () => {
     const d = diffSnapshots({ architecture: null, contracts: null, agents: {} }, { architecture: arch, contracts: null, agents: {} });
     assert.ok(d.sections.every((s) => s.unavailable));

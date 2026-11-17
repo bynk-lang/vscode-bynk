@@ -157,3 +157,90 @@ describe("compare model with a git revision (#147)", () => {
     assert.strictEqual(picks.length, 1, "the revision picker was offered");
   });
 });
+
+// #154: the invariants and the response shape, from the real server. The first
+// commit declares an agent with an `invariant`, and an HTTP handler that
+// answers a String; the second replaces the invariant with a `transition`
+// rule and makes the handler answer an Int.
+describe("compare model: agent invariants and response shape (#154)", () => {
+  const AGENT = (rule: string) => `
+type OrderStatus = enum { Pending, Placed, Paid }
+
+agent Order {
+  key id: String
+
+  store status: Cell[OrderStatus] = Pending
+  store paymentRef: Cell[Option[String]] = None
+
+  ${rule}
+
+  on call place() -> Effect[()] {
+    status := Placed
+  }
+}
+`;
+  const ANSWER = (type: string, value: string) => `
+service answers from http {
+  on GET("/answer") () -> Effect[HttpResult[${type}]] by v: Visitor given Logger {
+    let _ <- Logger.info("answer")
+    Ok(${value})
+  }
+}
+`;
+  const FIRST_SRC =
+    HEAD + AGENT("invariant paid_has_ref: status is Paid implies paymentRef.isSome()") + ANSWER("String", '"a"');
+  const SECOND_SRC =
+    HEAD + AGENT("transition paid_is_terminal: old.status is Paid implies new.status is Paid") + ANSWER("Int", "1");
+  let repo: string;
+  let first: string;
+  const file = () => path.join(repo, "src", "md.bynk");
+
+  before(async function () {
+    this.timeout(120_000);
+    const ext = vscode.extensions.getExtension(EXT_ID);
+    assert.ok(ext, `extension ${EXT_ID} is installed`);
+    await ext.activate();
+    repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bynk-md-rules-")));
+    git(repo, "init", "-q");
+    fs.mkdirSync(path.join(repo, "src"));
+    fs.writeFileSync(path.join(repo, "bynk.toml"), MANIFEST);
+    fs.writeFileSync(file(), FIRST_SRC);
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "first");
+    first = git(repo, "rev-parse", "HEAD").trim();
+    fs.writeFileSync(file(), SECOND_SRC);
+    git(repo, "commit", "-qam", "second");
+  });
+
+  after(async () => {
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("reports an invariant and a transition rule that changed, and a response that became breaking", async function () {
+    this.timeout(120_000);
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(file()));
+    const diff = await waitFor(
+      () => vscode.commands.executeCommand<ModelDiff | undefined>("bynk.compareModel", first),
+      (d): d is ModelDiff => !!d && d.sections.every((s) => !s.unavailable),
+      "the model diff to cover every section",
+      90_000,
+    );
+    const agents = diff.sections.find((s) => s.id === "agents")!;
+    const rules = agents.entries
+      .filter((e) => e.element === "invariant" || e.element === "transition rule")
+      .map((e) => `${e.change} ${e.element} ${e.name}`)
+      .sort();
+    assert.deepStrictEqual(rules, [
+      "added transition rule md.Order: paid_is_terminal",
+      "removed invariant md.Order: paid_has_ref",
+    ]);
+
+    const wire = diff.sections.find((s) => s.id === "wire")!;
+    const answer = wire.entries.find((e) => e.name.includes("GET /answer"));
+    assert.ok(answer, `the handler is compared: ${JSON.stringify(wire.entries)}`);
+    assert.strictEqual(answer.change, "changed");
+    assert.strictEqual(answer.verdict, "breaking", JSON.stringify(answer));
+    assert.ok(answer.detail?.startsWith("response "), `the reason names the response: ${answer.detail}`);
+  });
+});

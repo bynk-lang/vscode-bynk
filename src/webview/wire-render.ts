@@ -73,6 +73,8 @@ export function formatHeaderLine(kind: WcBoundaryKind): string {
       return "on close";
     case "Event":
       return "on event";
+    case "Rejected":
+      return "rejected request";
   }
 }
 

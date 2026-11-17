@@ -96,6 +96,17 @@ export interface HandlerEffects {
   truncated: boolean;
 }
 
+/** #3608 (v0.633.5): one declared `invariant` or `transition` of the agent. */
+export interface AgentInvariant {
+  kind: "invariant" | "transition";
+  name: string;
+  /** The predicate's source text, as the expression printer prints it. */
+  predicate: string;
+  range: Range;
+  /** The declaration's documentation text; omitted when it has none. */
+  doc?: string;
+}
+
 export interface AgentStateModel {
   agent: string;
   range: Range;
@@ -104,6 +115,9 @@ export interface AgentStateModel {
   /** #2198: what each handler writes, reads and calls, path by path.
    *  Absent from an older server. */
   effects?: HandlerEffects[];
+  /** #3608 (v0.633.5): the agent's `invariant`s and `transition`s; omitted by
+   *  the server when it declares neither, and from an older server. */
+  invariants?: AgentInvariant[];
 }
 
 export interface AgentStatePayload {

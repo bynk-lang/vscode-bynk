@@ -12,6 +12,15 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Compare Model compares agent invariants** (#154). An agent's `invariant`s and `transition` rules, which `bynk/agentStateModel` now reports (bynk#3608, v0.633.5), appear under **Agent states** as added, removed, or changed (with the predicate before and after). A rule is identified by its kind and name, and a change to its documentation alone is not reported. Against an older server nothing is reported, as before.
+
+### Changed
+
+- **Compare Model classifies an HTTP handler's response from the server's own shape,** not an inferred one (#154). `bynk/wireContract` now reports each handler's `success` type (bynk#3609, v0.633.4) and each response's `body` (v0.633.9: a value's type, a message, a redirect, raw bytes or a stream). Each response the two revisions share is compared by that body, so a type used in both the request and a response is now checked as a response too (a removed field is breaking there), and a response whose body changed kind is breaking. A response only the later revision declares is still breaking, and one only the earlier declared is compatible. An `on call` handler's response is not in the model, so it is still inferred from the boundary types the request does not reach, and the page's note says so.
+- The **wire contract view** names the `Rejected` handler kind that v0.639.1 sends.
+
 ## [0.639.1] - 2026-11-17
 
 ### Changed

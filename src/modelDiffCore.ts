@@ -12,7 +12,7 @@
 
 import type { ArchLoc, ArchModel } from "./webview/architectureTypes";
 import type { CdModel } from "./webview/contractDiffTypes";
-import type { AgentStateModel } from "./webview/stateTypes";
+import type { AgentInvariant, AgentStateModel } from "./webview/stateTypes";
 import { diffWire, WIRE_NOTE, type WireHandler } from "./wireDiffCore";
 
 // ---------------------------------------------------------------- git side
@@ -624,7 +624,34 @@ export function diffAgentModel(
       ),
     );
   }
+  out.push(...diffInvariants(before, after, entry));
   return out;
+}
+
+/** An agent's `invariant`s and `transition` rules (bynk#3608), keyed by kind
+ *  and name: one added, removed, or whose predicate text changed. A rule that
+ *  is only reworded or reordered inside the predicate reads as changed, since
+ *  the printed text is what the server gives; its documentation is not
+ *  compared. A server that predates `invariants` sends none, so every rule
+ *  would read as added: both revisions come from the same server, so neither
+ *  side has any and nothing is reported. */
+function diffInvariants(
+  before: AgentStateModel,
+  after: AgentStateModel,
+  entry: (change: ChangeKind, element: string, name: string, detail?: string) => DiffEntry,
+): DiffEntry[] {
+  const element = (i: AgentInvariant): string => (i.kind === "transition" ? "transition rule" : "invariant");
+  return diffKeyed(
+    byKey(before.invariants ?? [], (i) => `${i.kind} ${i.name}`),
+    byKey(after.invariants ?? [], (i) => `${i.kind} ${i.name}`),
+    (change, _key, b, a) => {
+      const i = (a ?? b)!;
+      const detail =
+        change === "changed" ? `${b!.predicate} → ${a!.predicate}` : change === "added" ? a!.predicate : undefined;
+      return entry(change, element(i), i.name, detail);
+    },
+    (b, a) => b.predicate !== a.predicate,
+  );
 }
 
 /** Diff two snapshots. A section whose model either revision could not supply
