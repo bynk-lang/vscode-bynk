@@ -75,6 +75,12 @@ export function devServerState(): DevState | undefined {
   return controller?.running ? controller.state : undefined;
 }
 
+/** #145: the project the running session serves, where `bynk dev inspect`
+ *  finds its `.bynk/dev/session.json`; `undefined` when no session runs. */
+export function devServerRoot(): vscode.Uri | undefined {
+  return controller?.running ? controller.sessionRoot : undefined;
+}
+
 /** Fires on every change to the dev session's state. */
 export const onDidChangeDevServer = stateChanged.event;
 
@@ -148,6 +154,10 @@ class DevServerController implements vscode.Disposable {
         if (e.execution === this.execution) this.execution = undefined;
       }),
     );
+  }
+
+  get sessionRoot(): vscode.Uri | undefined {
+    return this.session?.root;
   }
 
   get running(): boolean {

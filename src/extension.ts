@@ -32,6 +32,7 @@ import {
 } from "./server";
 import { newContext, newProject } from "./scaffold";
 import { registerTesting } from "./testing";
+import { registerModelCoverage } from "./modelCoverage";
 import { newDriverSupport } from "./testStream";
 import { registerTestCodeLens } from "./testCodeLens";
 import { registerApproveRequirements } from "./approveRequirements";
@@ -121,6 +122,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // eagerly and exposes case locations for the Test CodeLens. #2269: its Watch toggle
   // reruns on the hub's change signal, so the hub is built first.
   const testApi = registerTesting(context, viewRefresh, driverSupport);
+  // #144: the last coverage run, overlaid on the agent state view and sequence diagram.
+  registerModelCoverage(context);
 
   // v0.78: a `▷ Run | Debug` CodeLens above each test case (+ native gutter glyphs
   // from the eager discovery above).

@@ -27,6 +27,8 @@ import { ensureDiagramStyles } from "../diagram/style";
 import { buildToolbar, toolbarButton } from "../diagram/toolbar";
 import { DiagramViewport } from "../diagram/viewport";
 import { type LiveView, startLiveView, type VsCodeApi } from "./live";
+import { sequenceCoverage, tallyText } from "../modelCoverageCore";
+import { applyCoverageMarks, coverageBar } from "./coverageMarks";
 import { toMermaid } from "./mermaid-gen";
 import { compareTraces, formatMs, type Mark, overlayTrace, type StepView, type TraceView } from "../requestTraceCore";
 import type { Position, Range, RevealMessage, SequencePayload } from "./types";
@@ -66,6 +68,10 @@ const ranges = new Map<string, Range>();
  *  with. Kept across live updates. */
 let traceChoice: "latest" | "off" | { id: string } = "latest";
 let compareId: string | undefined;
+/** #144: whether the coverage overlay is drawn (when there is coverage). */
+let showCoverage = true;
+/** The toggle and legend above the diagram; rebuilt on each render. */
+const covBar = document.createElement("div");
 
 const viewport = new DiagramViewport(document);
 const actionsBar = buildActions();
@@ -382,8 +388,23 @@ function render(root: HTMLElement, next: SequencePayload | null): void {
   ranges.clear();
   for (const [id, r] of result.ranges) ranges.set(id, r);
 
-  if (actionsBar.parentElement !== root || viewport.element.parentElement !== root || tracePanel.parentElement !== root) {
-    root.replaceChildren(actionsBar, traceBar, viewport.element, tracePanel);
+  const sc = next.coverage ? sequenceCoverage(next.model, next.coverage) : undefined;
+  covBar.replaceChildren();
+  if (next.coverage && sc) {
+    covBar.append(
+      coverageBar(next.coverage, [tallyText(sc.calls, "call"), tallyText(sc.branchTally, "branch")], showCoverage, (on) => {
+        showCoverage = on;
+        live?.rerender();
+      }),
+    );
+  }
+  if (
+    covBar.parentElement !== root ||
+    actionsBar.parentElement !== root ||
+    viewport.element.parentElement !== root ||
+    tracePanel.parentElement !== root
+  ) {
+    root.replaceChildren(covBar, actionsBar, traceBar, viewport.element, tracePanel);
     document.body.appendChild(viewport.minimapElement);
   }
   if (!wired) {
@@ -400,6 +421,7 @@ function render(root: HTMLElement, next: SequencePayload | null): void {
     });
   }
   viewport.show(result.drawing);
+  if (sc && showCoverage) applyCoverageMarks(viewport.element, { ...sc.messages, ...sc.branches });
   if (retargeted) {
     viewport.element.scrollTop = 0;
     viewport.element.scrollLeft = 0;

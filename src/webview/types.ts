@@ -5,6 +5,7 @@
 // LSP-adjacent shape in this extension takes.
 
 import type { TraceView } from "../requestTraceCore";
+import type { ModelCoverage } from "../modelCoverageCore";
 
 export type ParticipantKind = "Entry" | "Capability" | "Context" | "Agent" | "Actor";
 /** `StateWrite` (#2194): an agent handler's write to its own state (`status :=
@@ -103,6 +104,9 @@ export interface SequencePayload {
   /** #143: the request traces from the running dev server that belong on this
    *  handler's diagram, newest first. Absent when there are none. */
   traces?: TraceView[];
+  /** #144: the last coverage run's lines for this file; client-only, never on
+   *  the wire. Absent when there is no run, or it did not measure the file. */
+  coverage?: ModelCoverage;
 }
 
 /** A click-to-code message the webview posts back to the extension host. */

@@ -39,6 +39,25 @@ describe("Bynk test coverage (#2104)", () => {
       `the project is named by its absolute root, got ${run.argv![1]}`,
     );
   });
+
+  // #144: the same run's lines are kept for the model views, until cleared.
+  it("keeps the run's files for the model views, and Clear Model Coverage drops them", async function () {
+    if (process.platform === "win32") this.skip();
+    this.timeout(30_000);
+    await vscode.commands.executeCommand("testing.coverageAll");
+    const kept = await waitFor(
+      () => vscode.commands.executeCommand<{ files: string[]; scope: string } | undefined>("bynk._modelCoverage"),
+      truthy,
+      "the model coverage store to hold the run",
+    );
+    assert.strictEqual(kept!.scope, "the whole project");
+    assert.ok(
+      kept!.files.some((f) => f.endsWith(path.join("src", "demo", "m.bynk"))),
+      `the report's files are kept, got ${kept!.files.join(", ")}`,
+    );
+    await vscode.commands.executeCommand("bynk.clearModelCoverage");
+    assert.strictEqual(await vscode.commands.executeCommand("bynk._modelCoverage"), undefined);
+  });
 });
 
 // Test Explorer depth track, Slice E (#2269): Run with Coverage on one case measures

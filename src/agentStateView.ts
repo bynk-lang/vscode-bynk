@@ -10,7 +10,10 @@
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
+import { listLiveInstances, readLiveInstance } from "./agentInspect";
+import { onDidChangeDevServer } from "./devServer";
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
+import { modelCoverage } from "./modelCoverage";
 import type { ViewRefresh } from "./viewRefresh";
 import type { AgentStateModel, AgentStatePayload } from "./webview/stateTypes";
 
@@ -44,7 +47,18 @@ const BODY_CSS = `
   .effects-details { margin-top: 1em; }
   .effects-details summary { cursor: pointer; }
   .muted { color: var(--vscode-descriptionForeground); }
+  .live { margin: 0.5em 0 1em; padding: 0.5em 0.75em; border: 1px solid var(--vscode-panel-border, #555); border-radius: 4px; }
+  .live h3 { font-size: 1em; margin: 0 0 0.4em; }
+  .live .row { display: flex; flex-wrap: wrap; gap: 0.75em; align-items: baseline; margin: 0.25em 0; }
+  .live table { border-collapse: collapse; font-family: var(--vscode-editor-font-family); font-size: 0.95em; }
+  .live td, .live th { padding: 0.15em 0.6em 0.15em 0; text-align: left; vertical-align: top; }
+  .live tr.step { cursor: pointer; }
+  .live tr.step.selected { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
+  .live .state-now { font-weight: 700; }
 `;
+
+/** The agent the page shows now, for validating its instance requests. */
+let shown: AgentStateModel | undefined;
 
 export function registerAgentStateView(
   context: vscode.ExtensionContext,
@@ -65,9 +79,35 @@ export function registerAgentStateView(
     title: (p) => (p ? `Bynk State: ${p.model.agent}` : "Bynk Agent State"),
     request: requestAgentState,
     missMessage: "Bynk: no agent found at the cursor.",
+    onRender: (payload) => {
+      shown = payload?.model;
+    },
+    // #145: the page asks for one listed instance's state, or for the State
+    // Migrations view. The host reads only an instance it listed itself.
+    onMessage: (message, post) => {
+      const m = message as { type: string; ref?: unknown };
+      if (m.type === "inspectInstance" && typeof m.ref === "string" && shown) {
+        void readLiveInstance(shown, m.ref).then((answer) => answer && post(answer));
+      } else if (m.type === "showMigrations") {
+        void vscode.commands.executeCommand("bynk.project.focus");
+      }
+    },
   }, hub);
+  // #144: a coverage run, or clearing it, redraws the overlay in place.
+  const coverageChanged = modelCoverage.onDidChange(() => {
+    void view.refresh();
+  });
   context.subscriptions.push(
     view,
+    coverageChanged,
+    // Not in package.json: what the host answers a page's request for one
+    // listed instance, for the integration tests (a webview cannot be driven).
+    vscode.commands.registerCommand("bynk._readLiveInstance", (ref: unknown) =>
+      shown && typeof ref === "string" ? readLiveInstance(shown, ref) : undefined,
+    ),
+    // The listing follows the session: it appears when `bynk dev` serves and
+    // goes when it stops.
+    onDidChangeDevServer(() => void view.refresh()),
     vscode.commands.registerCommand(
       "bynk.showAgentState",
       (uriArg?: unknown, positionArg?: unknown) => {
@@ -95,5 +135,10 @@ async function requestAgentState(
     position: target.position,
   };
   const model = await client.sendRequest<AgentStateModel | null>("bynk/agentStateModel", params);
-  return model ? { model, uri: target.uri } : null;
+  if (!model) return null;
+  // #144: the last coverage run's lines for this file, if any.
+  const coverage = await modelCoverage.forUri(target.uri);
+  // #145: the running dev server's instances of this agent, if one runs.
+  const live = await listLiveInstances(model.agent);
+  return { model, uri: target.uri, ...(coverage ? { coverage } : {}), ...(live ? { live } : {}) };
 }

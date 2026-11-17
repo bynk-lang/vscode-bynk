@@ -20,6 +20,7 @@ import type { LanguageClient } from "vscode-languageclient/node";
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
 import { diagramMessages } from "./diagramHost";
 import { isOpenSequence } from "./sequenceMessages";
+import { modelCoverage } from "./modelCoverage";
 import type { ViewRefresh } from "./viewRefresh";
 import { allTraceViews, latestTraceLocation, onDidChangeRequestTraces, tracesFor } from "./requestTraces";
 import { allowedPageUri, revealLocation } from "./webviewHost";
@@ -59,8 +60,13 @@ export function registerSequenceDiagram(
     onDispose: () => shared.dispose(),
     missMessage: "Bynk: no handler found at the cursor.",
   }, hub);
+  // #144: a coverage run, or clearing it, redraws the overlay in place.
+  const coverageChanged = modelCoverage.onDidChange(() => {
+    void view.refresh();
+  });
   context.subscriptions.push(
     view,
+    coverageChanged,
     // #143: a request reached the dev server: show its trace on the diagram
     // the panel has, without asking the language server again.
     onDidChangeRequestTraces(() => view.repost((p) => withTraces(p))),
@@ -104,7 +110,10 @@ async function requestSequence(
     position: target.position,
   };
   const model = await client.sendRequest<SequenceModel | null>("bynk/sequenceModel", params);
-  return model ? withTraces({ model, uri: target.uri }) : null;
+  if (!model) return null;
+  // #144: the last coverage run's lines for this file, if any.
+  const coverage = await modelCoverage.forUri(target.uri);
+  return withTraces(coverage ? { model, uri: target.uri, coverage } : { model, uri: target.uri });
 }
 
 /** #143: the payload with the traces that belong on its handler. */
