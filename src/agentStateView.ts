@@ -13,6 +13,7 @@ import type { LanguageClient } from "vscode-languageclient/node";
 import { listLiveInstances, readLiveInstance } from "./agentInspect";
 import { onDidChangeDevServer } from "./devServer";
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
+import { modelCoverage } from "./modelCoverage";
 import type { ViewRefresh } from "./viewRefresh";
 import type { AgentStateModel, AgentStatePayload } from "./webview/stateTypes";
 
@@ -92,8 +93,13 @@ export function registerAgentStateView(
       }
     },
   }, hub);
+  // #144: a coverage run, or clearing it, redraws the overlay in place.
+  const coverageChanged = modelCoverage.onDidChange(() => {
+    void view.refresh();
+  });
   context.subscriptions.push(
     view,
+    coverageChanged,
     // Not in package.json: what the host answers a page's request for one
     // listed instance, for the integration tests (a webview cannot be driven).
     vscode.commands.registerCommand("bynk._readLiveInstance", (ref: unknown) =>
@@ -130,6 +136,9 @@ async function requestAgentState(
   };
   const model = await client.sendRequest<AgentStateModel | null>("bynk/agentStateModel", params);
   if (!model) return null;
+  // #144: the last coverage run's lines for this file, if any.
+  const coverage = await modelCoverage.forUri(target.uri);
+  // #145: the running dev server's instances of this agent, if one runs.
   const live = await listLiveInstances(model.agent);
-  return live ? { model, uri: target.uri, live } : { model, uri: target.uri };
+  return { model, uri: target.uri, ...(coverage ? { coverage } : {}), ...(live ? { live } : {}) };
 }

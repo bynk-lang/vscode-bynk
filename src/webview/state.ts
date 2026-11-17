@@ -29,6 +29,8 @@ import type { Drawing } from "../diagram/viewport";
 import { DiagramViewport } from "../diagram/viewport";
 import type { ArchLoc } from "./architectureTypes";
 import { type LiveView, startLiveView, type ViewState, type VsCodeApi } from "./live";
+import { applyCoverageMarks, coverageBar } from "./coverageMarks";
+import { type StateCoverage, stateCoverage, tallyText } from "../modelCoverageCore";
 import { cellEdges, cellText, toMermaidState, violationsFrom, writeText } from "./state-gen";
 import type { AgentStatePayload, InstanceMessage, InstanceView, StateMachine } from "./stateTypes";
 import type { Range, RevealMessage } from "./types";
@@ -42,6 +44,8 @@ const vscodeApi = acquireVsCodeApi();
 let selectedField: string | undefined;
 let showUnchanged = false;
 let effectsOpen = false;
+/** #144: whether the coverage overlay is drawn (when there is coverage). */
+let showCoverage = true;
 let focus: string | undefined;
 let current: AgentStatePayload | null = null;
 let machineShown: StateMachine | undefined;
@@ -210,6 +214,21 @@ function controls(root: HTMLElement, payload: AgentStatePayload, machine: StateM
   label.append(box, document.createTextNode(" Show unchanged outcomes in the diagram"));
   bar.append(label);
   root.append(bar);
+  const cov = payload.coverage;
+  if (cov) {
+    const sc = stateCoverage(machine, cov);
+    root.append(
+      coverageBar(cov, [tallyText(sc.tally, "transition")], showCoverage, (on) => {
+        showCoverage = on;
+        live?.rerender();
+      }),
+    );
+  }
+}
+
+/** #144: the machine's coverage, when there is a run and the overlay is on. */
+function coverageOf(payload: AgentStatePayload, machine: StateMachine): StateCoverage | undefined {
+  return payload.coverage && showCoverage ? stateCoverage(machine, payload.coverage) : undefined;
 }
 
 /** The machine, drawn by the engine into the shared viewport. */
@@ -243,6 +262,13 @@ async function diagram(
     });
   }
   viewport.show(drawing);
+  const cov = coverageOf(payload, machine);
+  if (cov) {
+    // #144: untested transitions and states, on the engine's elements.
+    const marks: Record<string, "covered" | "partial" | "uncovered" | "unmeasured"> = { ...cov.transitions };
+    for (const [s, v] of Object.entries(cov.states)) if (v === "untested") marks[`state:${s}`] = "uncovered";
+    applyCoverageMarks(viewport.element, marks);
+  }
   initTabOrder(viewport.element);
   restoreFocus(viewport.element, keep);
 }
@@ -420,6 +446,7 @@ function instanceBody(box: HTMLElement, machine: StateMachine | undefined, view:
 }
 
 function table(root: HTMLElement, payload: AgentStatePayload, machine: StateMachine): void {
+  const cov = coverageOf(payload, machine);
   const t = el("table", undefined, "states");
   const head = el("tr");
   head.append(el("th", "Handler \\ state"));
@@ -430,6 +457,11 @@ function table(root: HTMLElement, payload: AgentStatePayload, machine: StateMach
       th.title = "Unreachable from the initial state";
     }
     if (s === machine.initial) th.title = "Initial state";
+    if (cov?.states[s] === "untested") {
+      th.classList.add("bynk-cov-uncovered-entry");
+      th.title = "No tested transition enters this state";
+      th.append(document.createTextNode(" ✗"));
+    }
     head.append(th);
   }
   t.append(el("thead"));
@@ -470,6 +502,14 @@ function table(root: HTMLElement, payload: AgentStatePayload, machine: StateMach
               const verb = v.certainty === "Known" ? "violates" : "may violate";
               notes.push(`${verb} ${v.transition} (to ${v.targets.join(" | ")}) at commit`);
             }
+          }
+          const mark = cov?.edges[machine.edges.indexOf(e)];
+          if (mark === "uncovered" && e.to.kind !== "Unchanged") {
+            entry.classList.add("bynk-cov-uncovered-entry");
+            entry.append(document.createTextNode(" ✗ not tested"));
+            notes.push("Not tested: none of this path's lines ran in the last coverage run");
+          } else if (mark === "partial") {
+            notes.push("Partly tested: some of this path's lines ran");
           }
           if (notes.length > 0) entry.title = notes.join("\n");
           clickable(entry, payload.uri, e.range);

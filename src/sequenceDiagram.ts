@@ -20,6 +20,7 @@ import type { LanguageClient } from "vscode-languageclient/node";
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
 import { diagramMessages } from "./diagramHost";
 import { isOpenSequence } from "./sequenceMessages";
+import { modelCoverage } from "./modelCoverage";
 import type { ViewRefresh } from "./viewRefresh";
 import { allowedPageUri, revealLocation } from "./webviewHost";
 import type { SequenceModel, SequencePayload } from "./webview/types";
@@ -58,8 +59,13 @@ export function registerSequenceDiagram(
     onDispose: () => shared.dispose(),
     missMessage: "Bynk: no handler found at the cursor.",
   }, hub);
+  // #144: a coverage run, or clearing it, redraws the overlay in place.
+  const coverageChanged = modelCoverage.onDidChange(() => {
+    void view.refresh();
+  });
   context.subscriptions.push(
     view,
+    coverageChanged,
     vscode.commands.registerCommand(
       "bynk.showSequenceDiagram",
       (uriArg?: unknown, positionArg?: unknown) => {
@@ -87,5 +93,8 @@ async function requestSequence(
     position: target.position,
   };
   const model = await client.sendRequest<SequenceModel | null>("bynk/sequenceModel", params);
-  return model ? { model, uri: target.uri } : null;
+  if (!model) return null;
+  // #144: the last coverage run's lines for this file, if any.
+  const coverage = await modelCoverage.forUri(target.uri);
+  return coverage ? { model, uri: target.uri, coverage } : { model, uri: target.uri };
 }

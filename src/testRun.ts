@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 import { BynkNotFoundError } from "./cli";
 import { offerDoctor, reportBynkNotFound } from "./doctor";
 import { coverageFiles, coverageUnavailable } from "./coverageModel";
+import { modelCoverage } from "./modelCoverage";
 import type { FailureOnce } from "./continuousRun";
 import type { ViewRefresh } from "./viewRefresh";
 import { rejectsSets, type DriverSupport } from "./testStream";
@@ -341,7 +342,14 @@ export async function runInProject(
   // #2104: the run's `.bynk` line coverage, resolved against the project root
   // this run used. A coverage run is one process, so it is reported once.
   if (coverage && coverageDoc?.coverage) {
-    for (const f of coverageFiles(coverageDoc.coverage, root.fsPath)) {
+    const files = coverageFiles(coverageDoc.coverage, root.fsPath);
+    // #144: the same lines, projected onto the model views.
+    modelCoverage.set({
+      files,
+      scope: measured?.kind === "case" ? `the case "${measured.name}"` : "the whole project",
+      runAt: Date.now(),
+    });
+    for (const f of files) {
       const fc = new vscode.FileCoverage(
         vscode.Uri.file(f.file),
         new vscode.TestCoverageCount(f.covered, f.total),

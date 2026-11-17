@@ -4,6 +4,8 @@
 // hand alongside the Rust side — the same posture every other custom
 // LSP-adjacent shape in this extension takes.
 
+import type { ModelCoverage } from "../modelCoverageCore";
+
 export type ParticipantKind = "Entry" | "Capability" | "Context" | "Agent" | "Actor";
 /** `StateWrite` (#2194): an agent handler's write to its own state (`status :=
  *  Placed`, `items.put(id, …)`). `from === to ===` the entry; rendered as a
@@ -98,6 +100,9 @@ export interface SequenceModel {
 export interface SequencePayload {
   model: SequenceModel;
   uri: string;
+  /** #144: the last coverage run's lines for this file; client-only, never on
+   *  the wire. Absent when there is no run, or it did not measure the file. */
+  coverage?: ModelCoverage;
 }
 
 /** A click-to-code message the webview posts back to the extension host. */

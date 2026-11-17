@@ -56,6 +56,51 @@ describe("sequence view (jsdom)", () => {
     return found[0];
   };
 
+  describe("coverage overlay (#144)", () => {
+    // Messages are on lines 11 and 12 (range lines 10, 11); the arms on 20 and 21.
+    const withCoverage = (ran: number[], missed: number[]): SequencePayload => {
+      const p = payload();
+      p.model.blocks[0].branches[0].range = R(19);
+      p.model.blocks[0].branches[1].range = R(20);
+      return { ...p, coverage: { runAt: Date.now(), scope: "the whole project", stale: false, ran, missed } };
+    };
+
+    it("marks the calls and branches no test reached, in words as well as style", async () => {
+      await open(withCoverage([11, 20], [12, 21]));
+      assert.ok(el("m0").classList.contains("bynk-cov-covered"));
+      assert.ok(el("m1").classList.contains("bynk-cov-uncovered"));
+      assert.ok(el("m1").getAttribute("aria-label")?.endsWith(", not tested"));
+      assert.ok(el("b0.0").classList.contains("bynk-cov-covered"), "the `ready` branch ran");
+      assert.ok(el("b0.1").classList.contains("bynk-cov-uncovered"), "the `else` branch did not");
+      const bar = dom.root.querySelector(".bynk-cov-bar")?.textContent ?? "";
+      assert.ok(bar.includes("1 of 2 calls tested"), bar);
+      assert.ok(bar.includes("1 of 2 branches tested"), bar);
+      assert.ok(bar.includes("cannot say which test reached it"));
+    });
+
+    it("clears the marks with the toggle", async () => {
+      await open(withCoverage([11], [12, 20, 21]));
+      const box = dom.root.querySelector("#bynk-coverage-toggle") as HTMLInputElement;
+      box.checked = false;
+      box.dispatchEvent(new dom.window.Event("change"));
+      await settle();
+      assert.strictEqual(dom.root.querySelectorAll("[class*=bynk-cov-]:not(.bynk-cov-bar):not(.bynk-cov-count):not(.bynk-cov-note)").length, 0);
+      assert.ok(dom.root.querySelector(".bynk-cov-bar"));
+    });
+
+    it("draws no bar, and no marks, without coverage", async () => {
+      await open();
+      assert.ok(!dom.root.querySelector(".bynk-cov-bar"));
+    });
+
+    it("leaves a branch unmarked when an older server sent no branch range", async () => {
+      const p = withCoverage([11], [12, 20, 21]);
+      delete p.model.blocks[0].branches[1].range;
+      await open(p);
+      assert.ok(!el("b0.1").classList.contains("bynk-cov-uncovered"));
+    });
+  });
+
   it("draws one element per model id, without Mermaid", async () => {
     await open();
     assert.ok(dom.root.querySelector("svg.bynk-seq"));
