@@ -104,12 +104,12 @@ describe("buildSnippet (#151)", () => {
   it("hoists consumes and stub lines to the top, once each", () => {
     const cells = [
       cell("consumes shop.catalog { Sku }\nlet s = Sku.of(\"a\")\ns"),
-      cell("consumes  shop.catalog { Sku }\nstub Fetch.send(_) returns Ok(1)\n1"),
+      cell("consumes  shop.catalog { Sku }\nstub Fetch.send(_) returns Ok(1)\nlet r <- Fetch.send(1)\nr"),
       cell("consumes bynk { Fetch }\nlet n = 2\nn", false),
     ];
     const s = buildSnippet(cells, 2, "shop.orders");
-    assert.strictEqual(s.text, 'consumes shop.catalog { Sku }\nstub Fetch.send(_) returns Ok(1)\nconsumes bynk { Fetch }\nlet s = Sku.of("a")\nlet n = 2\nn');
-    assert.deepStrictEqual(s.used, [0]);
+    assert.strictEqual(s.text, 'consumes shop.catalog { Sku }\nstub Fetch.send(_) returns Ok(1)\nconsumes bynk { Fetch }\nlet s = Sku.of("a")\nlet r <- Fetch.send(1)\nlet n = 2\nn');
+    assert.deepStrictEqual(s.used, [0, 1]);
   });
 
   it("skips cells that have not run, or run in another unit", () => {
@@ -155,6 +155,33 @@ describe("buildSnippet (#151)", () => {
     assert.deepStrictEqual(buildSnippet([cell("let a = 1\na", false), cell("a", false)], 1, "u.v").skipped, []);
   });
 
+  it("sends only what cells in the running cell's unit bound, by each cell's resolved unit (#189)", () => {
+    // Cells 0 and 1 ran in the notebook's unit (resolved); cell 2 names another; the running cell is in "other.unit".
+    const cells = [cell("let a = 1\na", true, "shop.money"), cell("let b = 2\nb", true, "shop.money"), cell("let c = 3\nc", true, "other.unit"), cell("c", false, "other.unit")];
+    const s = buildSnippet(cells, 3, "other.unit");
+    assert.strictEqual(s.text, "let c = 3\nc");
+    assert.deepStrictEqual(s.used, [2]);
+    // And back: from the notebook's unit, only its own cells count.
+    assert.strictEqual(buildSnippet([...cells.slice(0, 3), cell("a + b", false, "shop.money")], 3, "shop.money").text, "let a = 1\nlet b = 2\na + b");
+    // A cell whose unit is not known never matches.
+    assert.strictEqual(buildSnippet([cell("let z = 1\nz", true, ""), cell("z", false, "u.v")], 1, "u.v").text, "z");
+  });
+
+  it("lets a cell's own stub replace an earlier cell's, and names the stubs it applies (#189)", () => {
+    const cells = [
+      cell("consumes bynk { Fetch }\nstub Fetch.send(_) returns Ok(1)\nstub Clock.now() returns 5\nlet r <- Fetch.send(1)\nr"),
+      cell("consumes bynk { Fetch }\nstub Fetch.send(_) returns Ok(2)\nr", false),
+    ];
+    const s = buildSnippet(cells, 1, "u.v");
+    assert.strictEqual(s.text, "consumes bynk { Fetch }\nstub Clock.now() returns 5\nstub Fetch.send(_) returns Ok(2)\nlet r <- Fetch.send(1)\nr");
+    assert.deepStrictEqual(s.stubs, [{ target: "Clock.now", cell: 0 }]);
+    assert.ok(snippetNotes(s, (i) => `cell ${i + 1}`).includes("Applied `stub Clock.now` from cell 1; write a `stub` for it in this cell to replace it."));
+    // A cell with no `let`s contributes no header at all.
+    const quiet = buildSnippet([cell("stub Fetch.send(_) returns Ok(1)\n1"), cell("2", false)], 1, "u.v");
+    assert.strictEqual(quiet.text, "2");
+    assert.deepStrictEqual(quiet.stubs, []);
+  });
+
   it("places a diagnostic in the cell that wrote the line", () => {
     const cells = [cell("let a = 1\na"), cell("a + \"x\"", false)];
     const s = buildSnippet(cells, 1, "u.v");
@@ -172,8 +199,10 @@ describe("buildSnippet (#151)", () => {
 
 describe("bynk eval arguments and results (#151)", () => {
   it("passes the snippet as --expr, and --sources-stdin and --timeout only when asked", () => {
-    assert.deepStrictEqual(evalArgs({ root: "/p", unit: "a.b", snippet: "1", sourcesStdin: false }), ["eval", "/p", "--unit", "a.b", "--expr", "1"]);
-    assert.deepStrictEqual(evalArgs({ root: "/p", unit: "a.b", snippet: "1", sourcesStdin: true, timeoutSeconds: 5.7 }), ["eval", "/p", "--unit", "a.b", "--expr", "1", "--sources-stdin", "--timeout", "5"]);
+    assert.deepStrictEqual(evalArgs({ root: "/p", unit: "a.b", snippet: "1", sourcesStdin: false }), ["eval", "/p", "--unit", "a.b", "--expr=1"]);
+    // A snippet that starts with `-` would be read as a flag after a bare `--expr`.
+    assert.deepStrictEqual(evalArgs({ root: "/p", unit: "a.b", snippet: "-5", sourcesStdin: false }).slice(-1), ["--expr=-5"]);
+    assert.deepStrictEqual(evalArgs({ root: "/p", unit: "a.b", snippet: "1", sourcesStdin: true, timeoutSeconds: 5.7 }), ["eval", "/p", "--unit", "a.b", "--expr=1", "--sources-stdin", "--timeout", "5"]);
     assert.deepStrictEqual(evalArgs({ root: "/p", unit: "a", snippet: "1", sourcesStdin: false, timeoutSeconds: 0 }).slice(-2), ["--timeout", "1"]);
   });
 

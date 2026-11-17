@@ -201,6 +201,10 @@ export interface Snippet {
   origins: Origin[];
   /** The earlier cells whose `let`s were sent ahead, by index. */
   used: number[];
+  /** The `stub`s of earlier cells that apply to this one, each from the last
+   *  cell that wrote one for its target. A cell's own `stub` for a target
+   *  replaces an earlier cell's. */
+  stubs: { target: string; cell: number }[];
   /** The `let x <- …` bindings among them: each runs again, since `bynk eval`
    *  keeps nothing, so a stub that counts calls or a `Clock` can answer
    *  differently than it did in the cell that first bound it. */
@@ -213,7 +217,9 @@ export interface Snippet {
 export interface CellInput {
   /** The cell's source. */
   source: string;
-  /** Its unit, when it names one (else the notebook's applies). */
+  /** The unit it runs in: its own `// @unit`, else the notebook's. A cell whose
+   *  unit is not known is "" and never matches. (`undefined` stands for the
+   *  cell being run's own unit, which is for tests of this module.) */
   unit: string | undefined;
   /** Whether it has run without a problem since it was last edited. */
   ran: boolean;
@@ -225,8 +231,10 @@ const squash = (s: string): string => s.replace(/\s+/g, " ").trim();
 
 /** What to send for the cell at `index`, running in `unit`.
  *
- *  1. The header: every `consumes` and `stub` of an earlier cell that
- *     contributes, then the cell's own, each once.
+ *  1. The header: the `consumes` and `stub` lines of the earlier cells that
+ *     send `let`s (what those `let`s need to run), then the cell's own, each
+ *     `consumes` once and each `stub` target once, from the last cell that
+ *     wrote one: the cell's own `stub` replaces an earlier cell's.
  *  2. The preamble: the top-level `let`s of the earlier cells that ran in the
  *     same unit, in order. Their last expression, `expect`s and bare effects are
  *     not replayed: only what they bound.
@@ -240,34 +248,50 @@ export function buildSnippet(cells: readonly CellInput[], index: number, unit: s
   const used: number[] = [];
   const rerun: { name: string; cell: number }[] = [];
   const skipped: number[] = [];
-  const earlier: { index: number; cell: Cell }[] = [];
+  const earlier: { index: number; cell: Cell; lets: Statement[] }[] = [];
   for (let i = 0; i < index; i++) {
     const c = cells[i];
     if ((c.unit ?? unit) !== unit) continue;
+    const cell = analyseCell(c.source);
+    const lets = cell.body.filter((s) => LET.test(s.text.trimStart()));
     if (!c.ran) {
       // Say so when an edit is why its `let`s are missing, or a later cell's
       // "unknown name" would have no visible cause.
-      if (c.edited && analyseCell(c.source).body.some((s) => LET.test(s.text.trimStart()))) skipped.push(i);
+      if (c.edited && lets.length > 0) skipped.push(i);
       continue;
     }
-    earlier.push({ index: i, cell: analyseCell(c.source) });
+    // Only a cell that sends `let`s contributes: its `consumes` and `stub`
+    // lines are what those `let`s need to run, and nothing else of it is used.
+    if (lets.length > 0) earlier.push({ index: i, cell, lets });
   }
   const current = analyseCell(cells[index].source);
 
   const push = (s: Statement, cell: number): void => {
     s.text.split("\n").forEach((text, k) => out.push({ text, origin: { cell, line: s.start + k } }));
   };
-  for (const { index: i, cell } of [...earlier, { index, cell: current }]) {
+  // The header: `consumes` once each; a `stub` for a target once, from the last
+  // cell that wrote one (the running cell's wins), so a later cell can
+  // override an earlier cell's stub instead of adding a second one.
+  const stubTarget = (h: Statement): string | undefined => /^stub\s+([A-Za-z_][A-Za-z0-9_.]*)/.exec(h.text.trimStart())?.[1];
+  const sources = [...earlier.map((e) => ({ index: e.index, cell: e.cell })), { index, cell: current }];
+  const lastStub = new Map<string, number>();
+  for (const { index: i, cell } of sources) for (const h of cell.header) {
+    const t = stubTarget(h);
+    if (t) lastStub.set(t, i);
+  }
+  const stubs: { target: string; cell: number }[] = [];
+  for (const { index: i, cell } of sources) {
     for (const h of cell.header) {
+      const t = stubTarget(h);
+      if (t && lastStub.get(t) !== i) continue;
       const key = squash(h.text);
       if (seen.has(key)) continue;
       seen.add(key);
       push(h, i);
+      if (t && i !== index) stubs.push({ target: t, cell: i });
     }
   }
-  for (const { index: i, cell } of earlier) {
-    const lets = cell.body.filter((s) => LET.test(s.text.trimStart()));
-    if (lets.length === 0) continue;
+  for (const { index: i, lets } of earlier) {
     used.push(i);
     for (const s of lets) {
       push(s, i);
@@ -281,15 +305,16 @@ export function buildSnippet(cells: readonly CellInput[], index: number, unit: s
     const last = current.body[current.body.length - 1].end;
     for (let l = first; l <= last; l++) out.push({ text: current.lines[l], origin: { cell: index, line: l } });
   }
-  return { text: out.map((o) => o.text).join("\n"), origins: out.map((o) => o.origin), used, rerun, skipped };
+  return { text: out.map((o) => o.text).join("\n"), origins: out.map((o) => o.origin), used, rerun, skipped, stubs };
 }
 
 /** The lines a cell's output adds about what was sent ahead of it. `label`
  *  names a cell the way the notebook shows it ("cell 3"). Never silent about a
  *  value that is run again, or a cell that was left out. */
-export function snippetNotes(s: Pick<Snippet, "used" | "rerun" | "skipped">, label: (cell: number) => string): string[] {
+export function snippetNotes(s: Pick<Snippet, "used" | "rerun" | "skipped"> & { stubs?: Snippet["stubs"] }, label: (cell: number) => string): string[] {
   const notes: string[] = [];
   if (s.used.length > 0) notes.push(`Used the \`let\`s of ${s.used.map(label).join(", ")}.`);
+  for (const st of s.stubs ?? []) notes.push(`Applied \`stub ${st.target}\` from ${label(st.cell)}; write a \`stub\` for it in this cell to replace it.`);
   for (const r of s.rerun) notes.push(`Re-ran \`let ${r.name} <- …\` from ${label(r.cell)}; effectful values may differ from that cell's output.`);
   for (const i of s.skipped) notes.push(`Skipped ${label(i)}: edited since its last run, so its \`let\`s were not sent. Run it again to use them.`);
   return notes;
@@ -311,7 +336,8 @@ export interface EvalArgs {
 /** The arguments of `bynk eval`. The snippet is always `--expr`, since stdin
  *  then holds the buffers (`bynk/src/cli.rs:36-40`). */
 export function evalArgs(a: EvalArgs): string[] {
-  const args = ["eval", a.root, "--unit", a.unit, "--expr", a.snippet];
+  // `--expr=` and not `--expr X`: a snippet that starts with `-` (`-5`) would be read as a flag.
+  const args = ["eval", a.root, "--unit", a.unit, `--expr=${a.snippet}`];
   if (a.sourcesStdin) args.push("--sources-stdin");
   if (a.timeoutSeconds !== undefined) args.push("--timeout", String(Math.max(1, Math.floor(a.timeoutSeconds))));
   return args;

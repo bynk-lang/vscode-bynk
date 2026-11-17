@@ -914,14 +914,6 @@
           "when": "!isWeb && notebookType == 'bynk-notebook'"
         },
         {
-          "command": "bynk.notebook.new",
-          "when": "!isWeb"
-        },
-        {
-          "command": "bynk.notebook.chooseUnit",
-          "when": "!isWeb && notebookType == 'bynk-notebook'"
-        },
-        {
           "command": "bynk.copyPlaygroundLink",
           "when": "editorLangId == bynk"
         },

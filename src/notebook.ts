@@ -9,7 +9,7 @@
 
 import * as vscode from "vscode";
 
-import { BynkNotFoundError, runBynk } from "./cli";
+import { BynkNotFoundError, projectNames, runBynk } from "./cli";
 import { dirtyBuffers } from "./dirtyBuffers";
 import {
   NOTEBOOK_TYPE,
@@ -36,24 +36,12 @@ const CONTROLLER_ID = "bynk-notebook-controller";
 const GRACE_MS = 15_000;
 
 /** The units a project declares, sorted: what a cell's unit is chosen from. */
-async function projectUnits(root: vscode.Uri): Promise<string[]> {
-  const files = await vscode.workspace.findFiles(new vscode.RelativePattern(root, "**/*.bynk"), "**/{node_modules,.bynk}/**");
-  const names = new Set<string>();
-  for (const file of files) {
-    try {
-      const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === file.toString());
-      const text = open ? open.getText() : new TextDecoder().decode(await vscode.workspace.fs.readFile(file));
-      for (const n of unitNames(text)) names.add(n);
-    } catch {
-      /* unreadable: skip */
-    }
-  }
-  return [...names].sort();
-}
+const projectUnits = (root: vscode.Uri): Promise<string[]> => projectNames(root, unitNames, true);
 
-/** What a cell last ran as: its source, when it ran without a problem. A cell
- *  edited since counts as not run: its `let`s may no longer hold. */
-type Ran = Map<string, string>;
+/** What a cell last ran as, when it ran without a problem: its source and the
+ *  unit it ran in. A cell edited since, or run in another unit since (the
+ *  notebook's unit was changed), counts as not run: its `let`s may no longer hold. */
+type Ran = Map<string, { source: string; unit: string }>;
 
 export function registerNotebook(context: vscode.ExtensionContext): void {
   const diagnostics = vscode.languages.createDiagnosticCollection("bynk-notebook");
@@ -115,14 +103,15 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     return typeof n === "number" && n >= 1 ? n : undefined;
   }
 
-  /** `bynk eval`, killed by the extension if the CLI itself does not finish. */
-  async function evaluate(args: string[], root: string, stdin: string | undefined, token: vscode.CancellationToken, seconds: number): Promise<EvalResult> {
+  /** `bynk eval`, killed by the extension if the CLI itself does not finish.
+   *  `"cancelled"` when the user stopped it. */
+  async function evaluate(args: string[], root: string, stdin: string | undefined, token: vscode.CancellationToken, seconds: number): Promise<EvalResult | "cancelled"> {
     const source = new vscode.CancellationTokenSource();
     const sub = token.onCancellationRequested(() => source.cancel());
     const timer = setTimeout(() => source.cancel(), seconds * 1000 + GRACE_MS);
     try {
       const r = await runBynk(args, root, source.token, stdin);
-      if (token.isCancellationRequested) return { kind: "error", errorKind: "runtime", message: "Cancelled.", diagnostics: [] };
+      if (token.isCancellationRequested) return "cancelled";
       if (source.token.isCancellationRequested) return { kind: "error", errorKind: "timeout", message: `bynk eval did not finish within ${seconds} seconds and was stopped.`, diagnostics: [] };
       return decodeEval(r.stdout, r.stderr, r.code);
     } catch (e) {
@@ -152,13 +141,18 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     if (!isUnitName(unit)) return fail(`\`${unit}\` is not a unit name.`);
 
     const mine = ranFor(nb);
+    const notebookUnit = typeof nb.metadata?.unit === "string" ? nb.metadata.unit : undefined;
     const cells: CellInput[] = nb
       .getCells()
       .filter((c) => c.kind === vscode.NotebookCellKind.Code)
       .map((c) => {
         const source = c.document.getText();
+        // The unit it runs in, resolved the way the cell being run's was: a cell
+        // with no `// @unit` is in the notebook's, not in this cell's.
+        const resolved = unitFor(analyseCell(source), notebookUnit) ?? "";
         const last = mine.get(c.document.uri.toString());
-        return { source, unit: analyseCell(source).unit, ran: last === source, edited: last !== undefined && last !== source };
+        const same = last !== undefined && last.source === source && last.unit === resolved;
+        return { source, unit: resolved, ran: same, edited: last !== undefined && !same };
       });
     const codeCells = nb.getCells().filter((c) => c.kind === vscode.NotebookCellKind.Code);
     const index = codeCells.findIndex((c) => c.index === cell.index);
@@ -168,10 +162,16 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const buffers = dirtyBuffers(root.fsPath);
     const seconds = timeoutSeconds() ?? 60;
     const args = evalArgs({ root: root.fsPath, unit, snippet: snippet.text, sourcesStdin: Object.keys(buffers).length > 0, timeoutSeconds: timeoutSeconds() });
-    const result = await evaluate(args, root.fsPath, Object.keys(buffers).length > 0 ? JSON.stringify(buffers) : undefined, execution.token, seconds);
+    const evaluated = await evaluate(args, root.fsPath, Object.keys(buffers).length > 0 ? JSON.stringify(buffers) : undefined, execution.token, seconds);
+    if (evaluated === "cancelled") {
+      // The user stopped it: not a failure to show as an error.
+      execution.end(undefined, Date.now());
+      return;
+    }
+    const result = evaluated;
 
     const placed = placeDiagnostics(result.diagnostics, snippet.origins);
-    showDiagnostics(codeCells, placed);
+    showDiagnostics(codeCells[index], index, placed);
     const items: vscode.NotebookCellOutputItem[] = [];
     const notes: string[] = [];
     notes.push(...snippetNotes(snippet, (i) => `cell ${codeCells[i].index + 1}`));
@@ -198,28 +198,29 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const outputs = [new vscode.NotebookCellOutput(items)];
     if (notes.length > 0) outputs.push(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain")]));
     await execution.replaceOutput(outputs);
-    if (ok && placed.every((d) => d.severity !== "error")) mine.set(cell.document.uri.toString(), cell.document.getText());
+    if (ok && placed.every((d) => d.severity !== "error")) mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit });
     else mine.delete(cell.document.uri.toString());
     execution.end(ok, Date.now());
   }
 
-  function showDiagnostics(codeCells: readonly vscode.NotebookCell[], placed: readonly CellDiagnostic[]): void {
-    const byCell = new Map<number, vscode.Diagnostic[]>();
+  /** Diagnostics go on the cell being run only. A problem in a line an earlier
+   *  cell wrote is listed in this cell's output instead: a diagnostic set on the
+   *  earlier cell would stay there after the problem is fixed, until that cell
+   *  was itself run again. */
+  function showDiagnostics(cell: vscode.NotebookCell, index: number, placed: readonly CellDiagnostic[]): void {
+    const doc = cell.document;
+    const list: vscode.Diagnostic[] = [];
     for (const d of placed) {
-      if (d.cell === undefined || d.at === undefined) continue;
-      const doc = codeCells[d.cell]?.document;
-      if (!doc) continue;
+      if (d.cell !== index || d.at === undefined) continue;
       const line = Math.min(d.at, doc.lineCount - 1);
       const col = Math.max(0, d.col - 1);
       const range = new vscode.Range(line, Math.min(col, doc.lineAt(line).text.length), line, doc.lineAt(line).text.length);
       const diag = new vscode.Diagnostic(range, d.message, d.severity === "error" ? vscode.DiagnosticSeverity.Error : d.severity === "warning" ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Information);
       diag.source = "bynk eval";
       if (d.code) diag.code = d.code;
-      const list = byCell.get(d.cell) ?? [];
       list.push(diag);
-      byCell.set(d.cell, list);
     }
-    for (const [i, list] of byCell) diagnostics.set(codeCells[i].document.uri, list);
+    if (list.length > 0) diagnostics.set(doc.uri, list);
   }
 
   function describe(d: CellDiagnostic, codeCells: readonly vscode.NotebookCell[], index: number): string {
