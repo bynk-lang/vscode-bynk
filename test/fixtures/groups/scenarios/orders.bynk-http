@@ -1,0 +1,6 @@
+@context shop.orders
+
+### fetch
+GET /orders/42
+
+? status == 200

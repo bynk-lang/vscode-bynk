@@ -53,6 +53,8 @@ import {
 } from "./scenarioCore";
 import { promote as promoteScenario, summarise, type PromoteRoute } from "./scenarioPromoteCore";
 import { devTarget } from "./sendRequestCore";
+import type { WorkerGroup } from "./contextNames";
+import { workerGroupsFor } from "./workerGroupsStore";
 import { fetchFailure, isHttpHandler, isTextual, readBody, targetProblem, TIMEOUT_MS } from "./sendRequest";
 import type { ViewRefresh } from "./viewRefresh";
 import { requestWireContract } from "./wireContract";
@@ -318,13 +320,13 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
 
   /** Ask before a run against a deployed target: a confirmation, or the
    *  target's name typed when it reads as production and the run writes. */
-  async function confirmRun(target: TestTarget, steps: Step[], only: ReadonlySet<string> | undefined, resolvedBy: Map<string, Resolved | undefined>): Promise<boolean> {
+  async function confirmRun(target: TestTarget, steps: Step[], only: ReadonlySet<string> | undefined, resolvedBy: Map<string, Resolved | undefined>, groups: readonly WorkerGroup[]): Promise<boolean> {
     const toRun = steps.filter((s) => !only || only.has(s.name));
     const hosts = new Set<string>();
     for (const s of toRun) {
       const r = resolvedBy.get(s.name);
       if (r && !("error" in r)) {
-        const base = targetBase(target, r.route.unit);
+        const base = targetBase(target, r.route.unit, groups);
         if ("base" in base) hosts.add(base.base);
       }
     }
@@ -363,7 +365,10 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
     const only = typeof stepArg === "string" ? stepsNeededFor(scenario.steps, stepArg) : undefined;
     const resolved = await resolveAll(doc, scenario);
     const resolvedBy = new Map(scenario.steps.map((s, i) => [s.name, resolved[i]]));
-    if (against && !(await confirmRun(against, scenario.steps, only, resolvedBy))) return undefined;
+    // Which Worker serves a context is the project's `[deploy.workers.<key>]`
+    // groups', so both the dev server and a target's URL are looked up by it.
+    const groups = await workerGroupsFor(uri);
+    if (against && !(await confirmRun(against, scenario.steps, only, resolvedBy, groups))) return undefined;
     const abort = new AbortController();
     running.add(key);
     lensChanged.fire();
@@ -372,7 +377,7 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
         { location: vscode.ProgressLocation.Notification, title: `${only ? `Running ${stepArg}` : "Running scenario"}${against ? ` against ${against.name}` : ""}…`, cancellable: true },
         async (_progress, token) => {
           token.onCancellationRequested(() => abort.abort());
-          const host = makeHost(resolvedBy, abort, against);
+          const host = makeHost(resolvedBy, abort, groups, against);
           return runSteps(scenario.steps, host, only);
         },
       );
@@ -425,7 +430,7 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
     return run(uri, stepArg, target);
   }
 
-  function makeHost(resolvedBy: Map<string, Resolved | undefined>, abort: AbortController, against?: TestTarget): RunHost {
+  function makeHost(resolvedBy: Map<string, Resolved | undefined>, abort: AbortController, groups: readonly WorkerGroup[], against?: TestTarget): RunHost {
     return {
       env: process.env,
       redactEnv: against?.secrets,
@@ -439,11 +444,11 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
         if (against) {
           const header = literalCredential(step);
           if (header) return { error: literalCredentialMessage(header, against.name) };
-          const base = targetBase(against, r.route.unit);
+          const base = targetBase(against, r.route.unit, groups);
           return "error" in base ? { error: base.error } : { base: base.base, contentType };
         }
-        const target = devTarget(r.route.unit, devServerState());
-        if (target.kind !== "ready") return { error: targetProblem(r.route.unit, target.kind) };
+        const target = devTarget(r.route.unit, devServerState(), groups);
+        if (target.kind !== "ready") return { error: targetProblem(r.route.unit, target.kind, groups) };
         return { base: target.url, contentType };
       },
       send: (req) => sendOne(req, abort),

@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Worker groups (`[deploy.workers.<key>]`) are understood** (#182). A context in a group runs as part of the group's one Worker, which Bynk names by the group's key, but the extension assumed one Worker per context. It now reads the groups from `bynk.toml` and routes every context → Worker lookup through them: the Environments view shows a group as one node holding its members (not as "not deployed" contexts beside an unrecognised Worker), Send Request and scenarios on the dev server go to the group's single port, scenarios against a `[test.targets]` target use the URL keyed by the group, and the Contract Diff filter on a group covers every member. Deploy and Show Deploy Plan offer a group as one choice and pass `--worker <key>` (`bynk deploy --context <member>` is refused); Tail Deployed Logs tails the group with `--context <key>`. Projects with no groups behave as before.
+
 ## [0.639.1] - 2026-11-17
 
 ### Changed

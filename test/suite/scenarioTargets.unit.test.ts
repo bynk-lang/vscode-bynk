@@ -82,6 +82,23 @@ describe("Scenario targets (#159)", () => {
       assert.strictEqual(workerName("shop.orders"), "shop-orders");
       assert.deepStrictEqual(targetBase(target({ urls: { "shop-orders": "https://o.example/" } }), "shop.orders"), { base: "https://o.example" });
     });
+    it("keys a Worker group's member by the group's key (#182)", () => {
+      const groups = [{ key: "core", contexts: ["shop.orders", "shop.catalogue"], name: "acme-core" }];
+      assert.strictEqual(workerName("shop.orders", groups), "core");
+      const t = target({ urls: { core: "https://core.example/", "shop-payment": "https://p.example" } });
+      assert.deepStrictEqual(targetBase(t, "shop.orders", groups), { base: "https://core.example" });
+      assert.deepStrictEqual(targetBase(t, "shop.catalogue", groups), { base: "https://core.example" });
+      // A context on a Worker of its own is unchanged, groups or not.
+      assert.deepStrictEqual(targetBase(t, "shop.payment", groups), { base: "https://p.example" });
+      // Without the groups it is still the per-context name (the old, wrong, answer for a member).
+      assert.ok("error" in targetBase(t, "shop.orders"));
+    });
+    it("names the group when a member's Worker has no URL (#182)", () => {
+      const groups = [{ key: "core", contexts: ["shop.orders"] }];
+      const r = targetBase(target({ urls: { "shop-payment": "https://p.example" } }), "shop.orders", groups);
+      assert.ok("error" in r);
+      assert.match(r.error, /no URL for `core` \(the Worker group serving shop\.orders\)/);
+    });
     it("reports a context the target does not serve, naming what it serves", () => {
       const r = targetBase(target(), "shop.payments");
       assert.ok("error" in r);

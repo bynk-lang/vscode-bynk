@@ -1,0 +1,17 @@
+[project]
+name = "groups-fixture"
+version = "0.1.0"
+
+[paths]
+include = ["src"]
+
+# Two contexts share one Worker, keyed `core`, whose script is named `acme-core`;
+# `shop.payment` stays on a Worker of its own, `shop-payment`.
+[deploy.workers.core]
+contexts = ["shop.orders", "shop.catalogue"]
+name = "acme-core"
+
+# A target's URLs are keyed by Worker directory: the group's key, not a member's name.
+[test.targets.preview]
+url.core = "https://core-preview.example.workers.dev"
+url.shop-payment = "https://pay-preview.example.workers.dev"

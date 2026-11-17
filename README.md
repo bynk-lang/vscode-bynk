@@ -193,6 +193,17 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   actions run Show Deploy Plan, Deploy…, Tail Logs and Sweep Migrations… for the
   environment with their usual confirmations (never `--yes`), and Show Contract
   Diff for a context. Everything is read locally; nothing contacts Cloudflare.
+  A **Worker group** (`[deploy.workers.<key>]` in `bynk.toml`, which deploys
+  several contexts as one Worker) is one node holding its member contexts.
+- **Worker groups** — a context in a `[deploy.workers.<key>]` group runs, deploys
+  and reverts as part of that group's one Worker, which `bynk` names by the
+  group's key. The extension reads the groups from `bynk.toml` and follows them:
+  Send Request and scenarios on the dev server go to the group's single port;
+  **Run Scenario Against…** looks a member up under `url.<key>` in the target;
+  Deploy and Show Deploy Plan offer the group as one choice and run `bynk deploy
+  --worker <key>` (a member cannot be deployed alone, and naming one means its
+  group); Tail Deployed Logs offers the group too, and tails it with `--context
+  <key>`, as `bynk tail` has no `--worker`. A project with no groups is unchanged.
 - **State migrations** — the sidebar's **State Migrations** node shows
   `bynk migrate status` for each agent class (version, floor, live and
   retirable `migrate` steps, environments) and links to its agent state view.
@@ -464,9 +475,9 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Worker Logs** | Open the *Bynk Logs* channel: the dev server's workers' output, with stack frames at their `.bynk` lines. |
 | **Bynk: Filter Worker Logs** | Show only some levels (all, warnings and errors, errors) and some contexts. |
 | **Bynk: Clear Worker Logs** | Empty the log buffer and the channel. |
-| **Bynk: Deploy…** | Pick an environment and a scope, review the dry-run plan, then deploy from the plan in a terminal. `bynk` asks you to confirm before it changes anything. |
+| **Bynk: Deploy…** | Pick an environment and a scope (the whole project, a Worker group or one context), review the dry-run plan, then deploy from the plan in a terminal. `bynk` asks you to confirm before it changes anything. |
 | **Bynk: Show Deploy Plan** | The same plan for review only. It never deploys. |
-| **Bynk: Tail Deployed Logs…** | Pick an environment (and a context, when there are several) and stream the deployed Worker's logs with `bynk tail`, in a terminal, with stack frames at their `.bynk` lines. Needs a `bynk` with the command (v0.436.0 or newer). |
+| **Bynk: Tail Deployed Logs…** | Pick an environment (and a context or Worker group, when there are several) and stream the deployed Worker's logs with `bynk tail`, in a terminal, with stack frames at their `.bynk` lines. Needs a `bynk` with the command (v0.436.0 or newer). |
 | **Bynk: Copy Playground Link** / **Bynk: Open in Playground** | Share the selection (or a single-file program, whole) as a [playground](https://playground.bynk-lang.dev) link. The code is compressed into the URL fragment, so it never reaches a server; a snippet too large for a link is refused, not truncated. Also in the editor context menu, and on the web. |
 | **Bynk: Export OpenAPI…** | Write an OpenAPI 3.1 document for the project's `from http` services (`bynk openapi`), as JSON or YAML by file name. |
 | **Bynk: Apply Fixes Across Project…** | Pick diagnostic codes (those in the Problems panel, or typed) and apply only their fixes in every file with `bynk check --fix=<codes>`: the project-wide version of the per-file Fix All, for a migration such as the per-file `consumes` warnings. Saves open Bynk files first; reports the files changed and what remains. |

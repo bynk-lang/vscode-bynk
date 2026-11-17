@@ -15,9 +15,15 @@
 // `[environments.<env>.workers.<worker>]` with `deployed = true` and a
 // `[…contracts]` table of service name → contract hash. The ledger records no
 // timestamps, so the view cannot say *when* a Worker was last deployed.
+//
+// A Worker group (`[deploy.workers.<key>]`, bynk v0.634+) is one ledger Worker
+// keyed by the group's key; its record also holds `contexts` (the members as of
+// the push) and, when `name` overrides the key, `script`
+// (`WorkerRecord` in `bynk/src/deploy/ledger.rs`). The view shows such a Worker
+// as one group node holding its member contexts.
 
-import { contextFromWorker, sameContext, workerKey } from "./contextNames";
-import { type ClassStatus, isProductionEnvironment } from "./migrationsCore";
+import { contextFromWorker, groupByKey, groupHolding, sameContext, workerKey, type WorkerGroup } from "./contextNames";
+import { type ClassStatus, contextOf, isProductionEnvironment } from "./migrationsCore";
 import type { CdService } from "./webview/contractDiffTypes";
 
 // Re-exported so existing importers of these names are unchanged.
@@ -32,6 +38,11 @@ export interface WorkerRecord {
   /** Service → contract hash the Worker provides (what is live). `undefined`
    *  when the ledger holds no contract record for it (an older driver's push). */
   contracts: Record<string, string> | undefined;
+  /** A group Worker's members as of the push that recorded it (`contexts`);
+   *  absent for a context on its own Worker and for a ledger from before groups. */
+  contexts?: string[];
+  /** The Cloudflare script name when it is not the key (a group's `name`). */
+  script?: string;
 }
 
 export interface LedgerEnvironment {
@@ -72,8 +83,9 @@ export function splitDottedKey(text: string): string[] | undefined {
   }
 }
 
-/** A `key = value` line, with a basic- or literal-string or boolean value. */
-function keyValue(line: string): { key: string; value: string | boolean } | undefined {
+/** A `key = value` line, with a basic- or literal-string, boolean or
+ *  string-array value (an array on one line; the driver writes it so). */
+function keyValue(line: string): { key: string; value: string | boolean | string[] } | undefined {
   const m = /^\s*("(?:[^"\\]|\\.)*"|'[^']*'|[A-Za-z0-9_-]+)\s*=\s*(.*?)\s*(?:#.*)?$/.exec(line);
   if (!m) return undefined;
   const key = splitDottedKey(m[1]);
@@ -81,6 +93,11 @@ function keyValue(line: string): { key: string; value: string | boolean } | unde
   const raw = m[2];
   if (raw === "true") return { key: key[0], value: true };
   if (raw === "false") return { key: key[0], value: false };
+  if (raw.startsWith("[")) {
+    const list = /^\[(.*)\]/.exec(raw);
+    if (!list) return undefined;
+    return { key: key[0], value: [...list[1].matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map((x) => x[1] ?? x[2]) };
+  }
   const s = /^"((?:[^"\\]|\\.)*)"/.exec(raw);
   if (s) return { key: key[0], value: s[1].replace(/\\(.)/g, "$1") };
   const l = /^'([^']*)'/.exec(raw);
@@ -122,6 +139,8 @@ export function parseDeployLock(text: string): LedgerEnvironment[] {
     if (!kv) continue;
     const rec = (envs.get(target.env) as Map<string, WorkerRecord>).get(target.worker) as WorkerRecord;
     if (target.table === "worker" && kv.key === "deployed" && typeof kv.value === "boolean") rec.deployed = kv.value;
+    else if (target.table === "worker" && kv.key === "contexts" && Array.isArray(kv.value)) rec.contexts = kv.value.length > 0 ? kv.value : undefined;
+    else if (target.table === "worker" && kv.key === "script" && typeof kv.value === "string") rec.script = kv.value;
     else if (target.table === "contracts" && typeof kv.value === "string") (rec.contracts as Record<string, string>)[kv.key] = kv.value;
   }
   return [...envs.entries()]
@@ -203,6 +222,8 @@ export function migrationWarningText(c: ClassStatus): string {
 export type EnvNodeData =
   | { kind: "environment"; environment: string }
   | { kind: "context"; environment: string; context: string; drift: DriftState }
+  /** A Worker group: one Worker holding `contexts`; deployed, reverted and tailed as a unit. */
+  | { kind: "workerGroup"; environment: string; worker: string; contexts: string[]; drift: DriftState }
   | { kind: "migrations"; environment: string }
   | { kind: "migrationClass"; environment: string; class: string }
   | { kind: "service" | "message" };
@@ -229,6 +250,9 @@ export interface EnvironmentsInput {
    *  (no language server yet, or no committed analysis), in which case drift
    *  is left out rather than guessed. */
   drift: CdService[] | null;
+  /** The project's `[deploy.workers.<key>]` groups, read from `bynk.toml`;
+   *  absent or empty for a project with none (every context is its own Worker). */
+  groups?: WorkerGroup[];
   /** `bynk migrate status`, or why it is not available. */
   migrations: { kind: "status"; classes: ClassStatus[] } | { kind: "unavailable"; detail: string };
 }
@@ -258,20 +282,53 @@ export function buildEnvironmentsTree(input: EnvironmentsInput): EnvTreeNode[] {
   return envs.map((env) => buildEnvironment(env, input));
 }
 
+/** The manifest's groups, then a group the ledger recorded for a Worker the
+ *  manifest no longer (or not yet) names: its members as of the last push. */
+function effectiveGroups(manifest: readonly WorkerGroup[], workers: readonly WorkerRecord[]): WorkerGroup[] {
+  const out = [...manifest];
+  for (const w of workers) {
+    if (w.contexts && w.contexts.length > 0 && !out.some((g) => g.key === w.worker)) {
+      out.push({ key: w.worker, contexts: w.contexts, ...(w.script && w.script !== w.worker ? { name: w.script } : {}) });
+    }
+  }
+  return out;
+}
+
+/** `bynk migrate status` says where a class is deployed by the Worker named
+ *  for its context (`bynk/src/migrate.rs` `worker_of`), which is not a group's
+ *  Worker: a class in a group member reads as deployed nowhere. The ledger knows
+ *  better, so a class whose member's group Worker is deployed here is too. */
+function groupedDeployments(classes: ClassStatus[], env: LedgerEnvironment, groups: readonly WorkerGroup[]): ClassStatus[] {
+  if (groups.length === 0) return classes;
+  return classes.map((c) => {
+    const group = groupHolding(contextOf(c.class), groups);
+    const live = group && env.workers.some((w) => w.worker === group.key && w.deployed);
+    return live && !c.deployedTo.includes(env.name) ? { ...c, deployedTo: [...c.deployedTo, env.name] } : c;
+  });
+}
+
 function buildEnvironment(env: LedgerEnvironment, input: EnvironmentsInput): EnvTreeNode {
   const rows = input.drift?.filter((s) => s.environment === env.name) ?? [];
+  const groups = effectiveGroups(input.groups ?? [], env.workers);
+  const driftKnown = input.drift !== null;
   const contexts: EnvTreeNode[] = [];
   const seen = new Set<string>();
   for (const w of env.workers) {
     seen.add(w.worker);
-    contexts.push(buildContext(env.name, w, rows.filter((r) => workerKey(r.context) === w.worker), input.drift !== null));
+    const group = groupByKey(w.worker, groups);
+    const mine = rows.filter((r) => workerKey(r.context, groups) === w.worker);
+    contexts.push(group ? buildGroup(env.name, w, group, mine, driftKnown) : buildContext(env.name, w, mine, driftKnown));
   }
-  // A context the working tree has, and the environment does not: undeployed.
-  const extra = [...new Set(rows.map((r) => r.context).filter((c) => !seen.has(workerKey(c))))].sort();
-  for (const context of extra) {
-    const worker = workerKey(context);
+  // A context (or group) the working tree has, and the environment does not: undeployed.
+  const extra = [...new Set(rows.map((r) => workerKey(r.context, groups)).filter((k) => !seen.has(k)))].sort();
+  for (const worker of extra) {
+    const mine = rows.filter((r) => workerKey(r.context, groups) === worker);
+    const group = groupByKey(worker, groups);
+    const record: WorkerRecord = { worker, deployed: false, contracts: undefined };
     contexts.push(
-      buildContext(env.name, { worker, deployed: false, contracts: undefined }, rows.filter((r) => workerKey(r.context) === worker), true, context),
+      group
+        ? buildGroup(env.name, record, group, mine, true)
+        : buildContext(env.name, record, mine, true, mine[0].context),
     );
   }
   const states = contexts.map(contextState);
@@ -279,7 +336,7 @@ function buildEnvironment(env: LedgerEnvironment, input: EnvironmentsInput): Env
   const breaking = states.filter((s) => s === "breaking").length;
 
   const warnings =
-    input.migrations.kind === "status" ? migrationWarnings(input.migrations.classes, env.name) : [];
+    input.migrations.kind === "status" ? migrationWarnings(groupedDeployments(input.migrations.classes, env, groups), env.name) : [];
   const children = [...contexts];
   if (input.migrations.kind === "status") {
     children.push({
@@ -321,7 +378,54 @@ function buildEnvironment(env: LedgerEnvironment, input: EnvironmentsInput): Env
 }
 
 function contextState(n: EnvTreeNode): DriftState {
-  return n.data.kind === "context" ? n.data.drift : "in-sync";
+  return n.data.kind === "context" || n.data.kind === "workerGroup" ? n.data.drift : "in-sync";
+}
+
+/** A Worker group's node: one Worker, its member contexts beneath it. The
+ *  ledger holds one contract table for the whole Worker, so each member shows
+ *  the services the working tree attributes to it, and any live service no
+ *  member's row names stays on the group. */
+function buildGroup(environment: string, w: WorkerRecord, group: WorkerGroup, rows: CdService[], driftKnown: boolean): EnvTreeNode {
+  const live = w.contracts;
+  const claimed = new Set<string>();
+  const members: EnvTreeNode[] = [];
+  // The ledger's members (as of the push) and the manifest's: both are shown.
+  const recorded = w.contexts ?? [];
+  const names = [...new Set([...group.contexts, ...recorded])];
+  for (const member of names) {
+    const mine = rows.filter((r) => sameContext(r.context, member));
+    const own = live === undefined ? undefined : Object.fromEntries(Object.entries(live).filter(([svc]) => mine.some((r) => r.service === svc)));
+    for (const svc of Object.keys(own ?? {})) claimed.add(svc);
+    // A member the Worker was not last pushed with joins it at the next deploy.
+    const inWorker = w.deployed && (recorded.length === 0 || recorded.some((c) => sameContext(c, member)));
+    members.push(buildContext(environment, { worker: w.worker, deployed: inWorker, contracts: own }, mine, driftKnown, member));
+  }
+  const states = members.map(contextState);
+  const state = worstDrift(states);
+  const leftover: EnvTreeNode[] = Object.entries(live ?? {})
+    .filter(([svc]) => !claimed.has(svc))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([svc, hash]) => serviceNode(environment, group.key, svc, hash, undefined, undefined));
+  const script = group.name && group.name !== group.key ? group.name : w.script && w.script !== w.worker ? w.script : undefined;
+  const bits = [`Worker group · ${names.length} context${names.length === 1 ? "" : "s"}`];
+  if (!w.deployed) bits.push("not deployed");
+  else if (live === undefined) bits.push("deployed · no contract record");
+  else bits.push("deployed");
+  if (driftKnown) bits.push(driftLabel(state));
+  return {
+    id: `${environment}/${group.key}`,
+    label: group.key,
+    description: bits.join(" · "),
+    tooltip: [
+      `Worker group ${group.key} in ${environment}${script ? ` (script ${script})` : ""}`,
+      `Members: ${names.join(", ")}`,
+      "A group is one Worker: it deploys, reverts and is tailed as a unit (bynk deploy --worker " + group.key + ").",
+    ].join("\n"),
+    icon: !w.deployed ? "circle-slash" : state === "breaking" ? "error" : state === "in-sync" || !driftKnown ? "layers" : "warning",
+    contextValue: "bynkEnvWorker",
+    data: { kind: "workerGroup", environment, worker: group.key, contexts: names, drift: driftKnown ? state : "in-sync" },
+    children: [...members, ...leftover],
+  };
 }
 
 function buildContext(
@@ -398,6 +502,10 @@ function serviceNode(
  *  (used by the view's badge and tests). */
 export function driftedContexts(tree: EnvTreeNode[]): number {
   let n = 0;
-  for (const env of tree) for (const c of env.children) if (c.data.kind === "context" && contextState(c) !== "in-sync") n++;
+  const count = (c: EnvTreeNode): void => {
+    if (c.data.kind === "context" && contextState(c) !== "in-sync") n++;
+    else if (c.data.kind === "workerGroup") c.children.forEach(count);
+  };
+  for (const env of tree) env.children.forEach(count);
   return n;
 }

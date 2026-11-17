@@ -10,6 +10,7 @@
 //   - a secret's value is read from the environment, never from a file;
 //   - what a target does not serve is reported, not guessed.
 
+import { groupHolding, workerKey, type WorkerGroup } from "./contextNames";
 import { isProductionEnvironment } from "./migrationsCore";
 import { isSensitiveHeader, findRefs, type Step } from "./scenarioCore";
 
@@ -147,9 +148,11 @@ export function parseTargets(toml: string): TestTarget[] {
 }
 
 /** The worker-directory name a context's unit deploys as: `shop.orders` is
- *  `shop-orders`. */
-export function workerName(unit: string): string {
-  return unit.replace(/\./g, "-");
+ *  `shop-orders`, unless a `[deploy.workers.<key>]` group holds it, when it is
+ *  the group's key (`[test.targets] url.<worker>` is keyed by Worker directory,
+ *  `bynk-project/src/paths.rs` `TestTarget::urls`). */
+export function workerName(unit: string, groups?: readonly WorkerGroup[]): string {
+  return workerKey(unit, groups);
 }
 
 export type BaseUrl = { base: string } | { error: string };
@@ -157,13 +160,14 @@ export type BaseUrl = { base: string } | { error: string };
 /** Where the target serves a context's unit, or why it does not. A URL that
  *  carries credentials, or is not http(s), is refused: the file is not where a
  *  credential lives. */
-export function targetBase(target: TestTarget, unit: string): BaseUrl {
-  const worker = workerName(unit);
+export function targetBase(target: TestTarget, unit: string, groups?: readonly WorkerGroup[]): BaseUrl {
+  const worker = workerName(unit, groups);
   const url = target.urls[worker];
   if (url === undefined) {
     const served = Object.keys(target.urls);
+    const serving = groupHolding(unit, groups) ? `the Worker group serving ${unit}` : `the worker serving ${unit}`;
     return {
-      error: `The target \`${target.name}\` has no URL for \`${worker}\` (the worker serving ${unit})${served.length > 0 ? `; it serves ${served.map((s) => `\`${s}\``).join(", ")}` : ""}.`,
+      error: `The target \`${target.name}\` has no URL for \`${worker}\` (${serving})${served.length > 0 ? `; it serves ${served.map((s) => `\`${s}\``).join(", ")}` : ""}.`,
     };
   }
   let parsed: URL;

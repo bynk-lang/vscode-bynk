@@ -207,6 +207,20 @@ describe("sendRequestCore", () => {
       });
     });
 
+    it("sends a Worker group's member to the group's one port (#182)", () => {
+      // `bynk dev` serves a group as one Worker, named by its key in `serving`.
+      const core = { name: "core", port: 8788, url: "http://localhost:8788", inspectorPort: null };
+      const groups = [{ key: "core", contexts: ["app.shop", "app.cart"], name: "acme-core" }];
+      const state = { phase: "ready" as const, contexts: [core, ctx], ready: true };
+      for (const unit of ["app.shop", "app.cart"]) {
+        assert.deepStrictEqual(devTarget(unit, state, groups), { kind: "ready", url: "http://localhost:8788" });
+      }
+      // Not in the group: its own Worker, still found by its own name.
+      assert.deepStrictEqual(devTarget("app.web", { ...state, contexts: [core] }, groups), { kind: "notServed", served: ["core"] });
+      // Without the groups, the member would be looked up by its own name.
+      assert.deepStrictEqual(devTarget("app.cart", { ...state, contexts: [core] }), { kind: "notServed", served: ["core"] });
+    });
+
     it("a rebuild still sends, with a note", () => {
       const t = devTarget("app.shop", { phase: "failed", contexts: [ctx], ready: true });
       assert.ok(t.kind === "ready" && t.note && /previous build/.test(t.note));

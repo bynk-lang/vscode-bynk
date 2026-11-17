@@ -1392,7 +1392,7 @@
         },
         {
           "command": "bynk.environments.showContractDiff",
-          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvContext",
+          "when": "view == bynk.environments && !isWeb && viewItem =~ /^bynkEnv(Context|Worker)$/",
           "group": "inline"
         }
       ]
