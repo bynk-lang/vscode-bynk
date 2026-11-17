@@ -224,7 +224,7 @@ describe("Worker groups (#182)", () => {
       try {
         await vscode.commands.executeCommand(
           "bynk.scenario.runAgainst",
-          vscode.Uri.file(path.join(dir, "scenarios", "orders.bynk-http")).toString(),
+          vscode.Uri.file(path.join(dir, "scenarios", "against.bynk-http")).toString(),
         );
       } finally {
         win.showQuickPick = quick;
@@ -234,7 +234,9 @@ describe("Worker groups (#182)", () => {
 
     it("sends a member's step to the URL keyed by the group, not by the member", async function () {
       this.timeout(60_000);
-      const scenario = path.join(dir, "scenarios", "orders.bynk-http");
+      // A file of its own: the dev server test's scenario is open, and an open document
+      // would keep its old text until the file watcher caught up.
+      const scenario = path.join(dir, "scenarios", "against.bynk-http");
       fs.writeFileSync(scenario, "@context shop.orders\n\n### fetch\nGET /orders/42\n\n? status == 200\n");
       const real = win.showQuickPick;
       const box = win.showInputBox;
