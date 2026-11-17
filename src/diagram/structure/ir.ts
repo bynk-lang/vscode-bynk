@@ -62,6 +62,9 @@ export interface StructNode {
   opens?: boolean;
   /** Drawn faded: a state unreachable from the initial one. */
   dimmed?: boolean;
+  /** #145: the state a live agent instance is in now, on the agent state
+   *  view; drawn with the engine's current-element emphasis. */
+  current?: boolean;
   /** How it differs from the other revision, on a model diff's drawing. */
   diff?: DiffMark;
   /** More to say in its tooltip, under its description. */

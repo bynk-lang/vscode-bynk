@@ -35,6 +35,72 @@ if (args[0] === "book") {
       "A refined type adds a `where` predicate (fake bundle v9.9.9).\n",
   );
   process.exit(0);
+} else if (args[0] === "dev" && args[1] === "inspect") {
+  // `bynk dev inspect agents|agent` (#145): answers in bynk v0.639.1's shape
+  // (`bynk/src/dev_inspect.rs`; docs: `Inspecting agents`). Two instances of
+  // the class `Order` in context `orders`: `o1` is `Placed` after one `place`,
+  // `o2` is a numeric key 7 still `Pending`, on an older schema.
+  // `BYNK_FAKE_INSPECT=none` is no running session, as the CLI says it.
+  if (process.env.BYNK_FAKE_INSPECT === "none") {
+    process.stderr.write("bynk: no running `bynk dev` session for this project (start one with `bynk dev`)\n");
+    process.exit(1);
+  }
+  // `BYNK_FAKE_INSPECT=hang`: a Worker that never answers; the process just waits.
+  if (process.env.BYNK_FAKE_INSPECT === "hang") setInterval(() => {}, 1000);
+  else {
+  const sep = args.indexOf("--");
+  const positional = sep >= 0 ? args.slice(sep + 1) : [];
+  if (args[2] === "agents") {
+    const cls = args[args.indexOf("--class") + 1];
+    const all = [
+      { context: "orders", class: "Order", key: "o1", id: "29bacc06aa" },
+      { context: "orders", class: "Order", key: 7, id: "5f3e10c2bb" },
+      { context: "orders", class: "Counter", key: "c", id: "0d11" },
+    ];
+    process.stdout.write(
+      JSON.stringify({ agents: all.filter((a) => a.class === cls), errors: [] }, null, 2) + "\n",
+    );
+    process.exit(0);
+  }
+  const [cls, key] = positional;
+  if (args[2] === "agent" && cls === "Order" && (key === "o1" || key === "7")) {
+    const placed = key === "o1";
+    const snap = (status) => ({ cells: { status: { tag: status }, total: 0 }, collections: { lines: 1 } });
+    process.stdout.write(
+      JSON.stringify(
+        {
+          context: "orders",
+          class: "Order",
+          key: placed ? "o1" : 7,
+          id: placed ? "29bacc06aa" : "5f3e10c2bb",
+          exists: true,
+          readable: true,
+          version: placed ? 2 : 1,
+          current: 2,
+          layout: 2,
+          migrationPending: !placed,
+          cells: { status: { tag: placed ? "Placed" : "Pending" }, total: 0 },
+          collections: {
+            lines: { kind: "map", size: 1, entries: [{ key: "apple", value: { i: 0, v: 2 } }], next: null },
+          },
+          history: placed
+            ? [
+                { handler: null, old: null, new: snap("Pending"), at: 1700000000000 },
+                { handler: "place", old: snap("Pending"), new: snap("Placed"), at: 1700000001000 },
+              ]
+            : [],
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.exit(0);
+  }
+  process.stderr.write(
+    `bynk: no instance of \`${cls}\` with key \`${key}\` has been addressed in this session (an instance is listed once a handler addresses it)\n`,
+  );
+  process.exit(1);
+  }
 } else if (args[0] === "dev") {
   // `bynk dev --format json`: listen on a free port (so the controller's
   // readiness probe succeeds), report it in a `serving` event, then serve until
