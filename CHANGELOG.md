@@ -24,6 +24,10 @@ version).
 - **Request scenarios check captures and expectations against the response type** (#160). With `bynk/wireContract`'s `success` and per-response `payload`/`body` (`bynk-lang/bynk#3609`, v0.633.4 and v0.633.9), `{{create.body.id}}` and `? body.id exists` are checked against what the earlier route answers: `T` for a status that carries a value (or the declared success when the step expects no status), and only `error` for an error message. Raw bodies, redirects and statuses the handler doesn't name are skipped. A captured value is also checked against where it lands, in a body field or a path parameter (a string into an `Int`), and `? body.x == <json>` against the field's type. Every one of these is a warning, never an error. A server that doesn't send the types checks as before.
 - **Promote to test suite writes more of a scenario** (#160): with the response type known, `? body.name contains "x"` on a String field becomes `expect item.name.contains("x")`, and `? body.id exists` on a field the type requires is noted as holding by its type.
 
+### Fixed
+
+- **Worker groups (`[deploy.workers.<key>]`) are understood** (#182). A context in a group runs as part of the group's one Worker, which Bynk names by the group's key, but the extension assumed one Worker per context. It now reads the groups from `bynk.toml` and routes every context → Worker lookup through them: the Environments view shows a group as one node holding its members (not as "not deployed" contexts beside an unrecognised Worker), Send Request and scenarios on the dev server go to the group's single port, scenarios against a `[test.targets]` target use the URL keyed by the group, and the Contract Diff filter on a group covers every member. Deploy and Show Deploy Plan offer a group as one choice and pass `--worker <key>` (`bynk deploy --context <member>` is refused); Tail Deployed Logs tails the group with `--context <key>`. Sweep Migrations declines to sweep a group member's classes, because `bynk migrate sweep` aims them at the wrong Worker (bynk-lang/bynk#3686). Projects with no groups behave as before.
+
 ## [0.639.1] - 2026-11-17
 
 ### Changed

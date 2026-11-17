@@ -30,6 +30,9 @@ import {
 } from "./migrationsCore";
 import { Generations } from "./refreshScope";
 import { bynkPath } from "./tasks";
+import { groupedSweepIssue } from "./workerGroups";
+import { readWorkerGroups } from "./workerGroupsStore";
+import { groupHolding, type WorkerGroup } from "./contextNames";
 
 /** A project's status: the classes, or why the driver could not report them. */
 export type MigrationsState =
@@ -166,13 +169,17 @@ function parseArg(arg: unknown): { root?: vscode.Uri; preset: Preset; cls?: stri
 
 /** The whole project (`""`) or one context; `undefined` when cancelled. A
  *  project with one context skips the pick. */
-async function pickScope(classes: ClassStatus[]): Promise<string | undefined> {
+async function pickScope(classes: ClassStatus[], groups: readonly WorkerGroup[]): Promise<string | undefined> {
   const names = [...new Set(classes.map((c) => contextOf(c.class)))].sort();
   if (names.length <= 1) return "";
   const picked = await vscode.window.showQuickPick(
     [
       { label: "Whole project", description: "every context's classes", context: "" },
-      ...names.map((n) => ({ label: n, description: "this context's classes alone", context: n })),
+      ...names.map((n) => ({
+        label: n,
+        description: groupHolding(n, groups) ? "in a Worker group: needs bynk-lang/bynk#3686" : "this context's classes alone",
+        context: n,
+      })),
     ],
     { placeHolder: "What should the sweep cover?" },
   );
@@ -242,8 +249,15 @@ class SweepView implements vscode.Disposable {
       );
       return;
     }
-    const scope = preset.context ?? (parsed.cls ? contextOf(parsed.cls) : await pickScope(classes));
+    const groups = await readWorkerGroups(root);
+    const scope = preset.context ?? (parsed.cls ? contextOf(parsed.cls) : await pickScope(classes, groups));
     if (scope === undefined) return;
+    // The driver cannot yet sweep a Worker group's classes (bynk-lang/bynk#3686).
+    const blocked = groupedSweepIssue(scope, classes.map((c) => contextOf(c.class)), groups);
+    if (blocked) {
+      void vscode.window.showWarningMessage(`Bynk: ${blocked}`);
+      return;
+    }
     const target: SweepTarget = { environments: [] };
     if (scope) target.context = scope;
     let environment: string | undefined = preset.environment;

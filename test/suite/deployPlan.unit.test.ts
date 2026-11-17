@@ -80,6 +80,26 @@ describe("tailArgs", () => {
   });
 });
 
+describe("Worker groups in the argument lists (#182)", () => {
+  it("deploys a group by `--worker KEY`, never `--context`", () => {
+    assert.deepStrictEqual(deployArgs({ environment: "staging", worker: "core" }, "plan"), [
+      "deploy", "--dry-run", "--format", "json", "--env", "staging", "--worker", "core",
+    ]);
+    assert.deepStrictEqual(deployArgs({ environment: "staging", worker: "core", secretsFile: "/tmp/s.env" }, "deploy"), [
+      "deploy", "--env", "staging", "--worker", "core", "--secrets-file", "/tmp/s.env",
+    ]);
+  });
+
+  it("tails a group through `--context KEY`: `bynk tail` has no `--worker` at v0.639.1", () => {
+    assert.deepStrictEqual(tailArgs({ environment: "staging", worker: "core" }), ["tail", "--env", "staging", "--context", "core"]);
+  });
+
+  it("refuses a flag-like Worker name", () => {
+    assert.throws(() => deployArgs({ environment: "prod", worker: "--yes" }, "deploy"));
+    assert.throws(() => tailArgs({ environment: "prod", worker: "--status" }));
+  });
+});
+
 describe("deployArgs", () => {
   it("plans with --dry-run --format json, and deploys with the same target", () => {
     const target = { environment: "staging", context: "commerce.orders", secretsFile: "/tmp/s.env" };

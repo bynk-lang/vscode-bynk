@@ -1,0 +1,7 @@
+context shop.orders
+
+service api from http {
+  on GET("/orders/:id") (id: String) -> Effect[HttpResult[String]] by v: Visitor {
+    Ok(id)
+  }
+}

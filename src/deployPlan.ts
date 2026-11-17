@@ -124,8 +124,12 @@ export function parseDeployPlan(text: string): DeployPlan {
 /** What a deploy targets. */
 export interface DeployTarget {
   environment: string;
-  /** One context (dotted or worker-dir form); absent deploys the project. */
+  /** One context (dotted or worker-dir form); absent deploys the project.
+   *  Never a member of a Worker group: `bynk deploy` refuses it. */
   context?: string;
+  /** One Worker by its directory name: a `[deploy.workers.<key>]` group's key,
+   *  which deploys the group's members together (`--worker`, bynk v0.636). */
+  worker?: string;
   /** A dotenv-style `NAME=value` file. Only its path is handled. */
   secretsFile?: string;
 }
@@ -133,12 +137,15 @@ export interface DeployTarget {
 /** The backstop for every argument list: the pickers and presets validate
  *  first, so no value can ever read as a flag such as `--yes` whatever the
  *  caller passed. */
-function assertNames(target: { environment: string; context?: string }): void {
+function assertNames(target: { environment: string; context?: string; worker?: string }): void {
   if (!validEnvironmentName(target.environment)) {
     throw new Error(`not an environment name: ${JSON.stringify(target.environment)}`);
   }
   if (target.context !== undefined && !validContextName(target.context)) {
     throw new Error(`not a context name: ${JSON.stringify(target.context)}`);
+  }
+  if (target.worker !== undefined && !validContextName(target.worker)) {
+    throw new Error(`not a Worker name: ${JSON.stringify(target.worker)}`);
   }
 }
 
@@ -150,17 +157,22 @@ export function deployArgs(target: DeployTarget, mode: "plan" | "deploy"): strin
   const args = ["deploy"];
   if (mode === "plan") args.push("--dry-run", "--format", "json");
   args.push("--env", target.environment);
-  if (target.context) args.push("--context", target.context);
+  if (target.worker) args.push("--worker", target.worker);
+  else if (target.context) args.push("--context", target.context);
   if (target.secretsFile) args.push("--secrets-file", target.secretsFile);
   return args;
 }
 
 /** The `bynk tail` argument list (#2546): stream a deployed Worker's logs.
  *  Names are checked as in `deployArgs`. */
-export function tailArgs(target: { environment: string; context?: string }): string[] {
+export function tailArgs(target: { environment: string; context?: string; worker?: string }): string[] {
   assertNames(target);
   const args = ["tail", "--env", target.environment];
-  if (target.context) args.push("--context", target.context);
+  // `bynk tail` has no `--worker` at v0.639.1 (`bynk/src/cli.rs` `Tail`): it
+  // selects among the built Worker directories, so a group is named by its key
+  // through `--context`, and a member's own name finds no Worker.
+  const which = target.worker ?? target.context;
+  if (which) args.push("--context", which);
   return args;
 }
 
