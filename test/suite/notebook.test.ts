@@ -79,6 +79,8 @@ const NOTEBOOK = {
     { kind: "code", source: ["// @unit todos", "// @handler", "stub Mailer.send(_) returns false", TODO_CALL] },
     { kind: "code", source: ["// @unit plain", "// @handler", "stub Notifier.ping(_) returns false", 'api.POST("/ping/:who", "ann") by Visitor'] },
     { kind: "code", source: ["// @unit plain", "// @handler", 'let r <- api.POST("/ping/:who", "ann") by Visitor'] },
+    // A handler cell's call is not sent again ahead of a later cell.
+    { kind: "code", source: ["// @unit plain", '"later"'] },
   ],
 };
 
@@ -117,6 +119,7 @@ describe("Bynk notebooks (#151)", () => {
     assert.strictEqual(doc.notebookType, "bynk-notebook");
     assert.deepStrictEqual(doc.getCells().map((c) => [c.kind, c.document.languageId]), [
       [vscode.NotebookCellKind.Markup, "markdown"],
+      [vscode.NotebookCellKind.Code, "bynk"],
       [vscode.NotebookCellKind.Code, "bynk"],
       [vscode.NotebookCellKind.Code, "bynk"],
       [vscode.NotebookCellKind.Code, "bynk"],
@@ -177,6 +180,7 @@ describe("Bynk notebooks (#151)", () => {
     assert.ok(text(cells[7]).some((t) => /Ran without a suite: `plain` has no unit-tier suite/.test(t)), JSON.stringify(text(cells[7])));
     // With no stub the handler's capability is unstubbed, and that is the cell's error, not a tick.
     assert.ok(cells[8].outputs.some((o) => o.items.some((i) => i.mime === "application/vnd.code.notebook.error")), JSON.stringify(text(cells[8])));
+    assert.deepStrictEqual(text(cells[9]), ['"later"\n: String']);
     // Nothing from the notebook's last run is saved with it.
     await vscode.commands.executeCommand("workbench.action.files.save");
     assert.ok(!fs.readFileSync(uri.fsPath, "utf8").includes("2000\\n: Int"));

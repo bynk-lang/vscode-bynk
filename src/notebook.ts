@@ -173,7 +173,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     // a refined-type cell is its own run; every other cell is an expression.
     const directive = cellKindOf(cell.document.getText());
     if (directive.kind === "bad-directive") return fail(`${directive.problem} (${directive.directive})`);
-    if (directive.kind === "handler") return runHandler({ cell, execution, root, unit, cells, index, codeCells, remember: () => mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit }), forget: () => mine.delete(cell.document.uri.toString()) });
+    if (directive.kind === "handler") return runHandler({ cell, execution, root, unit, cells, index, codeCells, forget: () => mine.delete(cell.document.uri.toString()) });
     const refined = analyseRefined(cell.document.getText());
     if (refined) return runRefined({ cell, execution, root, unit, cells, index, codeCells, refined, remember: () => mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit }), forget: () => mine.delete(cell.document.uri.toString()) });
     const snippet = buildSnippet(cells, index, unit);
@@ -231,7 +231,6 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     cells: CellInput[];
     index: number;
     codeCells: vscode.NotebookCell[];
-    remember: () => void;
     forget: () => void;
   }
 
@@ -272,9 +271,12 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const placed = placeDiagnostics(result.diagnostics, snippet.origins);
     // A bare call was bound on its own line: a column there is shifted by the binding.
     const shifted = placed.map((d) => (d.cell === index && d.at !== undefined && d.at === observed.rewritten ? { ...d, col: 1 } : d));
-    showDiagnostics(codeCells[index], index, shifted);
+    // A problem in the `match` the extension appended is not on a line the user wrote.
+    const inAppended = (d: CellDiagnostic): boolean => observed.appendedFrom !== undefined && d.cell === index && d.at !== undefined && d.at >= observed.appendedFrom;
+    showDiagnostics(codeCells[index], index, shifted.filter((d) => !inAppended(d)));
     const notes: string[] = snippetNotes(snippet, (i) => `cell ${codeCells[i].index + 1}`);
     for (const d of shifted.filter((x) => x.cell === undefined || x.cell !== index)) notes.push(describe(d, codeCells, index));
+    for (const d of shifted.filter(inAppended)) notes.push(`The extension's \`match\` over the response didn't check (${d.code || d.severity}): ${d.message} End the cell with a \`match\` of your own to show the response.`);
     const hasStubs = analyseCell(source).header.some((h) => h.text.trimStart().startsWith("stub"));
     if (result.kind !== "diagnostics") notes.push(suiteNote(unit, usedSuite, hasStubs));
 
@@ -304,8 +306,10 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const outputs = [new vscode.NotebookCellOutput(items)];
     if (notes.length > 0) outputs.push(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain")]));
     await execution.replaceOutput(outputs);
-    if (ok && placed.every((d) => d.severity !== "error")) r.remember();
-    else r.forget();
+    // A handler cell binds nothing a later cell may use: its `let`s would send the
+    // call again, in a cell that runs without the suite (and its stubs). It counts
+    // as not run, so `buildSnippet` leaves it out.
+    r.forget();
     execution.end(ok, Date.now());
   }
 

@@ -36,6 +36,9 @@ export interface HandlerCell {
   response?: string;
   /** Zero-based line of a bare call that was given a binding (its columns shift). */
   rewritten?: number;
+  /** Zero-based line the appended `match` starts on: a diagnostic at or after it
+   *  is in the extension's own code, not the user's. */
+  appendedFrom?: number;
 }
 
 /** The source to send in place of the cell's own, and what it did to it.
@@ -59,7 +62,7 @@ export function handlerSource(source: string): { text: string; cell: HandlerCell
   }
   // Up to the end of the last statement: lines after it (comments) stay out of the way.
   const head = lines.slice(0, last.end + 1).join("\n");
-  return { text: `${head}\n${observe(name)}`, cell: { response: name, rewritten } };
+  return { text: `${head}\n${observe(name)}`, cell: { response: name, rewritten, appendedFrom: last.end + 1 } };
 }
 
 /** A `match` that answers `{"variant": …, "payload": …}` as JSON text for each
@@ -136,7 +139,11 @@ export function suiteNote(unit: string, usedSuite: boolean, hasStubs: boolean): 
 export function withCall(source: string, call: string, kind: "expression" | "handler"): string {
   const directive = kind === "handler" ? [] : ["// @handler"];
   const body = source.replace(/\s+$/, "");
-  if (body === "") return [...directive, "// Add a `stub Cap.op(_) returns …` line above the call for each capability the handler uses.", `let response <- ${call}`, ""].join("\n");
+  // A name the cell has not bound already: `response`, then `response2`, …
+  const taken = new Set([...source.matchAll(/\blet\s+(response\d*)\b/g)].map((m) => m[1]));
+  let name = "response";
+  for (let n = 2; taken.has(name); n++) name = `response${n}`;
+  if (body === "") return [...directive, "// Add a `stub Cap.op(_) returns …` line above the call for each capability the handler uses.", `let ${name} <- ${call}`, ""].join("\n");
   const lines = kind === "handler" ? body : [...directive, body].join("\n");
-  return `${lines}\nlet response <- ${call}\n`;
+  return `${lines}\nlet ${name} <- ${call}\n`;
 }

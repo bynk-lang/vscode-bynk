@@ -45,6 +45,12 @@ describe("handler cells: observing the response (#191)", () => {
     assert.ok(text.endsWith('  _ => "{\\"variant\\":null}",\n}'));
   });
 
+  it("says where the appended match starts, past the last line of the user's call", () => {
+    const src = '// @handler\nlet r <- api.GET("/x") by Visitor\n\n// trailing';
+    assert.strictEqual(handlerSource(src).cell.appendedFrom, 2);
+    assert.strictEqual(handlerSource("// @handler\nstub A.b(_) returns 1").cell.appendedFrom, undefined);
+  });
+
   it("binds a bare call on its own line, so no later line moves", () => {
     const src = `${stubs}api.GET("/me") by User("bob")`;
     const { text, cell } = handlerSource(src);
@@ -129,6 +135,14 @@ describe("handler cells: inserting a call (#191)", () => {
   it("puts the directive ahead of what a plain cell has, and the call after it", () => {
     const t = withCall("stub A.b(_) returns 1\n\n", "svc.GET() by Visitor", "expression");
     assert.strictEqual(t, "// @handler\nstub A.b(_) returns 1\nlet response <- svc.GET() by Visitor\n");
+  });
+  it("names each inserted response afresh, so two calls in a cell do not bind one name twice", () => {
+    const one = withCall("", "svc.GET() by Visitor", "expression");
+    const two = withCall(one, "svc.POST() by Visitor", "handler");
+    const three = withCall(two, "svc.PUT() by Visitor", "handler");
+    assert.ok(two.endsWith("let response2 <- svc.POST() by Visitor\n"));
+    assert.ok(three.endsWith("let response3 <- svc.PUT() by Visitor\n"));
+    assert.strictEqual([...three.matchAll(/let (response\d*) </g)].map((m) => m[1]).join(), "response,response2,response3");
   });
   it("adds only the call to a handler cell", () => {
     assert.strictEqual(withCall("// @handler\nstub A.b(_) returns 1", "svc.GET() by Visitor", "handler"), "// @handler\nstub A.b(_) returns 1\nlet response <- svc.GET() by Visitor\n");

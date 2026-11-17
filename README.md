@@ -332,7 +332,9 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
     same operation, the suite's answers), and on its own otherwise; the output says
     which. The response is read when the call is the cell's last statement; end the
     cell with a `match` of your own to show something else, or to read a raw or
-    streamed body. `trace(Cap.op)` records are not shown: a snippet can count them
+    streamed body. A handler cell's `let`s are not sent ahead of later cells (that would
+    call the handler again, outside the suite).
+    `trace(Cap.op)` records are not shown: a snippet can count them
     (`trace(Cap.op).length()`) but `bynk eval` cannot return the list (v0.639.1;
     bynk-lang/bynk#3699, #3700).
   - **A cell runs only when you run it**, never on open, hover or save: it is
