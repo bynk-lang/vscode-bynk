@@ -193,8 +193,11 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
         items.push(vscode.NotebookCellOutputItem.error(Object.assign(new Error(result.message), { name: result.errorKind === "timeout" ? "Timed out" : result.errorKind === "setup" ? "Could not run" : "Runtime error" })));
         break;
     }
-    if (notes.length > 0) items.push(vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain"));
-    await execution.replaceOutput(new vscode.NotebookCellOutput(items));
+    // The notes are an output of their own: one output holds one item per mime
+    // type, so a second `text/plain` beside the value would be dropped.
+    const outputs = [new vscode.NotebookCellOutput(items)];
+    if (notes.length > 0) outputs.push(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain")]));
+    await execution.replaceOutput(outputs);
     if (ok && placed.every((d) => d.severity !== "error")) mine.set(cell.document.uri.toString(), cell.document.getText());
     else mine.delete(cell.document.uri.toString());
     execution.end(ok, Date.now());
