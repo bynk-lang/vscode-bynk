@@ -376,6 +376,22 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   calls Reachability follows; it says so when the server is older. For a single
   function or handler, VS Code's own **Show Call Hierarchy** works on Bynk
   and follows calls across contexts (bynk v0.626.1 and later).
+- **Impact view** — **Bynk: Show Impact** (in a `.bynk` file's context menu, or
+  the Command Palette) on a type, event or service opens an **Impact** view in
+  the sidebar listing everything that depends on it, each row opening its
+  source: the **other units** that mention it (grouped by unit), consume its
+  unit or call it (across contexts); an event's **emitters and subscribers**;
+  **the boundary** (the handlers whose wire contract carries it, in the request
+  or the response, what the contract diff reports changed against
+  `bynk.schema.lock`, and the deployed service contracts that changed, with
+  their environments); the routes of the **generated TypeScript client**
+  (`[build.client]`) that carry it; and the **tests** that mention it, by case.
+  References are by name, as the language server resolves them. Whether a type
+  sits in an *unchanged* lock entry is not in any language-server request, so the
+  view says only what the contract diff reports (bynk-lang/bynk#3688 proposes a
+  request that would list them). It builds on the Query view's
+  models and needs a language server from bynk v0.625.3 (v0.634.4 for the calls
+  between handlers); the view says what an older one could not tell it.
 - **Live model views** — the sequence diagram, documentation page, architecture
   map, wire contract, agent state view and contract diff (see Commands) open
   beside the editor and stay current: they refresh when you save (or as you type,

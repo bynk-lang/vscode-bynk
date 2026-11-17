@@ -667,6 +667,12 @@
         "category": "Bynk"
       },
       {
+        "command": "bynk.showImpact",
+        "title": "Show Impact",
+        "category": "Bynk",
+        "icon": "$(references)"
+      },
+      {
         "command": "bynk.query.refresh",
         "title": "Refresh Query",
         "category": "Bynk",
@@ -1088,6 +1094,10 @@
           "when": "bynk.hasProject && !isWeb"
         },
         {
+          "command": "bynk.showImpact",
+          "when": "editorLangId == bynk && !isWeb"
+        },
+        {
           "command": "bynk.query.refresh",
           "when": "false"
         },
@@ -1274,6 +1284,11 @@
         }
       ],
       "editor/context": [
+        {
+          "command": "bynk.showImpact",
+          "when": "editorLangId == bynk && !isWeb",
+          "group": "bynk@1"
+        },
         {
           "command": "bynk.copyPlaygroundLink",
           "when": "editorLangId == bynk",
@@ -1504,6 +1519,12 @@
         {
           "id": "bynk.query",
           "name": "Query",
+          "when": "bynk.hasProject && !isWeb",
+          "contextualTitle": "Bynk"
+        },
+        {
+          "id": "bynk.impact",
+          "name": "Impact",
           "when": "bynk.hasProject && !isWeb",
           "contextualTitle": "Bynk"
         },

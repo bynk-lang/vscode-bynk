@@ -42,15 +42,12 @@ import { enclosingHandler } from "./refreshScheduler";
 import type { ViewRefresh } from "./viewRefresh";
 import type { ArchModel } from "./webview/architectureTypes";
 import type { AgentStateModel } from "./webview/stateTypes";
+import { group, note, nodesAsText, type ResultNode, resultItem, rows } from "./treeNodes";
 import { revealLocation } from "./webviewHost";
 
 type QueryId = "events" | "capabilities" | "reachability" | "untested";
 
-type Node =
-  | { type: "query"; id: QueryId }
-  | { type: "group"; label: string; description?: string; children: Node[]; open?: boolean }
-  | { type: "row"; row: Row }
-  | { type: "note"; text: string; command?: vscode.Command };
+type Node = { type: "query"; id: QueryId } | ResultNode;
 
 const QUERIES: Record<QueryId, { label: string; tip: string; icon: string }> = {
   events: { label: "Events", tip: "Who emits each event, and who subscribes", icon: "broadcast" },
@@ -59,9 +56,6 @@ const QUERIES: Record<QueryId, { label: string; tip: string; icon: string }> = {
   untested: { label: "Untested", tip: "Routes, handlers and transitions no line of which ran in the last coverage run", icon: "beaker" },
 };
 
-const note = (text: string, command?: vscode.Command): Node => ({ type: "note", text, command });
-const rows = (list: readonly Row[]): Node[] => list.map((row) => ({ type: "row", row }));
-const group = (label: string, children: Node[], description?: string, open = false): Node => ({ type: "group", label, description, children, open });
 
 export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.Disposable {
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
@@ -113,44 +107,14 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
-    switch (node.type) {
-      case "query": {
-        const q = QUERIES[node.id];
-        const item = new vscode.TreeItem(q.label, vscode.TreeItemCollapsibleState.Collapsed);
-        item.tooltip = q.tip;
-        item.iconPath = new vscode.ThemeIcon(q.icon);
-        item.id = `query:${node.id}`;
-        item.contextValue = `bynkQuery.${node.id}`;
-        return item;
-      }
-      case "group": {
-        const item = new vscode.TreeItem(
-          node.label,
-          node.children.length === 0
-            ? vscode.TreeItemCollapsibleState.None
-            : node.open
-              ? vscode.TreeItemCollapsibleState.Expanded
-              : vscode.TreeItemCollapsibleState.Collapsed,
-        );
-        item.description = node.description;
-        return item;
-      }
-      case "row": {
-        const item = new vscode.TreeItem(node.row.label);
-        item.description = node.row.description;
-        if (node.row.loc) {
-          item.command = { command: "bynk.query.open", title: "Open", arguments: [node.row.loc.uri, node.row.loc.range] };
-          item.tooltip = node.row.description ? `${node.row.label} — ${node.row.description}` : node.row.label;
-        }
-        return item;
-      }
-      case "note": {
-        const item = new vscode.TreeItem(node.text);
-        item.command = node.command;
-        item.tooltip = node.text;
-        return item;
-      }
-    }
+    if (node.type !== "query") return resultItem(node);
+    const q = QUERIES[node.id];
+    const item = new vscode.TreeItem(q.label, vscode.TreeItemCollapsibleState.Collapsed);
+    item.tooltip = q.tip;
+    item.iconPath = new vscode.ThemeIcon(q.icon);
+    item.id = `query:${node.id}`;
+    item.contextValue = `bynkQuery.${node.id}`;
+    return item;
   }
 
   async getChildren(node?: Node): Promise<Node[]> {
@@ -166,7 +130,7 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
     }
   }
 
-  private async answer(id: QueryId): Promise<Node[]> {
+  private async answer(id: QueryId): Promise<ResultNode[]> {
     const model = await this.model();
     if (!model) {
       return [note("No architecture model for the open project yet (open a .bynk file, and wait for the language server).")];
@@ -185,7 +149,7 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
 
   // -- Events. --
 
-  private events(model: ArchModel): Node[] {
+  private events(model: ArchModel): ResultNode[] {
     const events = eventsQuery(model);
     if (!events) return [note("This language server does not report events (needs bynk v0.625.3).")];
     if (events.length === 0) return [note("The project declares no events.")];
@@ -203,7 +167,7 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
 
   // -- Capabilities. --
 
-  private capabilities(model: ArchModel): Node[] {
+  private capabilities(model: ArchModel): ResultNode[] {
     const contexts = capabilitiesQuery(model);
     if (contexts.length === 0) return [note("The project has no contexts.")];
     const groups = contexts.map((c) =>
@@ -236,11 +200,11 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
 
   // -- Reachability. --
 
-  private reachability(model: ArchModel): Node[] {
+  private reachability(model: ArchModel): ResultNode[] {
     const pick: vscode.Command = { command: "bynk.query.pickCapability", title: "Choose a capability" };
     if (!this.choice) return [note("Choose a capability…", pick)];
     const answer = reachability(model, this.choice);
-    const out: Node[] = [note(`Reaching ${answer.capability}: choose another…`, pick)];
+    const out: ResultNode[] = [note(`Reaching ${answer.capability}: choose another…`, pick)];
     if (answer.callsUnknown) {
       out.push(note("This language server sends no calls between handlers (needs bynk v0.634.4): only handlers that name it in their own given are listed."));
     }
@@ -253,7 +217,7 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
 
   // -- Untested. --
 
-  private async untested(model: ArchModel): Promise<Node[]> {
+  private async untested(model: ArchModel): Promise<ResultNode[]> {
     if (usesUnknown(model)) {
       return [note("This language server does not report each unit's handlers (needs bynk v0.625.3), so what no test reached cannot be told.")];
     }
@@ -295,15 +259,15 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
     return this.untestedNodes(a, stale, protocolUnknown(model));
   }
 
-  private untestedNodes(a: UntestedAnswer, stale: boolean, routesUnknown: boolean): Node[] {
-    const out: Node[] = [
+  private untestedNodes(a: UntestedAnswer, stale: boolean, routesUnknown: boolean): ResultNode[] {
+    const out: ResultNode[] = [
       note("Line coverage of the whole run: untested means no line ran, not that no test targeted it."),
     ];
     if (routesUnknown) {
       out.push(note("This language server does not say how a service is reached (needs bynk v0.634.1), so routes are listed with the other handlers."));
     }
     if (stale) out.push(note("The source has changed since the last coverage run, so this may be out of date."));
-    const section = (label: string, list: Row[], measured: number): Node =>
+    const section = (label: string, list: Row[], measured: number): ResultNode =>
       group(label, list.length > 0 ? rows(list) : [note(measured === 0 ? "Nothing measured." : "All of them ran.")], `${list.length} of ${measured}`, list.length > 0);
     out.push(
       section("Routes (from http)", a.routes, a.measured.routes),
@@ -338,16 +302,7 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
 
   /** Test seam: one query's answer as indented lines of text. */
   async snapshot(id: QueryId): Promise<string[]> {
-    const out: string[] = [];
-    const walk = async (nodes: Node[], depth: number): Promise<void> => {
-      for (const n of nodes) {
-        const item = this.getTreeItem(n);
-        out.push(`${"  ".repeat(depth)}${String(item.label)}${item.description ? ` — ${String(item.description)}` : ""}`);
-        if (n.type === "group") await walk(n.children, depth + 1);
-      }
-    };
-    await walk(await this.answer(id), 0);
-    return out;
+    return nodesAsText((await this.answer(id)) as ResultNode[], (n) => this.getTreeItem(n));
   }
 
   dispose(): void {
