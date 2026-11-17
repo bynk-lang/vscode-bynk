@@ -22,7 +22,8 @@ import type { LanguageClient } from "vscode-languageclient/node";
 import { requestArchitectureModel } from "./architectureMap";
 import { modelCoverage } from "./modelCoverage";
 import type { ModelCoverage } from "./modelCoverageCore";
-import { activeProjectRoot } from "./projectRoots";
+import { isInside } from "./pathInside";
+import { activeProjectRoot, projectRootFor } from "./projectRoots";
 import {
   type CapabilityChoice,
   capabilitiesQuery,
@@ -34,6 +35,8 @@ import {
   type Row,
   untestedQuery,
   type UntestedAnswer,
+  protocolUnknown,
+  usesUnknown,
 } from "./queryCore";
 import { enclosingHandler } from "./refreshScheduler";
 import type { ViewRefresh } from "./viewRefresh";
@@ -66,12 +69,24 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
   private choice: CapabilityChoice | undefined;
   /** Bumped on each refresh so an answer that took long is not shown late. */
   private generation = 0;
+  /** The project the view last answered for. */
+  private root: string | undefined;
 
   constructor(private readonly hub: ViewRefresh) {}
 
   refresh(): void {
     this.generation++;
     this.emitter.fire(undefined);
+  }
+
+  /** The active editor moved: when it is in another project the answers are
+   *  that project's, and a capability chosen in the last one means nothing here. */
+  async activeProjectMayHaveChanged(): Promise<void> {
+    const root = (await activeProjectRoot())?.toString();
+    if (root === undefined || root === this.root) return;
+    if (this.root !== undefined) this.choice = undefined;
+    this.root = root;
+    this.refresh();
   }
 
   /** Choose the capability Reachability answers for. */
@@ -191,7 +206,7 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
   private capabilities(model: ArchModel): Node[] {
     const contexts = capabilitiesQuery(model);
     if (contexts.length === 0) return [note("The project has no contexts.")];
-    return contexts.map((c) =>
+    const groups = contexts.map((c) =>
       group(
         c.unit,
         c.rows.length === 0
@@ -200,7 +215,9 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
               group(
                 r.from ? `${r.from}.${r.capability}` : r.capability,
                 [
-                  ...(r.providedBy ? [note(`Provided by ${r.providedBy.name}${r.providedBy.external ? " (external)" : ""}`)] : []),
+                  ...(r.providedBy
+                    ? [{ type: "row" as const, row: { label: `Provided by ${r.providedBy.name}${r.providedBy.external ? " (external)" : ""}`, loc: r.providedBy.loc } }]
+                    : []),
                   ...(r.usedBy.length > 0 ? [group("Used by (given)", rows(r.usedBy), undefined, true)] : [note("No handler uses it.")]),
                   ...(r.stubbedIn.length > 0 ? [group("Stubbed in", rows(r.stubbedIn), undefined, true)] : []),
                   ...(r.loc ? [{ type: "row" as const, row: { label: "Declaration", loc: r.loc } }] : []),
@@ -211,6 +228,10 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
         c.kind === "Adapter" ? "adapter" : undefined,
       ),
     );
+    // Without `uses` (a server before v0.625.3) "No handler uses it" would be a guess.
+    return usesUnknown(model)
+      ? [note("This language server does not report which handlers use a capability (needs bynk v0.625.3), so none is shown as used."), ...groups]
+      : groups;
   }
 
   // -- Reachability. --
@@ -233,6 +254,9 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
   // -- Untested. --
 
   private async untested(model: ArchModel): Promise<Node[]> {
+    if (usesUnknown(model)) {
+      return [note("This language server does not report each unit's handlers (needs bynk v0.625.3), so what no test reached cannot be told.")];
+    }
     if (!modelCoverage.has) {
       return [
         note("No coverage yet: Run with Coverage (Testing view) to see what no test ran.", {
@@ -268,13 +292,16 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
     }
     const a = untestedQuery(sites, coverage, agents);
     const stale = Object.values(coverage).some((c) => c?.stale);
-    return this.untestedNodes(a, stale);
+    return this.untestedNodes(a, stale, protocolUnknown(model));
   }
 
-  private untestedNodes(a: UntestedAnswer, stale: boolean): Node[] {
+  private untestedNodes(a: UntestedAnswer, stale: boolean, routesUnknown: boolean): Node[] {
     const out: Node[] = [
       note("Line coverage of the whole run: untested means no line ran, not that no test targeted it."),
     ];
+    if (routesUnknown) {
+      out.push(note("This language server does not say how a service is reached (needs bynk v0.634.1), so routes are listed with the other handlers."));
+    }
     if (stale) out.push(note("The source has changed since the last coverage run, so this may be out of date."));
     const section = (label: string, list: Row[], measured: number): Node =>
       group(label, list.length > 0 ? rows(list) : [note(measured === 0 ? "Nothing measured." : "All of them ran.")], `${list.length} of ${measured}`, list.length > 0);
@@ -303,6 +330,7 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
     const client = this.hub.getClient();
     if (!client) return null;
     const root = await activeProjectRoot();
+    if (root) this.root = root.toString();
     const file = root ? await projectFile(root) : undefined;
     if (!file) return null;
     return requestArchitectureModel(client, this.hub, file);
@@ -328,12 +356,18 @@ export class QueryTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
 }
 
 /** A `.bynk` file of the project, to resolve it by: the active one when it is
- *  in the project, else the first the workspace finds. */
+ *  in the project, else the first the workspace finds that belongs to it. A path
+ *  comparison, not a string prefix (`…/shop2` is not under `…/shop`), and a file
+ *  of a nested project under `root` is not the project's: it would decide which
+ *  model is shown. */
 async function projectFile(root: vscode.Uri): Promise<string | undefined> {
+  const belongs = async (file: vscode.Uri): Promise<boolean> =>
+    file.scheme === root.scheme && isInside(root.fsPath, file.fsPath) && (await projectRootFor(file))?.toString() === root.toString();
   const active = vscode.window.activeTextEditor?.document;
-  if (active?.languageId === "bynk" && active.uri.toString().startsWith(root.toString())) return active.uri.toString();
-  const found = await vscode.workspace.findFiles(new vscode.RelativePattern(root, "**/*.bynk"), "**/node_modules/**", 1);
-  return found[0]?.toString();
+  if (active?.languageId === "bynk" && (await belongs(active.uri))) return active.uri.toString();
+  const found = await vscode.workspace.findFiles(new vscode.RelativePattern(root, "**/*.bynk"), "**/node_modules/**", 50);
+  for (const file of found) if (await belongs(file)) return file.toString();
+  return undefined;
 }
 
 async function agentState(
@@ -356,6 +390,7 @@ export function registerQueryView(context: vscode.ExtensionContext, hub: ViewRef
     view,
     hub.onDidRefresh(() => provider.refresh()),
     hub.onDidStartClient(() => provider.refresh()),
+    vscode.window.onDidChangeActiveTextEditor(() => void provider.activeProjectMayHaveChanged()),
     modelCoverage.onDidChange(() => provider.refresh()),
     vscode.commands.registerCommand("bynk.query.refresh", () => provider.refresh()),
     vscode.commands.registerCommand("bynk.query.pickCapability", () => provider.pickCapability()),

@@ -23,6 +23,8 @@ export interface StateDiagramOptions {
   /** Whether elements open their source. `false` between two revisions of a
    *  model diff, where nothing is in the working tree. */
   linked?: boolean;
+  /** #145: the state a live instance is in; that node is drawn current. */
+  current?: string | null;
 }
 
 export const stateIds = {
@@ -54,6 +56,7 @@ export function toStateDiagram(machine: StateMachine, opts: StateDiagramOptions)
     const n = node(stateIds.state(s), "state", s, mark === "removed" ? null : at(machine.fieldRange));
     if (!machine.reachable.includes(s)) n.dimmed = true;
     if (s === machine.initial) n.note = "The initial state.";
+    if (opts.current === s) n.current = true;
     if (mark) n.diff = mark;
     nodes.push(n);
   }

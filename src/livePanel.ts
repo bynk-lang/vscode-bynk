@@ -243,6 +243,7 @@ export class LivePanel<P> implements vscode.Disposable {
     updates: number;
     hasPayload: boolean;
     focus: string | undefined;
+    payload: P | undefined;
   } {
     return {
       open: this.panel !== undefined,
@@ -254,6 +255,7 @@ export class LivePanel<P> implements vscode.Disposable {
       updates: this.updates,
       hasPayload: this.lastJson !== undefined && this.lastJson !== "null",
       focus: this.focus,
+      payload: this.lastJson !== undefined && this.lastJson !== "null" ? (JSON.parse(this.lastJson) as P) : undefined,
     };
   }
 

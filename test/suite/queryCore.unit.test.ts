@@ -8,7 +8,9 @@ import {
   capabilitiesQuery,
   eventsQuery,
   memberLabel,
+  protocolUnknown,
   reachability,
+  usesUnknown,
   untestedQuery,
   type HandlerSite,
 } from "../../src/queryCore";
@@ -86,7 +88,7 @@ describe("capabilitiesQuery (#148)", () => {
   it("lists what a context declares, consumes and provides, with its users and stubs", () => {
     const logger = byUnit.shop.rows.find((r) => r.capability === "Logger")!;
     assert.strictEqual(logger.from, "bynk");
-    assert.deepStrictEqual(logger.providedBy, { name: "ConsoleLogger", external: false });
+    assert.deepStrictEqual(logger.providedBy, { name: "ConsoleLogger", external: false, loc: loc("file:///shop.bynk", 2) });
     assert.deepStrictEqual(logger.usedBy.map((r) => r.label), ["shop.Orders.POST /orders"]);
     assert.deepStrictEqual(logger.stubbedIn.map((r) => r.label), ["checkout suite"]);
   });
@@ -103,12 +105,43 @@ describe("capabilitiesQuery (#148)", () => {
   });
 });
 
+describe("what an older server lacks (#148)", () => {
+  it("knows when no node reports its handlers' uses, so an empty answer is not read as nothing", () => {
+    assert.strictEqual(usesUnknown(model()), false);
+    const old = model();
+    for (const n of old.nodes) delete n.uses;
+    assert.strictEqual(usesUnknown(old), true);
+    assert.strictEqual(usesUnknown({ nodes: [], edges: [] }), false, "no nodes is a project with nothing in it");
+  });
+  it("knows when no service says how it is reached", () => {
+    const withService = (protocol?: string): ArchModel => {
+      const m = model();
+      m.nodes[0].services = [{ name: "Orders", handlerCount: 1, loc: loc("file:///shop.bynk"), ...(protocol ? { protocol } : {}) }];
+      return m;
+    };
+    assert.strictEqual(protocolUnknown(withService("http")), false);
+    assert.strictEqual(protocolUnknown(withService()), true);
+    assert.strictEqual(protocolUnknown({ nodes: [node("a")], edges: [] }), false, "no services");
+  });
+});
+
+describe("capabilitiesQuery locations (#148)", () => {
+  it("points a row at a declaration only when the unit's own table has it", () => {
+    const m = model();
+    m.nodes[0].uses!.push(uses(charge, [["Clock", "bynk", [], true]]));
+    const rows = Object.fromEntries(capabilitiesQuery(m).find((c) => c.unit === "shop")!.rows.map((r) => [r.capability, r]));
+    assert.ok(rows.Logger.loc, "a declared (consumed) capability has its declaration");
+    assert.strictEqual(rows.Clock.loc, null, "one only a handler `given`s does not: its use is not its declaration");
+    assert.ok(rows.Logger.providedBy?.loc, "a provider has its own location");
+  });
+});
+
 describe("reachability (#148)", () => {
   it("offers the capabilities some handler's given resolves to", () => {
-    assert.deepStrictEqual(capabilityChoices(model()).map((c) => `${c.from ?? ""}/${c.capability}:${c.users}`), ["bynk/Logger:1", "/Fetch:1"]);
+    assert.deepStrictEqual(capabilityChoices(model()).map((c) => `${c.from ?? ""}/${c.capability}:${c.users}`), ["bynk/Logger:1", "pay/Fetch:1"]);
   });
   it("follows calls across contexts and through agents to every handler that can reach it", () => {
-    const r = reachability(model(), { capability: "Fetch", from: null });
+    const r = reachability(model(), { capability: "Fetch", from: "pay" });
     assert.deepStrictEqual(
       r.reaching.map((x) => [x.row.label, x.direct, x.path]),
       [
@@ -125,18 +158,26 @@ describe("reachability (#148)", () => {
     const m = model();
     // authorise calls back into the shop's agent: a cycle.
     m.nodes[1].uses![0].calls = [{ kind: "agent", unit: "shop", container: "Cart", handler: "charge", loc: loc("file:///pay.bynk") }];
-    const r = reachability(m, { capability: "Fetch", from: null });
+    const r = reachability(m, { capability: "Fetch", from: "pay" });
     assert.strictEqual(r.reaching.length, 3);
     const viaPing = model();
     viaPing.nodes[0].uses![1].calls = [{ kind: "service", unit: "pay", container: "Gateway", loc: loc("file:///shop.bynk") }];
-    assert.ok(reachability(viaPing, { capability: "Fetch", from: null }).reaching.some((x) => x.row.label === "shop.Cart.charge"));
+    assert.ok(reachability(viaPing, { capability: "Fetch", from: "pay" }).reaching.some((x) => x.row.label === "shop.Cart.charge"));
   });
   it("says so when the server sends no calls, listing only the direct uses", () => {
     const m = model();
     for (const n of m.nodes) for (const h of n.uses ?? []) delete h.calls;
-    const r = reachability(m, { capability: "Fetch", from: null });
+    const r = reachability(m, { capability: "Fetch", from: "pay" });
     assert.strictEqual(r.callsUnknown, true);
     assert.deepStrictEqual(r.reaching.map((x) => x.row.label), ["pay.Gateway.authorise"]);
+  });
+  it("keeps a capability two contexts each declare apart, qualified by its own unit", () => {
+    const m = model();
+    // `shop` declares a `Fetch` of its own too, which one handler uses.
+    m.nodes[0].uses!.push(uses(charge, [["Fetch", null]]));
+    assert.deepStrictEqual(capabilityChoices(m).map((c) => `${c.from}.${c.capability}:${c.users}`), ["bynk.Logger:1", "pay.Fetch:1", "shop.Fetch:1"]);
+    assert.deepStrictEqual(reachability(m, { capability: "Fetch", from: "pay" }).reaching.filter((r) => r.direct).map((r) => r.row.label), ["pay.Gateway.authorise"]);
+    assert.deepStrictEqual(reachability(m, { capability: "Fetch", from: "shop" }).reaching.filter((r) => r.direct).map((r) => r.row.label), ["shop.Cart.charge"]);
   });
   it("names a member by unit, container and handler", () => {
     assert.strictEqual(memberLabel(place), "shop.Orders.POST /orders");

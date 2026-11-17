@@ -69,6 +69,21 @@ export function eventsQuery(model: ArchModel): EventAnswer[] | undefined {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// ------------------------------------------------- what an older server lacks
+
+/** No node reports its handlers' `uses` (a server before v0.625.3): an empty
+ *  answer built from them means "cannot tell", not "nothing". */
+export function usesUnknown(model: ArchModel): boolean {
+  return model.nodes.length > 0 && model.nodes.every((n) => n.uses === undefined);
+}
+
+/** Services exist and none says how it is reached (`protocol`, a server before
+ *  v0.634.1), so a route cannot be told from another handler. */
+export function protocolUnknown(model: ArchModel): boolean {
+  const services = model.nodes.flatMap((n) => n.services);
+  return services.length > 0 && services.every((s) => s.protocol === undefined);
+}
+
 // -------------------------------------------------------- capabilities
 
 export interface CapabilityRowAnswer {
@@ -77,11 +92,13 @@ export interface CapabilityRowAnswer {
    *  unit does. */
   from: string | null;
   /** The provider bound to it in this unit, if any. */
-  providedBy?: { name: string; external: boolean };
+  providedBy?: { name: string; external: boolean; loc: ArchLoc };
   /** Handlers whose `given` resolves to it. */
   usedBy: Row[];
   /** Suites that `stub` it for one of those handlers. */
   stubbedIn: Row[];
+  /** Where the unit declares it; `null` when the unit's own table does not
+   *  list it (a capability it only uses or provides). */
   loc: ArchLoc | null;
 }
 
@@ -102,6 +119,8 @@ export function capabilitiesQuery(model: ArchModel): ContextCapabilities[] {
     .map((node) => {
       const rows = new Map<string, CapabilityRowAnswer>();
       const key = (cap: string, from: string | null): string => `${from ?? node.name}\0${cap}`;
+      // `loc` is the capability's declaration, only when the unit's own table has
+      // it: where a handler `given`s it or a provider binds it is not that.
       const row = (cap: string, from: string | null, loc: ArchLoc | null): CapabilityRowAnswer => {
         const k = key(cap, from);
         let r = rows.get(k);
@@ -114,13 +133,13 @@ export function capabilitiesQuery(model: ArchModel): ContextCapabilities[] {
       for (const c of node.capabilities) row(c.name, c.local ? null : c.from, c.loc);
       for (const p of node.providers) {
         const r = [...rows.values()].find((x) => x.capability === p.capability);
-        const target = r ?? row(p.capability, null, p.loc);
-        target.providedBy = { name: p.providerName, external: p.external };
+        const target = r ?? row(p.capability, null, null);
+        target.providedBy = { name: p.providerName, external: p.external, loc: p.loc };
       }
       for (const h of node.uses ?? []) {
         for (const u of h.uses) {
           const from = u.from === node.name ? null : u.from;
-          const r = rows.get(key(u.capability, from)) ?? row(u.capability, from, u.loc);
+          const r = rows.get(key(u.capability, from)) ?? row(u.capability, from, null);
           const label = memberLabel(h.member);
           if (!r.usedBy.some((x) => x.label === label)) r.usedBy.push(memberRow(h.member, u.inherited ? "inherited" : undefined));
           for (const s of u.stubbedIn) {
@@ -149,19 +168,27 @@ export interface CapabilityChoice {
   users: number;
 }
 
-const capabilityName = (c: { capability: string; from: string | null }): string =>
-  c.from ? `${c.from}.${c.capability}` : c.capability;
+/** A capability's name qualified by the unit declaring it. `from` is `null`
+ *  for a capability the handler's own unit declares, and two units may each
+ *  declare one of the same name, so it is qualified by that unit (`owner`)
+ *  rather than left bare. */
+const capabilityName = (c: { capability: string; from: string | null }, owner?: string): string => {
+  const unit = c.from ?? owner;
+  return unit ? `${unit}.${c.capability}` : c.capability;
+};
 
 export const choiceLabel = capabilityName;
 
-/** The capabilities some handler's `given` resolves to, to pick from. */
+/** The capabilities some handler's `given` resolves to, to pick from. A
+ *  capability a unit declares itself is qualified by that unit. */
 export function capabilityChoices(model: ArchModel): CapabilityChoice[] {
   const counts = new Map<string, CapabilityChoice>();
   for (const n of model.nodes) {
     for (const h of n.uses ?? []) {
       for (const u of h.uses) {
-        const k = capabilityName(u);
-        const c = counts.get(k) ?? { capability: u.capability, from: u.from, users: 0 };
+        const from = u.from ?? h.member.unit;
+        const k = capabilityName({ capability: u.capability, from });
+        const c = counts.get(k) ?? { capability: u.capability, from, users: 0 };
         c.users++;
         counts.set(k, c);
       }
@@ -209,7 +236,7 @@ export function reachability(model: ArchModel, choice: Pick<CapabilityChoice, "c
   const all = model.nodes.flatMap((n) => n.uses ?? []);
   const callsUnknown = all.length > 0 && all.every((h) => h.calls === undefined);
   const wanted = capabilityName(choice);
-  const direct = all.filter((h) => h.uses.some((u) => capabilityName(u) === wanted));
+  const direct = all.filter((h) => h.uses.some((u) => capabilityName(u, h.member.unit) === wanted));
 
   // Callers of each member, from the forward `calls`.
   const callersOf = new Map<string, ArchHandlerUses[]>();
