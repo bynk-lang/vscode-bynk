@@ -186,6 +186,192 @@ export function unitFor(cell: Pick<Cell, "unit">, notebookUnit: string | undefin
 }
 
 // ---------------------------------------------------------------------------
+// What kind of cell
+//
+// A code cell is an expression cell unless it says otherwise in its leading
+// comment lines. `cellKindOf` is the one place that decides, so the cell kinds
+// that follow (handler cells, #191) add a directive and a case here and a branch
+// where the editor side runs them.
+
+export type CellKind = { kind: "expression" } | { kind: "refined"; type: string } | { kind: "bad-directive"; directive: string; problem: string };
+
+const REFINED_DIRECTIVE = /^\s*\/\/\s*@refined(?:\s+(.*?))?\s*$/;
+const TYPE_NAME = /^[A-Z][A-Za-z0-9_]*$/;
+
+/** The kind of a code cell: a refined-type cell when a `// @refined Type` line
+ *  comes before any code, else an expression cell. A `// @refined` that doesn't
+ *  name a type (`percent`, `money.Percent`, nothing) is `bad-directive`, so the
+ *  cell is not quietly run as expressions. */
+export function cellKindOf(source: string): CellKind {
+  for (const line of source.split("\n")) {
+    const t = line.trim();
+    if (t === "") continue;
+    if (!t.startsWith("//")) break;
+    const m = REFINED_DIRECTIVE.exec(line);
+    if (m) {
+      const name = m[1] ?? "";
+      if (TYPE_NAME.test(name)) return { kind: "refined", type: name };
+      return { kind: "bad-directive", directive: t, problem: name === "" ? "`// @refined` needs the name of a refined type, as in `// @refined Percent`." : `\`${name}\` is not a type name: write \`// @refined\` followed by a type declared in the unit, starting with a capital letter (a qualified name is not accepted).` };
+    }
+  }
+  return { kind: "expression" };
+}
+
+// ---------------------------------------------------------------------------
+// Refined-type cells
+//
+//     // @refined Percent
+//     50
+//     150          // too big
+//     -1
+//
+// The directive names the type; every other line that is not blank or a `//`
+// comment is one candidate, an expression of the type's base type. They are
+// checked by the real constructor, `Percent.of(…)`, in one `bynk eval` call.
+
+export interface Candidate {
+  /** The candidate as written, without a trailing comment. */
+  text: string;
+  /** Zero-based line in the cell. */
+  line: number;
+}
+
+export interface RefinedCell {
+  type: string;
+  candidates: Candidate[];
+}
+
+/** Split a line into its code and a trailing `//` comment, ignoring `//` in a string. */
+function splitComment(line: string): { code: string; comment: string } {
+  let inString = false;
+  for (let k = 0; k < line.length; k++) {
+    const c = line[k];
+    if (inString) {
+      if (c === "\\") k++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === "/" && line[k + 1] === "/") return { code: line.slice(0, k), comment: line.slice(k) };
+  }
+  return { code: line, comment: "" };
+}
+
+/** The type and candidates of a refined-type cell; undefined for any other cell. */
+export function analyseRefined(source: string): RefinedCell | undefined {
+  const kind = cellKindOf(source);
+  if (kind.kind !== "refined") return undefined;
+  const candidates: Candidate[] = [];
+  source.split("\n").forEach((line, i) => {
+    const t = line.trim();
+    if (t === "" || t.startsWith("//")) return;
+    const { code } = splitComment(line);
+    if (code.trim() !== "") candidates.push({ text: code.trim(), line: i });
+  });
+  return { type: kind.type, candidates };
+}
+
+/** The source to send for a refined-type cell in place of its own: the same
+ *  lines, with the candidates (those not in `skip`, by line) turned into one
+ *  list `[Type.of(a), Type.of(b)]`. Every line stays where it was, so a
+ *  diagnostic's line is the candidate's own line in the cell. Returns the text
+ *  and the candidates it holds, in order. */
+export function refinedSource(source: string, cell: RefinedCell, skip: ReadonlySet<number> = new Set()): { text: string; sent: Candidate[] } {
+  const sent = cell.candidates.filter((c) => !skip.has(c.line));
+  const lines = source.split("\n").map((l) => {
+    const t = l.trim();
+    return t === "" || t.startsWith("//") ? l : "";
+  });
+  const comments = source.split("\n").map((l) => (l.trim().startsWith("//") ? "" : splitComment(l).comment));
+  sent.forEach((c, i) => {
+    const open = i === 0 ? "[" : "";
+    const close = i === sent.length - 1 ? "]" : ",";
+    lines[c.line] = `${open}${cell.type}.of(${c.text})${close}${comments[c.line] ? "  " + comments[c.line] : ""}`;
+  });
+  return { text: lines.join("\n"), sent };
+}
+
+export interface CandidateRow {
+  candidate: Candidate;
+  /** `accepted`, `refused` with the `ValidationError`, or `invalid` when the
+   *  candidate does not type-check as the constructor's argument. */
+  outcome: "accepted" | "refused" | "invalid";
+  /** The accepted value, as Bynk writes it. */
+  value?: string;
+  /** For a refusal, the message of the `ValidationError` (the clause that refused it). */
+  message?: string;
+  field?: string;
+}
+
+/** One row per candidate from the list `bynk eval` returned for them, in the
+ *  order they were sent. `undefined` when it is not a list of `Ok`/`Err` of that length. */
+export function decodeRefined(sent: readonly Candidate[], value: unknown): CandidateRow[] | undefined {
+  if (!Array.isArray(value) || value.length !== sent.length) return undefined;
+  const rows: CandidateRow[] = [];
+  for (const [i, v] of value.entries()) {
+    if (v === null || typeof v !== "object") return undefined;
+    const o = v as Record<string, unknown>;
+    if (o.kind === "Ok") rows.push({ candidate: sent[i], outcome: "accepted", value: renderValue(o.value) });
+    else if (o.kind === "Err" && o.error !== null && typeof o.error === "object") {
+      const e = o.error as Record<string, unknown>;
+      rows.push({ candidate: sent[i], outcome: "refused", message: typeof e.message === "string" ? e.message : "refused", field: typeof e.field === "string" ? e.field : undefined });
+    } else return undefined;
+  }
+  return rows;
+}
+
+/** Whether the problems of a run are the candidates' own, and so the candidates
+ *  can be set aside and the rest run again: every error is on a line a
+ *  candidate was written on, in this cell. Any other error (an earlier cell's
+ *  `let`, an unknown type, another file) would fail the rest too, so there is
+ *  nothing to set aside. Returns the lines to skip and a row for each candidate
+ *  (one row per candidate even when it has several errors, the first one's
+ *  message), or undefined. */
+export function setAside(placed: readonly CellDiagnostic[], sent: readonly Candidate[], index: number): { skip: Set<number>; invalid: CandidateRow[] } | undefined {
+  const errors = placed.filter((d) => d.severity === "error");
+  if (errors.length === 0) return undefined;
+  const byLine = new Map(sent.map((c) => [c.line, c]));
+  const skip = new Set<number>();
+  const invalid: CandidateRow[] = [];
+  for (const d of errors) {
+    const c = d.cell === index && d.at !== undefined ? byLine.get(d.at) : undefined;
+    if (!c) return undefined;
+    if (skip.has(c.line)) continue;
+    skip.add(c.line);
+    invalid.push({ candidate: c, outcome: "invalid", message: d.message });
+  }
+  return { skip, invalid };
+}
+
+/** The rows of both calls in the order the candidates were written. */
+export function mergeRows(...groups: readonly (readonly CandidateRow[] | undefined)[]): CandidateRow[] {
+  return groups.flatMap((g) => g ?? []).sort((a, b) => a.candidate.line - b.candidate.line);
+}
+
+/** The rows as the cell's `application/json` output. */
+export function refinedJson(type: string, rows: readonly CandidateRow[]): unknown {
+  return {
+    type,
+    results: rows.map((r) => ({
+      candidate: r.candidate.text,
+      outcome: r.outcome,
+      ...(r.value !== undefined ? { value: r.value } : {}),
+      ...(r.message !== undefined ? { message: r.message } : {}),
+      ...(r.field !== undefined ? { field: r.field } : {}),
+    })),
+  };
+}
+
+/** The rows as an aligned table, in the order the candidates were written. */
+export function renderRefinedTable(type: string, rows: readonly CandidateRow[]): string {
+  const sorted = [...rows].sort((a, b) => a.candidate.line - b.candidate.line);
+  const status = (r: CandidateRow): string => (r.outcome === "accepted" ? "accepted" : r.outcome === "refused" ? "refused" : "does not check");
+  const cw = Math.max(9, ...sorted.map((r) => r.candidate.text.length));
+  const head = `${"candidate".padEnd(cw)}  ${"result".padEnd(14)}  why`;
+  const body = sorted.map((r) => `${r.candidate.text.padEnd(cw)}  ${status(r).padEnd(14)}  ${r.message ?? ""}`.trimEnd());
+  const nAccepted = sorted.filter((r) => r.outcome === "accepted").length;
+  return [`${type}: ${nAccepted} of ${sorted.length} accepted`, "", head, ...body].join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // The snippet
 
 /** Where a line of the snippet came from: a cell's index and its line there

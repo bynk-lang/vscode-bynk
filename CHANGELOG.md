@@ -14,6 +14,7 @@ version).
 
 ### Added
 
+- **Refined-type cells in Bynk notebooks** (#192). A code cell that starts with `// @refined Percent` and lists candidate values, one per line, runs each through the real compiled constructor `Percent.of(…)` in a single `bynk eval` call and shows one table: the candidate, `accepted` or `refused`, and for a refusal the `ValidationError`'s message. A candidate that doesn't type-check as the constructor's argument is marked `does not check`, with its diagnostic on its own line, and the rest still run. Like every cell, it runs only when you run it, in a trusted workspace; on vscode.dev notebooks open but have no kernel.
 - **Coverage on the project sidebar** (#188). After **Run with Coverage**, each handler node in the Bynk sidebar says whether its lines ran (`tested`, `partly tested`, `not tested`; a handler with no executable line is left unmarked), and each agent node says `3 of 5 transitions tested` from its state model, or the share of its handlers tested when the model has none. The marks are cleared by **Bynk: Clear Model Coverage**, refreshed when a coverage run lands, and the tooltip warns when the source has changed since the run. Line-level and whole-run, so it says its lines ran and never which test reached it.
 
 ## [0.639.2] - 2026-11-17
