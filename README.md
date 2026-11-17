@@ -296,6 +296,37 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   header in the file is refused (write `{{env.NAME}}`), a URL with credentials
   in `bynk.toml` is refused, and the target's declared `secrets` are hidden from
   the results like every `{{env.…}}` value.
+- **Notebooks** — **Bynk: New Notebook** creates a `.bynknb` notebook of
+  Markdown and Bynk cells. On vscode.dev a `.bynknb` opens and edits but has no kernel to run it (that needs the `bynk` CLI); on desktop, running a code cell evaluates it with
+  `bynk eval`, which compiles and runs it as a one-case suite for a unit of your
+  project, under the test runtime, and shows the value of its last expression
+  with its type, in Bynk's terms (`Ok(25)`, `Some(3)`, `Err({ field: "Percent", … })`).
+  A cell that doesn't check shows each error on its own line; a failed `expect`,
+  an unstubbed capability or a timeout shows as the cell's error. Nothing is
+  deployed and nothing reaches the network: a capability the cell calls needs a
+  `stub` line in the cell, as in a suite.
+  - **Re-run effects are named.** A `let x <- …` from an earlier cell runs again in
+    every later cell, so a stub that counts calls can answer differently: the
+    output says "Re-ran `let x <- …` from cell N". A cell edited since it last ran
+    is left out, and the output says so.
+  - **A cell runs only when you run it**, never on open, hover or save: it is
+    your code, at the trust of `bynk test`. A notebook in an untrusted workspace
+    won't run. A cell is stopped after `bynk.notebook.timeoutSeconds` (60).
+  - **The unit** a cell runs in is the one on its first line, `// @unit
+    shop.money`, else the notebook's (**Bynk: Choose Notebook Unit…**, asked for
+    on the first run and kept in the file). Your unsaved `.bynk` edits are
+    evaluated.
+  - **Earlier cells' `let`s** carry forward: `bynk eval` keeps nothing between
+    runs, so the extension sends the top-level `let`s of the earlier cells that
+    ran, in the same unit, ahead of the cell. A cell edited since it ran, or never
+    run, contributes nothing; `consumes` and `stub` lines of the cells that send `let`s are hoisted, once each, and a cell's own `stub` for a capability replaces an earlier cell's (the output names the stubs it applied from earlier cells).
+    Only `let`s start at the left margin and continue on indented lines. The
+    output says which cells' `let`s it used.
+  - The file is JSON with each cell's source as lines, so a diff shows what
+    changed. **Outputs are not saved**, so no value or stubbed data reaches the
+    repository.
+  - Expression cells are what exist so far; cells that call a handler with stubbed
+    capabilities, and that try values against a refined type, are to follow.
 - **Export OpenAPI** — **Bynk: Export OpenAPI…** writes an OpenAPI 3.1 document
   for the project's `from http` services with `bynk openapi`, as JSON or YAML by
   the file name you choose. It needs a `bynk` that has the command, and offers to
