@@ -545,7 +545,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
       // declarations.
       const decls = symbols.length === 1 ? (symbols[0].children ?? []) : symbols;
       const cov = await modelCoverage.forUri(doc.uri.toString());
-      for (const s of decls) out.push(await this.declNode(doc, s, false, cov));
+      out.push(...(await Promise.all(decls.map((s) => this.declNode(doc, s, false, cov)))));
     }
     if (out.length === 0) out.push({ type: "message", label: "No declarations" });
     return out;
@@ -566,20 +566,21 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     if (handler) return handlerCoverage(cov, symbol.range);
     if (symbol.kind !== SYMBOL_KIND_CLASS) return undefined;
     const marks = (symbol.children ?? []).filter((c) => c.kind === SYMBOL_KIND_METHOD).map((c) => handlerMark(cov, c.range));
-    let states: ReturnType<typeof stateCoverage>[] = [];
+    // Services are class symbols too: only what the server answers with an
+    // agent's state model is an agent, so a service is left unmarked.
     const client = this.hub.getClient();
-    if (client) {
-      try {
-        const model = await client.sendRequest<AgentStateModel | null>("bynk/agentStateModel", {
-          textDocument: { uri: doc.uri.toString() },
-          position: symbol.selectionRange.start,
-        });
-        states = (model?.machines ?? []).map((m) => stateCoverage(m, cov));
-      } catch {
-        /* an older server: fall back to the handlers */
-      }
+    if (!client) return undefined;
+    let model: AgentStateModel | null;
+    try {
+      model = await client.sendRequest<AgentStateModel | null>("bynk/agentStateModel", {
+        textDocument: { uri: doc.uri.toString() },
+        position: symbol.selectionRange.start,
+      });
+    } catch {
+      return undefined; // an older server: nothing says it is an agent
     }
-    return agentCoverage(cov, states, marks);
+    if (!model || model.agent !== symbol.name) return undefined;
+    return agentCoverage(cov, model.machines.map((m) => stateCoverage(m, cov)), marks);
   }
 
   private async declNode(doc: vscode.TextDocument, symbol: SymbolLike, handler: boolean, cov?: ModelCoverage): Promise<Node> {

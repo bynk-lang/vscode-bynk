@@ -368,12 +368,29 @@ describe("Bynk project sidebar coverage (#188)", () => {
   let project: string;
   const SOURCE = `context shop
 
+type Status = enum { Pending, Placed, Cancelled }
+
 service Pricing {
   on call(qty: Int) -> Effect[Int] {
     qty
   }
 }
+
+agent Order {
+  key id: String
+
+  store status: Cell[Status] = Pending
+
+  on call place() -> Effect[()] {
+    status := Placed
+  }
+
+  on call cancel() -> Effect[()] {
+    status := Cancelled
+  }
+}
 `;
+  const lineOf = (needle: string): number => SOURCE.split("\n").findIndex((l) => l.includes(needle)) + 1;
 
   before(async function () {
     this.timeout(120_000);
@@ -395,15 +412,20 @@ service Pricing {
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  const unit = async (): Promise<Entry | undefined> => find(await snapshot(6, true), project, "Contexts", "shop");
   const handler = async (): Promise<Entry | undefined> =>
-    find(await snapshot(6, true), project, "Contexts", "shop", "Pricing")?.children?.[0];
+    (await unit())?.children?.find((e) => e.label === "Pricing")?.children?.[0];
   const record = (executed: boolean) =>
     vscode.commands.executeCommand("bynk._recordModelCoverage", [
       {
         file: path.join(dir, "src", "shop.bynk"),
-        covered: executed ? 1 : 0,
-        total: 1,
-        statements: [{ line: 5, executed }],
+        covered: executed ? 2 : 1,
+        total: 3,
+        statements: [
+          { line: lineOf("    qty"), executed },
+          { line: lineOf("status := Placed"), executed: true },
+          { line: lineOf("status := Cancelled"), executed: false },
+        ],
       },
     ]);
 
@@ -419,5 +441,15 @@ service Pricing {
 
     await vscode.commands.executeCommand("bynk.clearModelCoverage");
     assert.strictEqual((await handler())?.description, undefined);
+  });
+
+  it("counts an agent's transitions tested, and leaves a service node unmarked", async function () {
+    this.timeout(90_000);
+    await record(true);
+    const kids = (await unit())?.children ?? [];
+    assert.strictEqual(kids.find((e) => e.label === "Order")?.description, "1 of 2 transitions tested");
+    assert.strictEqual(kids.find((e) => e.label === "Pricing")?.description, undefined, "a service is not an agent");
+    await vscode.commands.executeCommand("bynk.clearModelCoverage");
+    assert.strictEqual((await unit())?.children?.find((e) => e.label === "Order")?.description, undefined);
   });
 });
