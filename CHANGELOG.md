@@ -21,6 +21,10 @@ version).
   - **Honest about what it is:** coverage is line-level and whole-run, so an element counts as tested when its lines ran; the view says it cannot say which test reached it. It also says how old the run is, and warns when the source has changed since (an unsaved edit, or a newer file). A path or branch whose lines hold no executable statement is left unmarked rather than claimed.
   - A **Show test coverage** checkbox hides the overlay, and **Bynk: Clear Model Coverage** removes it; the next coverage run replaces it. Marks never depend on colour alone: each carries a word on its tooltip and accessible name.
 
+### Fixed
+
+- **Compare Model read no handler's wire contract from a revision's checkout** (#154): the language server numbers symbol kinds from 1 and VS Code from 0, and the checkout's handlers were looked up in the wrong numbering, so every handler read as added against the working tree and as removed between two revisions, whatever had changed. The checkout's symbols are now shifted to VS Code's numbering.
+
 ### Changed
 
 - **Compare Model classifies an HTTP handler's response from the server's own shape,** not an inferred one (#154). `bynk/wireContract` now reports each handler's `success` type (bynk#3609, v0.633.4) and each response's `body` (v0.633.9: a value's type, a message, a redirect, raw bytes or a stream). Each response the two revisions share is compared by that body, so a type used in both the request and a response is now checked as a response too (a removed field is breaking there), and a response whose body changed kind is breaking. A response only the later revision declares is still breaking, and one only the earlier declared is compatible. The server does not yet report an `on call` handler's response type (bynk-lang/bynk#3687), so that is still inferred from the boundary types the request does not reach; a cron, event, message or websocket handler has no response, so only its request is classified. The page's note says both.

@@ -10,6 +10,7 @@
 //     fetched with the same language-server requests the live views use) into
 //     added / removed / changed entries.
 
+import type { SymbolLike } from "./refreshScheduler";
 import type { ArchLoc, ArchModel } from "./webview/architectureTypes";
 import type { CdModel } from "./webview/contractDiffTypes";
 import type { AgentInvariant, AgentStateModel } from "./webview/stateTypes";
@@ -376,6 +377,19 @@ export function withoutLocations(diff: ModelDiff): ModelDiff {
     ...diff,
     sections: diff.sections.map((s) => ({ ...s, entries: s.entries.map((e) => ({ ...e, loc: null })) })),
   };
+}
+
+/** A raw `textDocument/documentSymbol` answer, as `vscode.executeDocumentSymbolProvider`
+ *  would give it. The protocol numbers symbol kinds from 1 (`Class` is 5,
+ *  `Method` 6) and VS Code from 0 (`Class` is 4, `Method` 5), and
+ *  `handlerSymbols` reads VS Code's, so a revision's checkout, which the client
+ *  asks the server about directly, is shifted to match the working tree's. */
+export function fromLspSymbols(symbols: readonly SymbolLike[]): SymbolLike[] {
+  return symbols.map((s) => ({
+    ...s,
+    kind: s.kind - 1,
+    ...(s.children ? { children: fromLspSymbols(s.children) } : {}),
+  }));
 }
 
 /** The key an agent is known by across revisions. */

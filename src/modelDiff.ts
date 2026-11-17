@@ -27,6 +27,7 @@ import {
   dependencyWarning,
   diffSnapshots,
   firstResolvable,
+  fromLspSymbols,
   headRev,
   mergeBase,
   mergeBaseChoice,
@@ -180,7 +181,9 @@ async function treeWire(client: LanguageClient, tree: OpenTree): Promise<Record<
         });
         opened.push(fileUri);
       }
-      return (await client.sendRequest<SymbolLike[] | null>("textDocument/documentSymbol", { textDocument: { uri: fileUri } })) ?? [];
+      // Asked of the server directly, so in the protocol's numbering of kinds.
+      const raw = (await client.sendRequest<SymbolLike[] | null>("textDocument/documentSymbol", { textDocument: { uri: fileUri } })) ?? [];
+      return fromLspSymbols(raw.filter((x) => "selectionRange" in x));
     });
   } finally {
     for (const u of opened) await client.sendNotification("textDocument/didClose", { textDocument: { uri: u } });

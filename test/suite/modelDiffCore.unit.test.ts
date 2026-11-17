@@ -5,6 +5,7 @@ import * as assert from "assert";
 
 import {
   agentKey,
+  fromLspSymbols,
   defaultBranch,
   diffArchitecture,
   diffContracts,
@@ -20,6 +21,7 @@ import {
   type Git,
   type ModelSnapshot,
 } from "../../src/modelDiffCore";
+import { handlerSymbols } from "../../src/refreshScheduler";
 import { renderModelDiffHtml } from "../../src/modelDiffHtml";
 import type { ArchModel, ArchNode } from "../../src/webview/architectureTypes";
 import type { CdModel } from "../../src/webview/contractDiffTypes";
@@ -207,6 +209,18 @@ describe("contract diff (#147)", () => {
     const diff = diffContracts({ ...empty, services: [svc("h1")] }, { ...empty, services: [svc("h2", "breaking")] });
     assert.strictEqual(diff[0].verdict, "breaking");
     assert.match(diff[0].detail!, /response\.at/);
+  });
+});
+
+describe("fromLspSymbols (#154)", () => {
+  it("shifts the protocol's symbol kinds to VS Code's, so a revision's handlers are found", () => {
+    const at = { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } };
+    // `bynk-lsp` answers a service as `Class` (5) holding a `Method` (6) per handler.
+    const raw = [{ name: "md", kind: 2, range: at, selectionRange: at, children: [{ name: "answers", kind: 5, range: at, selectionRange: at, children: [{ name: "call", kind: 6, range: at, selectionRange: at }] }] }];
+    assert.strictEqual(handlerSymbols(raw).length, 0, "unshifted, no handler is found");
+    const shifted = fromLspSymbols(raw);
+    assert.deepStrictEqual(handlerSymbols(shifted).map((h) => [h.owner, h.symbol.name]), [["answers", "call"]]);
+    assert.strictEqual(raw[0].children[0].kind, 5, "the input is left as it was");
   });
 });
 
