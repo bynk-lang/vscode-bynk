@@ -12,6 +12,8 @@ version).
 
 ## [Unreleased]
 
+## [0.639.1] - 2026-11-17
+
 ### Changed
 
 - **The agent state view's machine is redrawn** by the extension's own diagram engine, not Mermaid (model-diagrams track, slice 6). It is now UML state machine notation: a filled dot for the initial state, rounded states, a dashed `?` where a computed write lands, and unreachable states faded. Transitions a `transition` would refuse at commit are red (known) or amber (possible), with ⚠ and the refused `transition`'s name on the label. Clicking a state opens the field and clicking a transition opens its write. The handler under the cursor is marked in the table and on its transitions. The machine has the same zoom, **Copy as Mermaid**, **Save as SVG…** and **Save as PNG…** as the other diagrams, and needs no redraw when the theme changes.
