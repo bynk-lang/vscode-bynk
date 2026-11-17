@@ -457,14 +457,16 @@ export function wireCarries(model: WcModel, name: string): { request: boolean; r
   const is = (n: string): boolean => n === name || n.endsWith(`.${name}`);
   const request = [...side.closure(requestRefs(model.envelope)).types].some(is);
   let response = false;
-  if (model.kind.kind === "Http") {
+  if (model.kind.kind === "Http" && model.success !== undefined) {
     const refs: WcRef[] = model.success ? [model.success] : [];
     for (const r of model.responses) {
       const body = responseBody(r);
       if (body?.kind === "Value") refs.push(body.ref);
     }
     response = [...side.closure(refs).types].some(is);
-  } else if (model.kind.kind === "Call") {
+  } else if (model.kind.kind === "Call" || model.kind.kind === "Http") {
+    // An `on call` handler's response, or an HTTP handler's from a server before
+    // v0.633.4: the types the request does not reach.
     response = !request && model.types.some((t) => is(t.name));
   }
   return { request, response };

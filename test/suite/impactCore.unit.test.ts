@@ -2,7 +2,7 @@
 
 import * as assert from "assert";
 
-import { clientConfig, type ImpactInput, impactOf, type WireSite } from "../../src/impactCore";
+import { clientConfig, type ImpactInput, impactOf, relocate, type WireSite } from "../../src/impactCore";
 import { wireCarries } from "../../src/wireDiffCore";
 import type { ArchLoc, ArchMember, ArchModel, ArchNode } from "../../src/webview/architectureTypes";
 import type { CdModel } from "../../src/webview/contractDiffTypes";
@@ -141,11 +141,62 @@ describe("impactOf (#146)", () => {
       unitOf: { "file:///t.bynk": { name: "shop", kind: "test" } },
       testCases: { "file:///t.bynk": [{ name: "places an order", range: rng(5, 10) }] },
     }));
-    assert.deepStrictEqual(a.tests.map((r) => [r.label, r.description]), [["shop: places an order", undefined], ["shop: t.bynk:31", "outside any case"]]);
+    assert.deepStrictEqual(a.tests.map((r) => [r.label, r.description]), [["shop: places an order", undefined], ["shop: t.bynk", "outside any case"]]);
+  });
+});
+
+describe("impactOf, review fixes (#146)", () => {
+  it("lists a case once however many times it mentions the name", () => {
+    const a = impactOf(input({
+      references: [{ uri: "file:///t.bynk", range: rng(6) }, { uri: "file:///t.bynk", range: rng(8) }, { uri: "file:///t.bynk", range: rng(30) }, { uri: "file:///t.bynk", range: rng(31) }],
+      unitOf: { "file:///t.bynk": { name: "shop", kind: "test" } },
+      testCases: { "file:///t.bynk": [{ name: "places an order", range: rng(5, 10) }] },
+    }));
+    assert.deepStrictEqual(a.tests.map((r) => r.label), ["shop: places an order", "shop: t.bynk"], "one row per case, one for the references outside any case");
+  });
+
+  it("takes the declaring unit's service and event when two units declare one of the same name", () => {
+    const m = model();
+    m.nodes.push(node("other", { services: [{ name: "Orders", handlerCount: 1, loc: loc("file:///other.bynk") }], uses: [{ member: member("other", "service", "Orders", "x"), uses: [], calls: [] }] }));
+    // `other`'s own handler calls its own Orders; billing calls shop's.
+    m.nodes[3].uses![0].calls = [{ kind: "service", unit: "other", container: "Orders", loc: loc("file:///other.bynk") }];
+    m.nodes[0].services = [{ name: "Orders", handlerCount: 1, loc: loc("file:///shop.bynk"), protocol: "http" }];
+    m.nodes.push(node("third"));
+    const shops = impactOf(input({ name: "Orders", declaringUnit: "shop", model: m })).units.map((u) => u.unit);
+    assert.ok(shops.includes("billing"), "billing calls shop.Orders");
+    assert.ok(!impactOf(input({ name: "Orders", declaringUnit: "shop", model: m })).units.some((u) => u.why.includes("calls other.Orders")));
+    const events = model();
+    events.events!.unshift({ owner: "other", name: "Order", loc: loc("file:///other.bynk"), emitters: [], subscribers: [] });
+    assert.strictEqual(impactOf(input({ declaringUnit: "shop", model: events })).event?.emitters.length, 1, "shop's Order, not other's");
+  });
+
+  it("says a type listed as a request only may also be in an inferred response", () => {
+    const a = impactOf(input({ wires: [wire({ boundary: "Call", inferred: true, carries: { request: true, response: false } })] }));
+    assert.ok(a.notes.some((n) => n.includes("listed as a request only")));
+    assert.ok(!impactOf(input({ wires: [wire()] })).notes.some((n) => n.includes("listed as a request only")));
+  });
+});
+
+describe("relocate (#146)", () => {
+  const lines = ["context a", "", "type Item = { n: String }", "", "type Items = List[Item]", "let x = Item"];
+  it("finds the whole word nearest where it was, so an inserted line does not move the view to another symbol", () => {
+    assert.deepStrictEqual(relocate(lines, "Item", 2, 5), { line: 2, character: 5 });
+    // A line was added above: it was at line 1, now at line 2.
+    assert.deepStrictEqual(relocate(lines, "Item", 1, 5), { line: 2, character: 5 });
+    assert.deepStrictEqual(relocate(lines, "Item", 5, 8), { line: 5, character: 8 });
+  });
+  it("does not match part of a longer name, and says when the name is gone", () => {
+    assert.deepStrictEqual(relocate(["type Items = Int"], "Item", 0, 5), undefined);
+    assert.strictEqual(relocate(lines, "Gone", 2, 5), undefined);
   });
 });
 
 describe("clientConfig (#146)", () => {
+  it("reads a services array split across lines", () => {
+    const toml = '[build.client]\nservices = [\n  "A", # first\n  "shop.B",\n]\nout = "c.ts"\n[other]\nservice = "no"\n';
+    assert.deepStrictEqual(clientConfig(toml), { configured: true, services: ["A", "shop.B"] });
+  });
+
   it("finds [build.client] and the services it selects", () => {
     assert.deepStrictEqual(clientConfig('[project]\nname = "p"\n'), { configured: false, services: [] });
     assert.deepStrictEqual(clientConfig('[build.client]\nout = "c.ts"\n'), { configured: true, services: [] });
@@ -179,6 +230,12 @@ describe("wireCarries (#146)", () => {
     assert.deepStrictEqual(wireCarries(m, "Receipt"), { request: false, response: true });
     assert.deepStrictEqual(wireCarries(m, "Nothing"), { request: false, response: false });
     assert.deepStrictEqual(wireCarries(m, "shop.Receipt"), { request: false, response: false }, "a qualified query names a qualified type");
+  });
+
+  it("infers an HTTP handler's response from a server that reports none (before v0.633.4)", () => {
+    const m = base({ types: [record("Out", [f("n", STR)]), record("In", [f("n", STR)])], envelope: { kind: "Bare", param: "i", shape: { kind: "Named", name: "In" } } });
+    assert.deepStrictEqual(wireCarries(m, "Out"), { request: false, response: true });
+    assert.deepStrictEqual(wireCarries(m, "In"), { request: true, response: false });
   });
 
   it("finds a type in both directions, and infers an `on call` handler's response", () => {

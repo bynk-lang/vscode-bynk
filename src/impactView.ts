@@ -16,9 +16,10 @@ import type { LanguageClient } from "vscode-languageclient/node";
 
 import { requestArchitectureModel } from "./architectureMap";
 import { requestContractDiff } from "./contractDiff";
-import { type ClientConfig, clientConfig, type ImpactAnswer, type ImpactInput, impactOf, type Ref, type UnitKind, type WireSite } from "./impactCore";
+import { type ClientConfig, clientConfig, type ImpactAnswer, type ImpactInput, impactOf, type Ref, relocate, type UnitKind, type WireSite } from "./impactCore";
 import { parseUnitHeader } from "./projectModel";
 import { projectRootFor } from "./projectRoots";
+import { usesUnknown } from "./queryCore";
 import type { TestApi } from "./testing";
 import { group, note, nodesAsText, type ResultNode, resultItem, rows } from "./treeNodes";
 import type { ViewRefresh } from "./viewRefresh";
@@ -32,6 +33,9 @@ const MAX_REFERENCES = 500;
 interface Target {
   uri: string;
   position: vscode.Position;
+  /** The name asked about, fixed by the first `show`, so a reload after an edit
+   *  looks for it again rather than for whatever now sits at the position. */
+  name?: string;
 }
 
 export class ImpactTreeProvider implements vscode.TreeDataProvider<ResultNode>, vscode.Disposable {
@@ -53,7 +57,9 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ResultNode>, 
   }
 
   async show(target: Target): Promise<void> {
-    this.target = target;
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(target.uri)).then((d) => d, () => undefined);
+    const range = doc?.getWordRangeAtPosition(target.position);
+    this.target = { ...target, name: range ? doc?.getText(range) : undefined };
     await this.reload();
   }
 
@@ -88,9 +94,16 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ResultNode>, 
     if (!client) return [note("The language server is not running.")];
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(target.uri));
     const wordRange = doc.getWordRangeAtPosition(target.position);
-    if (!wordRange) return [note("There is no name at the cursor.")];
-    const name = doc.getText(wordRange);
+    const name = target.name ?? (wordRange ? doc.getText(wordRange) : undefined);
+    if (!name) return [note("There is no name at the cursor.")];
     this.title?.(name);
+    if ((wordRange ? doc.getText(wordRange) : undefined) !== name) {
+      // Edited since it was asked: find the same name again, nearest where it was.
+      const at = relocate(Array.from({ length: doc.lineCount }, (_, i) => doc.lineAt(i).text), name, target.position.line, target.position.character);
+      if (!at) return [note(`\`${name}\` is no longer in this file: run “Bynk: Show Impact” on it again.`)];
+      target = { ...target, position: new vscode.Position(at.line, at.character) };
+      this.target = target;
+    }
 
     const refs = await references(doc.uri, target.position);
     const def = await definitionUri(doc.uri, target.position);
@@ -112,6 +125,9 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ResultNode>, 
       client: root ? await readClientConfig(root) : { configured: false, services: [] },
     };
     const answer = impactOf(input);
+    if (model && usesUnknown(model)) {
+      answer.notes.push("This language server does not report each unit's handlers (needs bynk v0.625.3), so the wire contracts and client routes that carry it cannot be listed.");
+    }
     if (refs.cut) answer.notes.push(`Only the first ${MAX_REFERENCES} references are used.`);
     return this.nodes(answer);
   }
@@ -254,6 +270,7 @@ async function wireSites(client: LanguageClient, model: ArchModel, name: string)
       boundary: wc.kind.kind === "Http" ? "Http" : wc.kind.kind === "Call" ? "Call" : "Other",
       loc: m.loc,
       carries,
+      inferred: wc.kind.kind === "Call" || (wc.kind.kind === "Http" && wc.success === undefined),
     });
   };
   // A few at a time: each is a round trip to the server.

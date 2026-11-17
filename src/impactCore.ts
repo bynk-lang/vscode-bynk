@@ -43,6 +43,9 @@ export interface WireSite {
   boundary: "Http" | "Call" | "Other";
   loc: ArchLoc;
   carries: { request: boolean; response: boolean };
+  /** Its response side is inferred (an `on call` handler's, which the model does
+   *  not carry, bynk#3687; an HTTP handler's from a server before v0.633.4). */
+  inferred?: boolean;
 }
 
 /** What `[build.client]` in `bynk.toml` says. */
@@ -58,8 +61,22 @@ export function clientConfig(toml: string): ClientConfig {
   let inTable = false;
   let configured = false;
   const services: string[] = [];
+  /** The text of a `service(s) = [` array still open across lines. */
+  let open: string | undefined;
+  const take = (text: string): void => {
+    for (const m of text.matchAll(/"([^"]*)"|'([^']*)'/g)) services.push(m[1] ?? m[2]);
+  };
   for (const raw of toml.split(/\r?\n/)) {
     const line = raw.replace(/\s+#.*$/, "").trim();
+    if (open !== undefined) {
+      // Inside a multi-line array: collect names until its closing bracket.
+      open += `\n${line}`;
+      if (line.includes("]")) {
+        take(open);
+        open = undefined;
+      }
+      continue;
+    }
     const header = /^\[\s*([^\]]+?)\s*\]$/.exec(line);
     if (header) {
       inTable = header[1].replace(/\s/g, "") === "build.client";
@@ -68,7 +85,10 @@ export function clientConfig(toml: string): ClientConfig {
     }
     if (!inTable) continue;
     const kv = /^(service|services)\s*=\s*(.+)$/.exec(line);
-    if (kv) for (const m of kv[2].matchAll(/"([^"]*)"|'([^']*)'/g)) services.push(m[1] ?? m[2]);
+    if (kv) {
+      if (kv[2].trimStart().startsWith("[") && !kv[2].includes("]")) open = kv[2];
+      else take(kv[2]);
+    }
   }
   return { configured, services };
 }
@@ -169,7 +189,9 @@ export function impactOf(input: ImpactInput): ImpactAnswer {
       why(unit(e.from, kind), `consumes ${input.declaringUnit}`);
     }
   }
-  const service = model?.nodes.flatMap((n) => n.services.map((s) => ({ unit: n.name, name: s.name }))).find((s) => isName(s.name, name));
+  // Two units may each declare a service (or an event) of this name: the one at the cursor is the declaring unit's.
+  const services = model?.nodes.flatMap((n) => n.services.map((s) => ({ unit: n.name, name: s.name }))).filter((s) => isName(s.name, name)) ?? [];
+  const service = services.find((s) => s.unit === input.declaringUnit) ?? services[0];
   if (model && service) {
     for (const n of model.nodes) {
       for (const h of n.uses ?? []) {
@@ -187,7 +209,8 @@ export function impactOf(input: ImpactInput): ImpactAnswer {
 
   // Events.
   let event: ImpactAnswer["event"];
-  const found = model?.events?.find((e) => isName(`${e.owner}.${e.name}`, name));
+  const events = model?.events?.filter((e) => isName(`${e.owner}.${e.name}`, name)) ?? [];
+  const found = events.find((e) => e.owner === input.declaringUnit) ?? events[0];
   if (found) {
     event = {
       emitters: found.emitters.map((x) => ({ label: memberLabel(x.member), loc: x.member.loc })),
@@ -214,6 +237,11 @@ export function impactOf(input: ImpactInput): ImpactAnswer {
       loc: s.loc,
     }));
   if (!input.contract) notes.push("The contract diff could not be read, so locks and deployed contracts are not shown.");
+  if (carrying.some((w) => w.inferred && w.carries.request)) {
+    notes.push(
+      "A handler's response type is not always in the language server's model (an `on call` handler's, bynk-lang/bynk#3687; an HTTP handler's before v0.633.4), so a type it both takes and returns is listed as a request only.",
+    );
+  }
 
   // The generated client.
   const routes = input.client.configured
@@ -221,11 +249,18 @@ export function impactOf(input: ImpactInput): ImpactAnswer {
     : [];
 
   // Tests: the cases holding a reference, else the test file.
+  // One row per case (or per file, for references outside any case), however
+  // many times it mentions the name.
   const tests: Row[] = [];
+  const seen = new Set<string>();
   for (const { ref, unit: suite } of testRefs) {
     const c = (input.testCases[ref.uri] ?? []).find((k) => contains(k.range, ref.range));
+    const label = c ? `${suite}: ${c.name}` : `${suite}: ${lastSegment(ref.uri)}`;
+    const key = `${ref.uri}\0${c ? c.name : ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     tests.push({
-      label: c ? `${suite}: ${c.name}` : `${suite}: ${lastSegment(ref.uri)}:${ref.range.start.line + 1}`,
+      label,
       description: c ? undefined : "outside any case",
       loc: { uri: ref.uri, range: ref.range },
     });
@@ -248,4 +283,25 @@ export function impactOf(input: ImpactInput): ImpactAnswer {
 
 function selected(services: readonly string[], unit: string, service: string): boolean {
   return services.length === 0 || services.some((s) => s === service || s === `${unit}.${service}`);
+}
+
+/** Where `name` is now, given where it was (`line`, `character`, 0-based) when
+ *  the view was asked: the occurrence of the whole word nearest that line, so a
+ *  line added above it does not move the view to another symbol. `undefined`
+ *  when the name no longer appears. */
+export function relocate(lines: readonly string[], name: string, line: number, character: number): { line: number; character: number } | undefined {
+  const word = new RegExp(`(?<![A-Za-z0-9_])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9_])`, "g");
+  let best: { line: number; character: number } | undefined;
+  let bestDistance = Infinity;
+  lines.forEach((text, l) => {
+    for (const m of text.matchAll(word)) {
+      const c = m.index ?? 0;
+      const distance = Math.abs(l - line) * 1000 + Math.abs(c - character);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = { line: l, character: c };
+      }
+    }
+  });
+  return best;
 }
