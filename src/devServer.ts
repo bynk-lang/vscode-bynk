@@ -25,6 +25,7 @@ import { findProjectRoot, projectContexts, runBynk, spawnBynk, stopTree } from "
 import { diagnosticPath, LineSplitter, parseShortDiagnostic, toTerminalText } from "./cliCore";
 import {
   READY_TIMEOUT_MS,
+  chooseTraceEvents,
   devArgs,
   devMarker,
   devStartMarker,
@@ -39,6 +40,8 @@ import {
 import type { LogEntry } from "./devLogs";
 import type { LogLevel } from "./devEvents";
 import { DevLogs } from "./devLogsView";
+import { clearRequestTraces, recordRequestTrace } from "./requestTraces";
+import type { RequestTrace } from "./requestTraceCore";
 import { offerDoctor, reportBynkNotFound } from "./doctor";
 import { bynkPath } from "./tasks";
 
@@ -52,6 +55,26 @@ interface BynkTaskDefinition extends vscode.TaskDefinition {
 }
 
 let controller: DevServerController | undefined;
+/** Whether the output channel has said that request traces need a newer `bynk`. */
+let noted = false;
+
+/** What `bynk --version` prints, or `undefined` when it cannot be run. Bounded:
+ *  a `bynk` that hangs here (a wrapper script, a stuck managed binary) must not
+ *  stop `bynk dev` from starting. */
+async function bynkVersionOutput(root: vscode.Uri): Promise<string | undefined> {
+  const cts = new vscode.CancellationTokenSource();
+  const timer = setTimeout(() => cts.cancel(), VERSION_TIMEOUT_MS);
+  try {
+    const run = await runBynk(["--version"], root.fsPath, cts.token);
+    return run.code === 0 ? run.stdout : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+    cts.dispose();
+  }
+}
+const VERSION_TIMEOUT_MS = 5000;
 const stateChanged = new vscode.EventEmitter<void>();
 
 /** #67: the running session's state (its contexts' URLs), for the Send
@@ -182,6 +205,9 @@ class DevServerController implements vscode.Disposable {
       return messageTerminal("Bynk: no bynk.toml found in the workspace.");
     }
     const config = vscode.workspace.getConfiguration("bynk");
+    // #143: `--trace-events` only for a `bynk` that has it; an older one must
+    // still start (the version is read, not assumed from the pin).
+    const trace = chooseTraceEvents(config.get<boolean>("dev.traceRequests", true), await bynkVersionOutput(root));
     const args = devArgs({
       contexts: definition.contexts,
       basePort:
@@ -189,15 +215,22 @@ class DevServerController implements vscode.Disposable {
           ? definition.basePort
           : config.get<number | null>("dev.basePort", null),
       extraArgs: config.get<string[]>("dev.args", []),
+      traceEvents: trace.flag,
     });
+    if (trace.note && !noted) {
+      noted = true; // once per window, not at every start
+      this.logs.note(trace.note);
+    }
     this.lastDefinition = definition;
     this.problems.clear();
+    clearRequestTraces(); // a new session: spans from the last build no longer line up
     this.logs.sessionStarted(args.slice(1).join(" "));
     const session = new DevSession(
       root,
       args,
       (prev, t, next) => this.onTransition(session, prev, t, next),
       (entry) => this.logs.push(entry),
+      (trace) => recordRequestTrace(trace, root),
     );
     this.session = session;
     this.render(session.state);
@@ -407,6 +440,7 @@ class DevSession implements vscode.Pseudoterminal {
     private readonly args: string[],
     private readonly onTransition: (prev: DevState, t: DevTransition, next: DevState) => void,
     private readonly onLog: (entry: LogEntry) => void,
+    private readonly onRequest: (trace: RequestTrace) => void,
   ) {
     this.exitedPromise = new Promise((r) => (this.resolveExited = r));
   }
@@ -448,6 +482,12 @@ class DevSession implements vscode.Pseudoterminal {
     if (event.event === "log") {
       // The driver already printed the line on stderr, which the terminal shows.
       this.onLog({ context: event.context, level: event.level, text: event.text });
+      return;
+    }
+    if (event.event === "request") {
+      // Like a log line, never written to the terminal: a trace is opened on
+      // the sequence diagram, and holds routes the user did not ask to log.
+      this.onRequest(event.trace);
       return;
     }
     this.apply(event);

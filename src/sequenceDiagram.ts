@@ -22,6 +22,7 @@ import { diagramMessages } from "./diagramHost";
 import { isOpenSequence } from "./sequenceMessages";
 import { modelCoverage } from "./modelCoverage";
 import type { ViewRefresh } from "./viewRefresh";
+import { allTraceViews, bumpTraceIntent, latestTraceTarget, onDidChangeRequestTraces, traceIntent, tracesFor } from "./requestTraces";
 import { allowedPageUri, revealLocation } from "./webviewHost";
 import type { SequenceModel, SequencePayload } from "./webview/types";
 
@@ -29,6 +30,9 @@ interface SequenceModelParams {
   textDocument: { uri: string };
   position: { line: number; character: number };
 }
+
+/** The pending coalesced repost of the traces. */
+let repostTimer: ReturnType<typeof setTimeout> | undefined;
 
 export function registerSequenceDiagram(
   context: vscode.ExtensionContext,
@@ -66,6 +70,45 @@ export function registerSequenceDiagram(
   context.subscriptions.push(
     view,
     coverageChanged,
+    // #143: a request reached the dev server: show its trace on the diagram
+    // the panel has, without asking the language server again.
+    // Coalesced: a burst of requests (a load test, a polling client) redraws
+    // the page once per 200 ms, not once per request.
+    onDidChangeRequestTraces(() => {
+      if (repostTimer) return;
+      repostTimer = setTimeout(() => {
+        repostTimer = undefined;
+        view.repost((p) => withTraces(p));
+      }, 200);
+    }),
+    { dispose: () => repostTimer && clearTimeout(repostTimer) },
+    // Not in package.json: every stored trace as the page would be given it,
+    // for the integration tests (a webview cannot be read back).
+    vscode.commands.registerCommand("bynk._requestTraces", () => allTraceViews()),
+    vscode.commands.registerCommand("bynk.showRequestTrace", async () => {
+      const target = latestTraceTarget();
+      if (target.kind === "none") {
+        void vscode.window.showInformationMessage(
+          "Bynk: no request trace yet. Start the dev server (Bynk: Start Dev Server), send a request, then run this again.",
+        );
+        return;
+      }
+      if (target.kind === "no-location") {
+        void vscode.window.showInformationMessage(
+          `Bynk: the newest request (${target.route}) made no calls with a source location, so there is no handler to open. Open its sequence diagram yourself and the trace will show there.`,
+        );
+        return;
+      }
+      bumpTraceIntent();
+      return view.show({ uri: target.uri, position: { line: target.line, character: target.character } });
+    }),
+    // Not in package.json: Send Request's Show trace. Follows the latest request again.
+    vscode.commands.registerCommand("bynk._showTraceAt", (uriArg?: unknown, positionArg?: unknown) => {
+      const target = commandTarget(uriArg, positionArg, true);
+      if (!target) return;
+      bumpTraceIntent();
+      return view.show(target);
+    }),
     vscode.commands.registerCommand(
       "bynk.showSequenceDiagram",
       (uriArg?: unknown, positionArg?: unknown) => {
@@ -96,5 +139,13 @@ async function requestSequence(
   if (!model) return null;
   // #144: the last coverage run's lines for this file, if any.
   const coverage = await modelCoverage.forUri(target.uri);
-  return coverage ? { model, uri: target.uri, coverage } : { model, uri: target.uri };
+  return withTraces(coverage ? { model, uri: target.uri, coverage } : { model, uri: target.uri });
+}
+
+/** #143: the payload with the traces that belong on its handler. */
+function withTraces(payload: SequencePayload): SequencePayload {
+  const traces = tracesFor(payload.model, payload.uri);
+  const { traces: _old, traceIntent: _intent, ...rest } = payload;
+  const intent = traceIntent();
+  return traces.length > 0 ? { ...rest, traces, ...(intent > 0 ? { traceIntent: intent } : {}) } : rest;
 }
