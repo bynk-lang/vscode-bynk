@@ -4,6 +4,7 @@
 // tests compile against it directly (see tsconfig.test.json); `devServer.ts`
 // wires it to the editor.
 
+import { compareVersions } from "./dependenciesCore";
 import { parseRequestEvent, type RequestTrace } from "./requestTraceCore";
 
 /** One served context, from a `serving` event. */
@@ -247,6 +248,28 @@ export class PreflightWatch {
 /** The line that opens a session in the terminal (a background-matcher begin). */
 export function devStartMarker(args: string[]): string {
   return `[bynk dev] starting: bynk ${args.join(" ")}`;
+}
+
+/** The first `bynk` with `--trace-events` (bynk#3580, ADR 0860). */
+export const TRACE_EVENTS_MIN_VERSION = "0.627.1";
+
+/** Whether to pass `--trace-events`, from the `bynk.dev.traceRequests` setting
+ *  and what `bynk --version` printed (`undefined` when it could not be run).
+ *  An older or unreadable version never gets the flag, so the setting cannot
+ *  stop `bynk dev` from starting; `note` says why, for the output channel. */
+export function chooseTraceEvents(
+  enabled: boolean,
+  versionOutput: string | undefined,
+): { flag: boolean; note?: string } {
+  if (!enabled) return { flag: false };
+  const found = versionOutput === undefined ? undefined : /(\d+)\.(\d+)\.(\d+)/.exec(versionOutput)?.[0];
+  const older = found !== undefined && compareVersions(found, TRACE_EVENTS_MIN_VERSION) < 0;
+  if (found !== undefined && !older) return { flag: true };
+  const why = older ? `this bynk is ${found}` : "the bynk version could not be read";
+  return {
+    flag: false,
+    note: `Request traces need bynk v${TRACE_EVENTS_MIN_VERSION} or later; ${why}, so the dev server starts without them (bynk.dev.traceRequests).`,
+  };
 }
 
 export interface DevArgsOptions {

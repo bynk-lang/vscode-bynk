@@ -25,6 +25,7 @@ import { findProjectRoot, projectContexts, runBynk, spawnBynk, stopTree } from "
 import { diagnosticPath, LineSplitter, parseShortDiagnostic, toTerminalText } from "./cliCore";
 import {
   READY_TIMEOUT_MS,
+  chooseTraceEvents,
   devArgs,
   devMarker,
   devStartMarker,
@@ -54,6 +55,18 @@ interface BynkTaskDefinition extends vscode.TaskDefinition {
 }
 
 let controller: DevServerController | undefined;
+/** Whether the output channel has said that request traces need a newer `bynk`. */
+let noted = false;
+
+/** What `bynk --version` prints, or `undefined` when it cannot be run. */
+async function bynkVersionOutput(root: vscode.Uri): Promise<string | undefined> {
+  try {
+    const run = await runBynk(["--version"], root.fsPath);
+    return run.code === 0 ? run.stdout : undefined;
+  } catch {
+    return undefined;
+  }
+}
 const stateChanged = new vscode.EventEmitter<void>();
 
 /** #67: the running session's state (its contexts' URLs), for the Send
@@ -174,6 +187,9 @@ class DevServerController implements vscode.Disposable {
       return messageTerminal("Bynk: no bynk.toml found in the workspace.");
     }
     const config = vscode.workspace.getConfiguration("bynk");
+    // #143: `--trace-events` only for a `bynk` that has it; an older one must
+    // still start (the version is read, not assumed from the pin).
+    const trace = chooseTraceEvents(config.get<boolean>("dev.traceRequests", true), await bynkVersionOutput(root));
     const args = devArgs({
       contexts: definition.contexts,
       basePort:
@@ -181,8 +197,12 @@ class DevServerController implements vscode.Disposable {
           ? definition.basePort
           : config.get<number | null>("dev.basePort", null),
       extraArgs: config.get<string[]>("dev.args", []),
-      traceEvents: config.get<boolean>("dev.traceRequests", true),
+      traceEvents: trace.flag,
     });
+    if (trace.note && !noted) {
+      noted = true; // once per window, not at every start
+      this.logs.note(trace.note);
+    }
     this.lastDefinition = definition;
     this.problems.clear();
     clearRequestTraces(); // a new session: spans from the last build no longer line up

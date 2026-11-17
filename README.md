@@ -510,7 +510,7 @@ its own, and is restored after **Developer: Reload Window**.
 | `bynk.fileDecorations.contractBreaks` | `true` | Mark a file in the Explorer (and its folders) with a `!` badge and a warning tint when the language server reports a contract break in it against `bynk.schema.lock`. |
 | `bynk.dependencies.upgradeLenses` | `true` | Show an upgrade CodeLens above each registry dependency in `bynk.toml` when a newer version exists. Each package is looked up at most once per session. |
 | `bynk.dev.basePort` | empty (8787) | First port the dev server allocates (`bynk dev --base-port`): context *i* is served on this port + *i*. |
-| `bynk.dev.traceRequests` | `true` | Start the dev server with `bynk dev --trace-events`, so each request can be shown as a trace over its handler's sequence diagram. The dev build records each call's kind, target, `.bynk` location, time and outcome, never argument values, and adds the `nodejs_als` compatibility flag. Needs `bynk` v0.627.1 or later (v0.632.2 to follow a call across Workers). |
+| `bynk.dev.traceRequests` | `true` | Start the dev server with `bynk dev --trace-events`, so each request can be shown as a trace over its handler's sequence diagram. The dev build records each call's kind, target, `.bynk` location, time and outcome, never argument values, and adds the `nodejs_als` compatibility flag. The flag is passed only to a `bynk` of v0.627.1 or later (v0.632.2 follows a call across Workers); with an older or unreadable one the dev server starts without it and the Bynk Logs channel says so once. |
 | `bynk.dev.args` | `[]` | Extra arguments forwarded to `wrangler dev` after `--` (for example `["--var", "KEY:value"]`). |
 
 A `bynk: dev` task in `tasks.json` can narrow the contexts and move the ports,

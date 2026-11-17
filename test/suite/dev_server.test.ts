@@ -186,6 +186,29 @@ describe("Bynk dev server (#2094)", () => {
     }
   });
 
+  it("starts an older bynk without --trace-events, and says so once in the logs (#143)", async function () {
+    if (process.platform === "win32") this.skip();
+    this.timeout(60_000);
+    await vscode.commands.executeCommand("bynk.clearLogs");
+    process.env.BYNK_FAKE_VERSION = "0.626.0";
+    try {
+      for (let run = 0; run < 2; run++) {
+        const started = nextTask(vscode.tasks.onDidStartTask);
+        await vscode.commands.executeCommand("bynk.startDevServer");
+        await started;
+        const runs = fake.read().filter((e) => e.argv?.[0] === "dev");
+        assert.ok(!runs[runs.length - 1].argv!.includes("--trace-events"), "an older bynk is not given the flag");
+        const ended = nextTask(vscode.tasks.onDidEndTask);
+        await vscode.commands.executeCommand("bynk.stopDevServer");
+        await ended;
+      }
+      const lines = (await vscode.commands.executeCommand<string[]>("bynk.logLines")) ?? [];
+      assert.strictEqual(lines.filter((l) => l.includes("Request traces need bynk v0.627.1")).length, 1, "said once, not at every start");
+    } finally {
+      delete process.env.BYNK_FAKE_VERSION;
+    }
+  });
+
   it("starts without --trace-events when bynk.dev.traceRequests is off (#143)", async function () {
     if (process.platform === "win32") this.skip();
     this.timeout(45_000);

@@ -45,6 +45,11 @@ export class DevLogs implements vscode.Disposable {
     this.push({ context: SESSION, level: "info", text: `--- bynk dev ${args} ---` });
   }
 
+  /** A line from the extension itself, in the session's own voice. */
+  note(text: string): void {
+    this.push({ context: SESSION, level: "info", text });
+  }
+
   show(preserveFocus = false): void {
     this.channel.show(preserveFocus);
   }

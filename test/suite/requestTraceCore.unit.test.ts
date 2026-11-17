@@ -5,7 +5,7 @@
 
 import * as assert from "assert";
 
-import { parseDevEvent, devArgs } from "../../src/devEvents";
+import { chooseTraceEvents, parseDevEvent, devArgs, TRACE_EVENTS_MIN_VERSION } from "../../src/devEvents";
 import {
   compareTraces,
   formatMs,
@@ -247,5 +247,32 @@ describe("compareTraces and formatMs", () => {
     assert.strictEqual(formatMs(250), "250 ms");
     assert.strictEqual(formatMs(1200), "1.2 s");
     assert.strictEqual(formatMs(0), "0.0 ms");
+  });
+});
+
+describe("chooseTraceEvents", () => {
+  it("passes the flag to a bynk that has it, whatever it prints around the version", () => {
+    assert.deepStrictEqual(chooseTraceEvents(true, "bynk 0.639.1\n"), { flag: true });
+    assert.deepStrictEqual(chooseTraceEvents(true, `bynk v${TRACE_EVENTS_MIN_VERSION}`), { flag: true });
+    assert.deepStrictEqual(chooseTraceEvents(true, "bynk 1.0.0"), { flag: true });
+  });
+
+  it("starts an older bynk without it, and says why", () => {
+    const old = chooseTraceEvents(true, "bynk 0.626.9");
+    assert.strictEqual(old.flag, false);
+    assert.ok(old.note?.includes("v0.627.1") && old.note.includes("0.626.9"), String(old.note));
+  });
+
+  it("starts without it when the version cannot be read, and says so", () => {
+    for (const v of [undefined, "", "bynk (unknown)"]) {
+      const r = chooseTraceEvents(true, v);
+      assert.strictEqual(r.flag, false);
+      assert.ok(r.note?.includes("could not be read"), String(r.note));
+    }
+  });
+
+  it("does nothing, silently, when the setting is off", () => {
+    assert.deepStrictEqual(chooseTraceEvents(false, "bynk 0.639.1"), { flag: false });
+    assert.deepStrictEqual(chooseTraceEvents(false, undefined), { flag: false });
   });
 });

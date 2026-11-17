@@ -20,7 +20,13 @@ process.on("exit", (code) => record({ exit: code }));
 const args = process.argv.slice(2);
 record({ argv: args, cwd: process.cwd() });
 
-if (args[0] === "book") {
+if (args[0] === "--version") {
+  // `bynk --version` (#143): `BYNK_FAKE_VERSION` is what it reports (default
+  // the pinned v0.639.1); `none` is a `bynk` that cannot say.
+  if (process.env.BYNK_FAKE_VERSION === "none") process.exit(1);
+  process.stdout.write(`bynk ${process.env.BYNK_FAKE_VERSION || "0.639.1"}\n`);
+  process.exit(0);
+} else if (args[0] === "book") {
   // `bynk book --search <query>`: a canned answer in the driver's own format.
   // `BYNK_FAKE_BOOK=none` is a `bynk` built without the Book bundle.
   if (process.env.BYNK_FAKE_BOOK === "none") {
