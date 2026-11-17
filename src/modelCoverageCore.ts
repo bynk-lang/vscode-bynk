@@ -56,7 +56,10 @@ export interface CoverageRun {
 export function mergeRun(current: CoverageRun | undefined, sameRun: boolean, part: CoverageRun): CoverageRun {
   if (!current || !sameRun) return part;
   const kept = current.files.filter((f) => !part.files.some((p) => p.file === f.file));
-  return { files: [...kept, ...part.files], scope: part.scope, runAt: Math.min(current.runAt, part.runAt) };
+  // Parts that measured different things (one case here, a whole project there)
+  // are not described as either.
+  const scope = current.scope === part.scope ? part.scope : "several projects, each by its own scope";
+  return { files: [...kept, ...part.files], scope, runAt: Math.min(current.runAt, part.runAt) };
 }
 
 /** A run's coverage of `file`, or `undefined` when the report does not list
@@ -115,6 +118,8 @@ function linesMark(cov: ModelCoverage, first: number, last: number, exclude: Rea
  *  - an `else if` arm's range covers the rest of the chain (bynk#3599), and an
  *    arm's range can share its last line with the next arm (`} else {`), so the
  *    lines of every later branch of the block are left out;
+ *  - an arm's range can share its first line with the arm before it, so the
+ *    lines an earlier arm ends on are left out too;
  *  - an `if`'s `then` range starts at the `if` keyword, and its condition line
  *    runs whenever the `if` is reached, taken or not, so that first line is
  *    left out. A `then` arm that fits on its condition's line has nothing left
@@ -125,6 +130,9 @@ export function branchMark(cov: ModelCoverage, block: Pick<AltBlock, "kind" | "b
   if (!range) return "unmeasured";
   let [first, last] = linesOf(range);
   if (block.kind === "If" && index === 0) first += 1;
+  // A line an earlier arm ends on (`} else {`, or arms written on one line) is
+  // not this arm's body: it runs whenever the block is reached.
+  for (const b of block.branches.slice(0, index)) if (b.range) first = Math.max(first, linesOf(b.range)[1] + 1);
   const later = block.branches.slice(index + 1).flatMap((b): Array<[number, number]> => (b.range ? [linesOf(b.range)] : []));
   return linesMark(cov, first, last, later);
 }

@@ -72,6 +72,11 @@ describe("mergeRun (#144)", () => {
     assert.deepStrictEqual(both.files.map((f) => f.file), ["/a/x.bynk", "/b/y.bynk"]);
     assert.strictEqual(both.runAt, 100, "the earliest start, so a file saved during any part reads as changed");
   });
+  it("does not describe parts that measured different things as one scope", () => {
+    const mixed = mergeRun(part("/a/x.bynk", 100, 'the case "c"'), true, part("/b/y.bynk", 120));
+    assert.strictEqual(mixed.scope, "several projects, each by its own scope");
+    assert.strictEqual(mergeRun(part("/a/x.bynk", 100), true, part("/b/y.bynk", 120)).scope, "the whole project");
+  });
   it("replaces a file only with a newer report of itself", () => {
     const merged = mergeRun(part("/a/x.bynk", 100), true, part("/a/x.bynk", 150));
     assert.strictEqual(merged.files.length, 1);
@@ -273,6 +278,13 @@ describe("branchMark (#144, bynk#3599)", () => {
     const m = block(3, "Match", [{ range: R(0, 1) }, { range: R(2, 3) }]);
     assert.strictEqual(branchMark(cov([1], [3, 4]), m, 0), "covered");
     assert.strictEqual(branchMark(cov([1], [3, 4]), m, 1), "uncovered");
+  });
+
+  it("leaves a later arm unmeasured when it shares its only line with an earlier one", () => {
+    // if a { X } else { Y }, all on line 1: nothing separates the arms.
+    const one = block(5, "If", [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } } }, { range: { start: { line: 0, character: 11 }, end: { line: 0, character: 22 } } }]);
+    assert.strictEqual(branchMark(cov([1], []), one, 0), "unmeasured");
+    assert.strictEqual(branchMark(cov([1], []), one, 1), "unmeasured");
   });
 
   it("is unmeasured for a branch with no range (an older server)", () => {
