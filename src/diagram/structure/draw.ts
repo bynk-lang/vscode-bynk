@@ -46,7 +46,8 @@ function describe(n: StructNode): string {
   const cycle = n.cycle ? ", on a consumes cycle" : "";
   const dimmed = n.dimmed ? ", unreachable from the initial state" : "";
   const diff = n.diff ? `, ${MARK_WORD[n.diff]}` : "";
-  return `${what}${extra}${folded}${cycle}${dimmed}${diff}`;
+  const current = n.current ? ", the live instance's current state" : "";
+  return `${what}${extra}${folded}${cycle}${dimmed}${diff}${current}`;
 }
 
 export interface StructDrawOptions {
@@ -101,6 +102,7 @@ function drawNode(p: PlacedStructNode, parent: Element): void {
       n.expanded ? "bynk-snode--open" : "",
       n.muted ? "bynk-muted" : "",
       n.dimmed ? "bynk-dimmed" : "",
+      n.current ? "bynk-current" : "",
       n.diff ? `bynk-diff-${n.diff}` : "",
     ].filter(Boolean).join(" "),
   }, parent);

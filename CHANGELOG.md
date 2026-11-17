@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Live agent instances on the agent state view** (#145). While `bynk dev` runs (started from the editor), the view gains a **Live instances** section: the instances of the agent that a handler has addressed in this session, by key. Choose one to see its stored state in Bynk's own terms (`Placed`, `Ok(42)`), its schema version beside the class's current one (with a link to State Migrations when it is behind), and its recent transitions, which you can step through with Back, Forward and Latest. The state diagram marks the state the instance, or the step you are on, is in. It reads the local dev server only, through `bynk dev inspect` (bynk#3581; needs `bynk` v0.633.2 or later for the history, v0.639.0 for Worker groups), and never writes, migrates or runs a handler. What an instance holds is shown in the view and is not logged anywhere. A transition a handler or `invariant` refuses is never committed, so it has no step to mark.
+
 ## [0.639.1] - 2026-11-17
 
 ### Changed
