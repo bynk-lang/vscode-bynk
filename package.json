@@ -37,6 +37,17 @@
   "main": "./out/extension.js",
   "browser": "./out/web/extension.js",
   "contributes": {
+    "notebooks": [
+      {
+        "type": "bynk-notebook",
+        "displayName": "Bynk Notebook",
+        "selector": [
+          {
+            "filenamePattern": "*.bynknb"
+          }
+        ]
+      }
+    ],
     "languages": [
       {
         "id": "bynk",
@@ -582,6 +593,17 @@
         "icon": "$(send)"
       },
       {
+        "command": "bynk.notebook.new",
+        "title": "New Notebook",
+        "category": "Bynk",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "bynk.notebook.chooseUnit",
+        "title": "Choose Notebook Unit…",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.scenario.run",
         "title": "Run Scenario",
         "category": "Bynk",
@@ -878,6 +900,22 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "bynk.notebook.new",
+          "when": "!isWeb"
+        },
+        {
+          "command": "bynk.notebook.chooseUnit",
+          "when": "!isWeb && notebookType == 'bynk-notebook'"
+        },
+        {
+          "command": "bynk.notebook.new",
+          "when": "!isWeb"
+        },
+        {
+          "command": "bynk.notebook.chooseUnit",
+          "when": "!isWeb && notebookType == 'bynk-notebook'"
+        },
         {
           "command": "bynk.copyPlaygroundLink",
           "when": "editorLangId == bynk"
@@ -1672,6 +1710,12 @@
           "type": "boolean",
           "default": true,
           "description": "Render Bynk values in the debugger in Bynk's vocabulary (e.g. `Ok(42)` instead of `{tag: \"Ok\", value: 42}`) when debugging tests. Turn off to see the raw emitted shape. (Test-debug only — the dev-server/workerd path always shows the raw shape.)"
+        },
+        "bynk.notebook.timeoutSeconds": {
+          "type": "number",
+          "minimum": 1,
+          "default": 60,
+          "markdownDescription": "How long a Bynk notebook cell may run before `bynk eval` stops it and reports a timeout, in seconds (`bynk eval --timeout`; its own default is 60). A cell runs your project's code under the test runtime, and only when you run it."
         },
         "bynk.testCodeLens": {
           "type": "boolean",

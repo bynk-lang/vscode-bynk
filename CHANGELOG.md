@@ -22,6 +22,7 @@ version).
 
 ### Added
 
+- **Bynk notebooks** (#151, expression cells): a `.bynknb` notebook of Markdown and Bynk cells, made with **Bynk: New Notebook**. Running a cell evaluates it with `bynk eval` (`bynk-lang/bynk#3585`, v0.629.3 and later) in a unit of the project, shows the value and its type in Bynk's terms, and puts a cell's compile errors on the cell. A cell runs only when run, never on open, hover or save, and stops after `bynk.notebook.timeoutSeconds` (60). A cell's unit is its first line's `// @unit name`, else the notebook's (**Bynk: Choose Notebook Unit…**). Earlier cells' `let`s carry forward: the extension sends them ahead of the cell, since `bynk eval` keeps no state between runs. Unsaved `.bynk` edits are evaluated, and outputs are never saved to the file. Desktop only; handler and refined-type cells are to follow.
 - **Bynk: Show Component View** (model-diagrams track, slice 5): one context opened up as a UML component diagram. It is also on the editor title bar of a `.bynk` file.
   - **Inside:** the context's services, agents and providers as parts. Each service lists its handlers as operations, and each agent shows its key, its `store` fields and its handlers.
   - **On the border:** a provided port (UML ball) for each service, and a required port (socket) for each capability the context needs from outside and each consumed service it calls. Connectors show which part realises or needs each port.
