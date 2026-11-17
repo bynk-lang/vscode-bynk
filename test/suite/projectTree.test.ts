@@ -361,3 +361,63 @@ describe("Bynk project sidebar (#2097)", () => {
     }
   });
 });
+
+// #188: the last coverage run projected onto handler and agent nodes.
+describe("Bynk project sidebar coverage (#188)", () => {
+  let dir: string;
+  let project: string;
+  const SOURCE = `context shop
+
+service Pricing {
+  on call(qty: Int) -> Effect[Int] {
+    qty
+  }
+}
+`;
+
+  before(async function () {
+    this.timeout(120_000);
+    const ext = vscode.extensions.getExtension(EXT_ID);
+    assert.ok(ext);
+    await ext.activate();
+    const workspace = path.resolve(__dirname, "../../../test/fixtures/workspace");
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(workspace, ".pc-")));
+    project = path.basename(dir);
+    fs.mkdirSync(path.join(dir, "src"));
+    fs.writeFileSync(path.join(dir, "bynk.toml"), '[project]\nname = "pc"\n\n[paths]\ninclude = ["src"]\n');
+    fs.writeFileSync(path.join(dir, "src", "shop.bynk"), SOURCE);
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(dir, "src", "shop.bynk"))));
+  });
+
+  after(async () => {
+    await vscode.commands.executeCommand("bynk.clearModelCoverage");
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const handler = async (): Promise<Entry | undefined> =>
+    find(await snapshot(6, true), project, "Contexts", "shop", "Pricing")?.children?.[0];
+  const record = (executed: boolean) =>
+    vscode.commands.executeCommand("bynk._recordModelCoverage", [
+      {
+        file: path.join(dir, "src", "shop.bynk"),
+        covered: executed ? 1 : 0,
+        total: 1,
+        statements: [{ line: 5, executed }],
+      },
+    ]);
+
+  it("marks a handler by whether its lines ran, and Clear Model Coverage removes it", async function () {
+    this.timeout(90_000);
+    await waitFor(handler, (h) => h?.contextValue === "bynkHandler", "the handler node", 45_000);
+    assert.strictEqual((await handler())?.description, undefined, "no run, no mark");
+
+    await record(true);
+    assert.strictEqual((await handler())?.description, "tested");
+    await record(false);
+    assert.strictEqual((await handler())?.description, "not tested");
+
+    await vscode.commands.executeCommand("bynk.clearModelCoverage");
+    assert.strictEqual((await handler())?.description, undefined);
+  });
+});

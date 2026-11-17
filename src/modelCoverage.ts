@@ -85,6 +85,12 @@ export function registerModelCoverage(context: vscode.ExtensionContext): void {
     modelCoverage,
     // Test seam (not contributed): what the views would overlay.
     vscode.commands.registerCommand("bynk._modelCoverage", () => modelCoverage.snapshot()),
+    // Test seam (not contributed): record a run as a test run would.
+    vscode.commands.registerCommand(
+      "bynk._recordModelCoverage",
+      (files: CoverageRun["files"], scope = "the whole project", runAt = Date.now()) =>
+        modelCoverage.record({}, { files, scope, runAt }),
+    ),
     vscode.commands.registerCommand("bynk.clearModelCoverage", () => {
       if (!modelCoverage.has) {
         void vscode.window.showInformationMessage("Bynk: there is no coverage on the model views.");
