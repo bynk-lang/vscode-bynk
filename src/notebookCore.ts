@@ -189,17 +189,22 @@ export function unitFor(cell: Pick<Cell, "unit">, notebookUnit: string | undefin
 // What kind of cell
 //
 // A code cell is an expression cell unless it says otherwise in its leading
-// comment lines. `cellKindOf` is the one place that decides, so the cell kinds
-// that follow (handler cells, #191) add a directive and a case here and a branch
-// where the editor side runs them.
+// comment lines. `cellKindOf` is the one place that decides, so a cell kind adds
+// a directive and a case here and a branch where the editor side runs it.
 
-export type CellKind = { kind: "expression" } | { kind: "refined"; type: string } | { kind: "bad-directive"; directive: string; problem: string };
+export type CellKind =
+  | { kind: "expression" }
+  | { kind: "refined"; type: string }
+  /** #191: ordinary Bynk source that calls a handler (`notebookHandlerCore.ts`). */
+  | { kind: "handler" }
+  | { kind: "bad-directive"; directive: string; problem: string };
 
 const REFINED_DIRECTIVE = /^\s*\/\/\s*@refined(?:\s+(.*?))?\s*$/;
+const HANDLER_DIRECTIVE = /^\s*\/\/\s*@handler(?:\s+(.*?))?\s*$/;
 const TYPE_NAME = /^[A-Z][A-Za-z0-9_]*$/;
 
 /** The kind of a code cell: a refined-type cell when a `// @refined Type` line
- *  comes before any code, else an expression cell. A `// @refined` that doesn't
+ *  comes before any code, a handler cell for `// @handler`, else an expression cell. A `// @refined` that doesn't
  *  name a type (`percent`, `money.Percent`, nothing) is `bad-directive`, so the
  *  cell is not quietly run as expressions. */
 export function cellKindOf(source: string): CellKind {
@@ -207,6 +212,11 @@ export function cellKindOf(source: string): CellKind {
     const t = line.trim();
     if (t === "") continue;
     if (!t.startsWith("//")) break;
+    const h = HANDLER_DIRECTIVE.exec(line);
+    if (h) {
+      if (h[1] === undefined || h[1] === "") return { kind: "handler" };
+      return { kind: "bad-directive", directive: t, problem: "`// @handler` takes nothing after it: write the `stub` lines and the call as ordinary Bynk below it." };
+    }
     const m = REFINED_DIRECTIVE.exec(line);
     if (m) {
       const name = m[1] ?? "";
@@ -512,6 +522,8 @@ export function snippetNotes(s: Pick<Snippet, "used" | "rerun" | "skipped"> & { 
 export interface EvalArgs {
   root: string;
   unit: string;
+  /** `--suite`: build the unit's own unit-tier suite in, so its `stub`s and fixtures apply. */
+  suite?: string;
   snippet: string;
   /** Pass `--sources-stdin`: unsaved buffers go on stdin. */
   sourcesStdin: boolean;
@@ -524,6 +536,7 @@ export interface EvalArgs {
 export function evalArgs(a: EvalArgs): string[] {
   // `--expr=` and not `--expr X`: a snippet that starts with `-` (`-5`) would be read as a flag.
   const args = ["eval", a.root, "--unit", a.unit, `--expr=${a.snippet}`];
+  if (a.suite) args.push("--suite", a.suite);
   if (a.sourcesStdin) args.push("--sources-stdin");
   if (a.timeoutSeconds !== undefined) args.push("--timeout", String(Math.max(1, Math.floor(a.timeoutSeconds))));
   return args;

@@ -673,3 +673,104 @@ export function summarise(p: Promoted): string {
   }
   return lines.join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// A typed call with placeholder arguments (#191)
+//
+// A notebook's handler cell starts from the same call a promoted scenario
+// writes (`api.PUT("/items/:id", "abc", Item { … }) by Visitor`), with sample
+// arguments of the right types instead of a scenario's values.
+
+type Sample = { value: unknown } | { why: string };
+
+/** A JSON value of wire type `ref`, for `literal` to write: a placeholder to
+ *  edit, not a value that is meant. */
+function sampleOf(ref: WcRef, env: LitEnv, depth = 0): Sample {
+  if (depth > 4) return { why: "a type that nests too deeply to sample" };
+  switch (ref.kind) {
+    case "Base":
+      switch (ref.base) {
+        case "String":
+          return { value: "sample" };
+        case "Int":
+          return { value: 1 };
+        case "Float":
+          return { value: 1.5 };
+        case "Bool":
+          return { value: true };
+        default:
+          return { why: `a ${ref.base} has no literal here` };
+      }
+    case "Named": {
+      const t = env.types.find((x) => x.name === ref.name);
+      if (!t) return { why: `the type ${ref.name} is not in the contract` };
+      if (t.body.kind === "Scalar") return sampleOf({ kind: "Base", base: t.body.base, json: t.body.json, guards: [], expected: { kind: "Json", json: t.body.json } }, env, depth + 1);
+      if (t.body.kind === "Sum") return { why: `${ref.name} is a sum type, which has no literal here` };
+      const obj: Record<string, unknown> = {};
+      for (const f of t.body.fields) {
+        if (f.default !== null) continue;
+        const s = sampleOf(f.shape, env, depth + 1);
+        if ("why" in s) return { why: `${ref.name}.${f.name}: ${s.why}` };
+        obj[f.name] = s.value;
+      }
+      return { value: obj };
+    }
+    case "Inst": {
+      const inst = env.instantiations.find((i) => i.key === ref.key);
+      if (inst?.kind === "ListInst") {
+        const e = sampleOf(inst.elem, env, depth + 1);
+        return "why" in e ? e : { value: [e.value] };
+      }
+      if (inst?.kind === "OptionInst") return { value: { kind: "None" } };
+      return { why: "a map, a result or a generic type has no literal here" };
+    }
+    default:
+      return { why: "this value has no literal form" };
+  }
+}
+
+export interface WrittenCall {
+  /** `api.POST("/todos", Todo { … }) by Visitor`, on one line. */
+  text: string;
+  /** Arguments that could not be sampled: each is written as a `_` with a comment saying why, for the user to fill in. */
+  holes: string[];
+}
+
+/** The call a case writes for `route`, with a sample argument for each of the
+ *  handler's parameters and `by` as its actor clause (none when undefined).
+ *  `undefined` when the route cannot be called from a case: no service named,
+ *  or a raw body. */
+export function writeCall(route: PromoteRoute, by: string | undefined): WrittenCall | undefined {
+  if (!route.service) return undefined;
+  const env = route.model.envelope;
+  if (env.kind === "Raw") return undefined;
+  const params = env.kind === "Keyed" ? env.params : env.kind === "Bare" ? [{ name: env.param, shape: env.shape }] : [];
+  const litEnv: LitEnv = { types: route.model.types, instantiations: route.model.instantiations, captures: [], interpolate: () => ({ why: "no captures here" }) };
+  const holes: string[] = [];
+  const pattern = new Set(route.path.split("/").filter((s) => s.startsWith(":")).map((s) => s.slice(1)));
+  const args: string[] = [quote(route.path)];
+  for (const p of params) {
+    if (p.name === "headers" && !pattern.has("headers")) {
+      args.push("RequestHeaders.of([])");
+      continue;
+    }
+    const s = sampleOf(p.shape, litEnv);
+    const l = "why" in s ? s : literal(s.value, p.shape, litEnv);
+    if ("why" in l) {
+      holes.push(`\`${p.name}\`: ${l.why}`);
+      args.push(`_ /* ${p.name}: ${l.why.replace(/\*\//g, "* /")} */`);
+    } else {
+      args.push(l.text);
+    }
+  }
+  return { text: `${route.service}.${route.method}(${args.join(", ")})${by ? ` by ${by}` : ""}`, holes };
+}
+
+/** The `by` clause text for an actor a route admits: `Visitor`, `User("sample")`
+ *  for a `String` identity, `User(UserId.unsafe("sample"))` for any other. */
+export function actorClause(actor: string, identityType: string | undefined): string {
+  if (actor === "Visitor") return "Visitor";
+  if (!identityType || identityType === "String") return `${actor}("sample")`;
+  if (identityType === "Int") return `${actor}(1)`;
+  return `${actor}(${identityType}.unsafe("sample"))`;
+}
