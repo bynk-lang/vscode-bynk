@@ -10,7 +10,8 @@
 //
 // `bynk eval` returns the value of the snippet's last expression, and an
 // `HttpResult` has no wire shape to return (bynk v0.639.1: "the snippet ran, but
-// its value, of type `HttpResult[Item]`, has no wire shape to report"). So when
+// its value, of type `HttpResult[Item]`, has no wire shape to report"; asked of
+// the toolchain in bynk-lang/bynk#3700). So when
 // the cell's last statement is the call, this module appends a `match` that
 // turns the response into a `String` of JSON, `{"variant": "Created",
 // "payload": …}`, which `decodeResponse` reads back. A cell whose last statement
@@ -19,7 +20,7 @@
 //
 // `trace(Cap.op)` records are not shown: a snippet can read them (`trace(Cap.op)
 // .length()` is a value) but cannot return the list, whose element type
-// (`__Cap_op_Call`) has no wire shape either.
+// (`__Cap_op_Call`) has no wire shape either (bynk-lang/bynk#3699, #3700).
 
 import { HTTP_VARIANTS } from "./scenarioPromoteCore";
 import { analyseCell, renderValue } from "./notebookCore";
