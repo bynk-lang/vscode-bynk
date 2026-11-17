@@ -32,7 +32,7 @@ import { type LiveView, startLiveView, type ViewState, type VsCodeApi } from "./
 import { applyCoverageMarks, coverageBar } from "./coverageMarks";
 import { type StateCoverage, stateCoverage, tallyText } from "../modelCoverageCore";
 import { cellEdges, cellText, toMermaidState, violationsFrom, writeText } from "./state-gen";
-import type { AgentStatePayload, StateMachine } from "./stateTypes";
+import type { AgentStatePayload, InstanceMessage, InstanceView, StateMachine } from "./stateTypes";
 import type { Range, RevealMessage } from "./types";
 
 declare function acquireVsCodeApi(): VsCodeApi;
@@ -52,6 +52,16 @@ let machineShown: StateMachine | undefined;
 let drawing: Drawing | undefined;
 /** Sources by IR id for the current drawing, refilled on each render. */
 const locs = new Map<string, ArchLoc>();
+/** #145: the live instance chosen, what the host last read of it, and the
+ *  history step being looked at (`undefined`: the latest, i.e. now). Kept
+ *  across live updates; the host maps `ref` back to a listed instance. */
+let selectedRef: string | undefined;
+let instance: InstanceView | undefined;
+let instanceFailure: string | undefined;
+let selectedStep: number | undefined;
+/** The payload whose instance was last requested, so a control's re-render
+ *  does not ask the host again (an update does). */
+let requestedFor: AgentStatePayload | null = null;
 /** The shared render queue: controls re-render through it (#2206 review). */
 let live: LiveView | undefined;
 
@@ -111,6 +121,7 @@ function renderEmpty(root: HTMLElement, payload: AgentStatePayload): void {
   p.append(el("code", "store"));
   p.append(" Cell holds an enum or sum type. What each handler does instead:");
   root.append(title, p);
+  liveSection(root, payload, undefined);
   effects(root, payload);
 }
 
@@ -229,7 +240,7 @@ async function diagram(
 ): Promise<void> {
   ensureDiagramStyles(document);
   const font = fontFamily();
-  const structure = toStateDiagram(machine, { uri: payload.uri, showUnchanged });
+  const structure = toStateDiagram(machine, { uri: payload.uri, showUnchanged, current: currentState(machine) });
   try {
     const scene = await layoutStructure(structure, measurerFor(font), { direction: "DOWN" });
     drawing = drawStructure(scene, { title: `States of ${payload.model.agent}.${machine.field}`, fontFamily: font });
@@ -260,6 +271,182 @@ async function diagram(
   }
   initTabOrder(viewport.element);
   restoreFocus(viewport.element, keep);
+}
+
+/** #145: the state to mark on the diagram: the chosen history step's, else
+ *  the instance's stored state now. */
+function currentState(machine: StateMachine): string | null {
+  if (!instance?.exists || !instance.readable) return null;
+  if (selectedStep !== undefined) return instance.history[selectedStep]?.states[machine.field]?.to ?? null;
+  return instance.states[machine.field] ?? null;
+}
+
+function requestInstance(): void {
+  if (selectedRef === undefined) return;
+  vscodeApi.postMessage({ type: "inspectInstance", ref: selectedRef });
+}
+
+/** #145: Live instances — the agent's instances on the running dev server,
+ *  one instance's stored state in Bynk's terms, its schema version against
+ *  the class's, and its recent transitions, which can be stepped through. The
+ *  diagram marks the state the instance (or the chosen step) is in. */
+function liveSection(root: HTMLElement, payload: AgentStatePayload, machine: StateMachine | undefined): void {
+  const box = el("section", undefined, "live");
+  box.setAttribute("aria-label", "Live instances");
+  const heading = el("h3", "Live instances");
+  box.append(heading);
+  const data = payload.live;
+  if (!data) {
+    box.append(el("p", "Start the dev server (Bynk: Start Dev Server) to inspect the running instances of this agent.", "muted"));
+    root.append(box);
+    return;
+  }
+  for (const problem of data.problems) box.append(el("p", `⚠ ${problem}`, "muted"));
+  if (data.instances.length === 0) {
+    box.append(el("p", "No instance of this agent has been addressed in this dev session yet. One is listed once a handler addresses it.", "muted"));
+    root.append(box);
+    return;
+  }
+  if (selectedRef === undefined || !data.instances.some((i) => i.ref === selectedRef)) {
+    selectedRef = undefined;
+    instance = undefined;
+    instanceFailure = undefined;
+    selectedStep = undefined;
+  }
+  const row = el("div", undefined, "row");
+  const label = el("label", "Instance ");
+  const select = el("select");
+  select.setAttribute("aria-label", "Live instance");
+  const none = el("option", "Choose an instance…");
+  none.value = "";
+  select.append(none);
+  for (const i of data.instances) {
+    const opt = el("option", i.context ? `${i.key} (${i.context})` : i.key);
+    opt.value = i.ref;
+    opt.selected = i.ref === selectedRef;
+    select.append(opt);
+  }
+  select.addEventListener("change", () => {
+    selectedRef = select.value === "" ? undefined : select.value;
+    instance = undefined;
+    instanceFailure = undefined;
+    selectedStep = undefined;
+    requestInstance();
+    live?.rerender();
+  });
+  label.append(select);
+  const refresh = el("button", "Refresh");
+  refresh.addEventListener("click", () => {
+    vscodeApi.postMessage({ type: "refresh" });
+    requestInstance(); // the listing may be unchanged while the instance moved on
+  });
+  row.append(label, refresh);
+  box.append(row);
+
+  if (instanceFailure) box.append(el("p", `⚠ ${instanceFailure}`, "muted"));
+  if (selectedRef !== undefined && instance) instanceBody(box, machine, instance);
+  else if (selectedRef !== undefined && !instanceFailure) box.append(el("p", "Reading the instance…", "muted"));
+  root.append(box);
+}
+
+function instanceBody(box: HTMLElement, machine: StateMachine | undefined, view: InstanceView): void {
+  if (!view.exists) {
+    box.append(el("p", "This instance has no stored state yet.", "muted"));
+    return;
+  }
+  if (!view.readable) {
+    box.append(el("p", `This build cannot read the stored record: ${view.fault}.`, "muted"));
+    return;
+  }
+  const schema = el("p", view.schema.text);
+  if (view.schema.behind) {
+    schema.append(document.createTextNode(" — "));
+    const link = el("a", "State Migrations");
+    link.addEventListener("click", () => vscodeApi.postMessage({ type: "showMigrations" }));
+    schema.append(link);
+  }
+  box.append(schema);
+
+  const now = machine ? currentState(machine) : null;
+  const t = el("table");
+  for (const c of view.cells) {
+    const tr = el("tr");
+    tr.append(el("th", c.name), el("td", c.text, machine && c.name === machine.field ? "state-now" : ""));
+    t.append(tr);
+  }
+  for (const c of view.collections) {
+    const tr = el("tr");
+    const size = c.size === null ? "size unknown" : `${c.size} ${c.size === 1 ? "entry" : "entries"}`;
+    tr.append(el("th", c.name), el("td", `${c.kind || "collection"}, ${size}`, "muted"));
+    t.append(tr);
+  }
+  box.append(t);
+  if (machine && now) {
+    box.append(el("p", `${machine.field} is ${now}${selectedStep !== undefined ? ` after step ${selectedStep + 1}` : ""}; it is marked on the diagram.`, "muted"));
+  }
+
+  const h = el("h3", `History (${view.history.length})`);
+  h.style.marginTop = "0.8em";
+  box.append(h);
+  if (view.history.length === 0) {
+    box.append(el("p", "Nothing has been committed to this instance in this build.", "muted"));
+    return;
+  }
+  const nav = el("div", undefined, "row");
+  const back = el("button", "◀ Back");
+  const fwd = el("button", "Forward ▶");
+  const latest = el("button", "Latest");
+  back.disabled = selectedStep === 0;
+  fwd.disabled = selectedStep === undefined;
+  latest.disabled = selectedStep === undefined;
+  const last = view.history.length - 1;
+  back.addEventListener("click", () => {
+    selectedStep = Math.max(0, (selectedStep ?? last + 1) - 1);
+    live?.rerender();
+  });
+  fwd.addEventListener("click", () => {
+    selectedStep = selectedStep === undefined || selectedStep >= last ? undefined : selectedStep + 1;
+    live?.rerender();
+  });
+  latest.addEventListener("click", () => {
+    selectedStep = undefined;
+    live?.rerender();
+  });
+  nav.append(back, fwd, latest);
+  box.append(nav);
+  const ht = el("table");
+  view.history.forEach((step, i) => {
+    const tr = el("tr", undefined, "step");
+    tr.classList.toggle("selected", i === selectedStep);
+    tr.tabIndex = 0;
+    const move = machine ? step.states[machine.field] : undefined;
+    const arrow = move && (move.from || move.to) ? `${move.from ?? "—"} → ${move.to ?? "—"}` : "";
+    const what = [
+      ...step.changes.map((c) => `${c.cell}: ${c.before === undefined ? "" : `${c.before} → `}${c.after}`),
+      ...step.sizes.map((z) => `${z.field}: ${z.before ?? "?"} → ${z.after ?? "?"} entries`),
+    ].join("; ");
+    tr.append(
+      el("td", String(i + 1)),
+      el("td", step.at > 0 ? new Date(step.at).toLocaleTimeString() : "", "muted"),
+      el("td", step.handler === null ? "migration" : `${step.handler}()`),
+      el("td", arrow),
+      el("td", what, "muted"),
+    );
+    const choose = (): void => {
+      selectedStep = i === selectedStep ? undefined : i;
+      live?.rerender();
+    };
+    tr.addEventListener("click", choose);
+    tr.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        choose();
+      }
+    });
+    ht.append(tr);
+  });
+  box.append(ht);
+  box.append(el("p", "A transition a handler or an invariant refuses is never committed, so it has no step here.", "muted"));
 }
 
 function table(root: HTMLElement, payload: AgentStatePayload, machine: StateMachine): void {
@@ -403,6 +590,10 @@ async function renderPayload(root: HTMLElement, payload: AgentStatePayload | nul
     root.textContent = "No agent at the cursor.";
     return;
   }
+  if (requestedFor !== payload) {
+    requestedFor = payload;
+    requestInstance(); // a fresh payload: the instance may have moved on
+  }
   const machines = payload.model.machines;
   if (machines.length === 0) {
     renderEmpty(root, payload);
@@ -413,6 +604,7 @@ async function renderPayload(root: HTMLElement, payload: AgentStatePayload | nul
   selectedField = machine.field;
 
   controls(root, payload, machine);
+  liveSection(root, payload, machine);
   await diagram(root, payload, machine, keep);
   legend(root, payload, machine);
   table(root, payload, machine);
@@ -429,6 +621,21 @@ async function renderPayload(root: HTMLElement, payload: AgentStatePayload | nul
   }
   applyFocus(root);
 }
+
+// #145: the host's answer for the chosen instance. Ignored when the page has
+// moved to another instance or agent since asking.
+window.addEventListener("message", (ev: MessageEvent<InstanceMessage>) => {
+  const m = ev.data;
+  if (m?.type !== "instance" || m.ref !== selectedRef || m.agent !== current?.model.agent) return;
+  if ("failure" in m) {
+    instance = undefined;
+    instanceFailure = m.failure;
+  } else {
+    instance = m.inspection;
+    instanceFailure = undefined;
+  }
+  live?.rerender();
+});
 
 live = startLiveView<AgentStatePayload>(vscodeApi, "__BYNK_AGENT_STATE__", renderPayload, (view: ViewState) => {
   focus = view.focus;
