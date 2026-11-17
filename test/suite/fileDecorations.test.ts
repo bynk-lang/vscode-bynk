@@ -82,6 +82,19 @@ describe("Bynk Explorer file decorations (#2478)", () => {
     const textFile = vscode.Uri.file(path.join(FIXTURES, "workspace", "src", "text.bynk"));
     const docDir = fs.mkdtempSync(path.join(os.tmpdir(), "bynk-decor-"));
     const fake = await useFakeBynk();
+    // `testing.refreshTests` only starts discovery; running the file before the
+    // case is in the tree finds nothing to run (and nothing ever tints). Wait for
+    // the case's run lens, as test_doc_examples.test.ts does.
+    const discovered = () =>
+      waitFor(
+        async () =>
+          ((await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", textFile)) ?? [])
+            .filter((l) => l.command?.command === "bynk.runTestCase")
+            .map((l) => String(l.command?.arguments?.[0])),
+        (names) => names.includes("tint probe"),
+        "the probe case to be discovered",
+        45_000,
+      );
     try {
       const serve = (outcome: string) => {
         const doc = {
@@ -103,6 +116,7 @@ describe("Bynk Explorer file decorations (#2478)", () => {
       serve("fail");
       await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(textFile));
       await vscode.commands.executeCommand("testing.refreshTests");
+      await discovered();
       await vscode.commands.executeCommand("bynk.runTestsInFile", textFile);
       await waitFor(() => decoration(textFile.fsPath), (d) => d.failed, "the failed run to tint the file", 45_000);
 
@@ -130,6 +144,7 @@ describe("Bynk Explorer file decorations (#2478)", () => {
 
       serve("pass");
       await vscode.commands.executeCommand("testing.refreshTests");
+      await discovered();
       await vscode.commands.executeCommand("bynk.runTestsInFile", textFile);
       await waitFor(() => decoration(textFile.fsPath), (d) => !d.failed, "a passing re-run to clear the tint", 45_000);
     } finally {
