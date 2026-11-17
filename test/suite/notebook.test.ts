@@ -32,6 +32,7 @@ const NOTEBOOK = {
     { kind: "code", source: ["discount(base, 25)"] },
     { kind: "code", source: ["Percent.of(150)"] },
     { kind: "code", source: ["let x: Int = \"no\"", "x"] },
+    { kind: "code", source: ["// @refined Percent", "50", "150  // too big", "-1", "\"x\"", "100"] },
   ],
 };
 
@@ -70,6 +71,7 @@ describe("Bynk notebooks (#151)", () => {
       [vscode.NotebookCellKind.Code, "bynk"],
       [vscode.NotebookCellKind.Code, "bynk"],
       [vscode.NotebookCellKind.Code, "bynk"],
+      [vscode.NotebookCellKind.Code, "bynk"],
     ]);
     assert.strictEqual(doc.metadata.unit, "shop.money");
     assert.ok(doc.getCells().every((c) => c.outputs.length === 0));
@@ -100,6 +102,17 @@ describe("Bynk notebooks (#151)", () => {
     assert.strictEqual(ds[0].range.start.line, 0);
     assert.strictEqual(ds[0].source, "bynk eval");
     assert.match(ds[0].message, /annotation declares `Int`/);
+    // A refined-type cell: one table, every candidate through the real constructor;
+    // the candidate that doesn't check is set aside with a diagnostic on its line.
+    const table = text(cells[5])[0];
+    assert.ok(table.startsWith("Percent: 2 of 5 accepted"), table);
+    assert.match(table, /^50\s+accepted$/m);
+    assert.match(table, /^150\s+refused\s+must be in range \[0, 100\]$/m);
+    assert.match(table, /^-1\s+refused\s+must be in range \[0, 100\]$/m);
+    assert.match(table, /^"x"\s+does not check\s+.*expects a `Int` argument/m);
+    assert.match(table, /^100\s+accepted$/m);
+    const refinedDiagnostics = vscode.languages.getDiagnostics(cells[5].document.uri);
+    assert.deepStrictEqual(refinedDiagnostics.map((d) => d.range.start.line), [4]);
     // Nothing from the notebook's last run is saved with it.
     await vscode.commands.executeCommand("workbench.action.files.save");
     assert.ok(!fs.readFileSync(uri.fsPath, "utf8").includes("2000\\n: Int"));

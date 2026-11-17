@@ -5,11 +5,16 @@ import * as assert from "assert";
 
 import {
   analyseCell,
+  analyseRefined,
   buildSnippet,
+  cellKindOf,
   decodeEval,
+  decodeRefined,
   evalArgs,
   parseNotebook,
   placeDiagnostics,
+  refinedSource,
+  renderRefinedTable,
   renderValue,
   serializeNotebook,
   snippetNotes,
@@ -260,5 +265,93 @@ describe("unitNames (#151)", () => {
     assert.deepStrictEqual(unitNames("commons shop.money\n\ntype A = Int\n"), ["shop.money"]);
     assert.deepStrictEqual(unitNames("context shop.orders\nuses shop.money\n"), ["shop.orders"]);
     assert.deepStrictEqual(unitNames("// context x\ntype A = Int"), []);
+  });
+});
+
+describe("refined-type cells (#192)", () => {
+  const CELL = ["// @refined Percent", "", "50", "150      // too big", "// a note", '"a // b"', ""].join("\n");
+
+  it("tells a refined-type cell from an expression cell by its leading directive", () => {
+    assert.deepStrictEqual(cellKindOf(CELL), { kind: "refined", type: "Percent" });
+    assert.deepStrictEqual(cellKindOf("// @unit shop.money\n// @refined Percent\n5"), { kind: "refined", type: "Percent" });
+    assert.deepStrictEqual(cellKindOf("1 + 1"), { kind: "expression" });
+    // Only before any code, and only with a type name.
+    assert.deepStrictEqual(cellKindOf("1\n// @refined Percent"), { kind: "expression" });
+    assert.deepStrictEqual(cellKindOf("// @refined percent\n1"), { kind: "expression" });
+    assert.strictEqual(analyseRefined("1 + 1"), undefined);
+  });
+
+  it("reads one candidate per line, skipping blanks and comments and trailing comments", () => {
+    assert.deepStrictEqual(analyseRefined(CELL), {
+      type: "Percent",
+      candidates: [
+        { text: "50", line: 2 },
+        { text: "150", line: 3 },
+        { text: '"a // b"', line: 5 },
+      ],
+    });
+  });
+
+  it("builds one list of constructor calls, keeping every candidate on its own line", () => {
+    const cell = analyseRefined(CELL)!;
+    const { text, sent } = refinedSource(CELL, cell);
+    assert.strictEqual(sent.length, 3);
+    assert.deepStrictEqual(text.split("\n"), [
+      "// @refined Percent",
+      "",
+      "[Percent.of(50),",
+      "Percent.of(150),  // too big",
+      "// a note",
+      'Percent.of("a // b")]',
+      "",
+    ]);
+    // Setting candidates aside keeps the others on their lines, and the list closed.
+    const rest = refinedSource(CELL, cell, new Set([5]));
+    assert.deepStrictEqual(rest.text.split("\n").slice(2, 6), ["[Percent.of(50),", "Percent.of(150)]  // too big", "// a note", ""]);
+    assert.strictEqual(rest.sent.length, 2);
+    assert.strictEqual(refinedSource(CELL, cell, new Set([2, 3, 5])).sent.length, 0);
+  });
+
+  it("is sent as a snippet whose diagnostics land on the candidate's line", () => {
+    const cell = analyseRefined(CELL)!;
+    const { text } = refinedSource(CELL, cell);
+    const snippet = buildSnippet([{ source: text, unit: "u", ran: false }], 0, "u");
+    assert.deepStrictEqual(snippet.origins[snippet.origins.length - 1], { cell: 0, line: 5 });
+    assert.ok(snippet.text.includes("[Percent.of(50),"));
+  });
+
+  it("reads the list bynk eval returns, one row per candidate", () => {
+    const sent = analyseRefined(CELL)!.candidates;
+    const rows = decodeRefined(sent, [
+      { kind: "Ok", value: 50 },
+      { kind: "Err", error: { field: "Percent", message: "must be in range [0, 100]", value: 150 } },
+      { kind: "Ok", value: 7 },
+    ]);
+    assert.deepStrictEqual(rows?.map((r) => [r.candidate.text, r.outcome, r.message, r.value]), [
+      ["50", "accepted", undefined, "50"],
+      ["150", "refused", "must be in range [0, 100]", undefined],
+      ['"a // b"', "accepted", undefined, "7"],
+    ]);
+    // Anything else is not a result for these candidates.
+    assert.strictEqual(decodeRefined(sent, [{ kind: "Ok", value: 1 }]), undefined);
+    assert.strictEqual(decodeRefined(sent, "no"), undefined);
+    assert.strictEqual(decodeRefined(sent.slice(0, 1), [{ kind: "Maybe" }]), undefined);
+  });
+
+  it("shows one table in the order written, with set-aside candidates marked", () => {
+    const sent = analyseRefined(CELL)!.candidates;
+    const rows = decodeRefined(sent.slice(0, 2), [
+      { kind: "Ok", value: 50 },
+      { kind: "Err", error: { field: "Percent", message: "must be in range [0, 100]", value: 150 } },
+    ])!;
+    rows.push({ candidate: sent[2], outcome: "invalid", message: "constructor `Percent.of` expects a `Int` argument, but got `String`" });
+    assert.deepStrictEqual(renderRefinedTable("Percent", rows).split("\n"), [
+      "Percent: 1 of 3 accepted",
+      "",
+      "candidate  result          why",
+      "50         accepted",
+      "150        refused         must be in range [0, 100]",
+      '"a // b"   does not check  constructor `Percent.of` expects a `Int` argument, but got `String`',
+    ]);
   });
 });

@@ -336,8 +336,25 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   - The file is JSON with each cell's source as lines, so a diff shows what
     changed. **Outputs are not saved**, so no value or stubbed data reaches the
     repository.
-  - Expression cells are what exist so far; cells that call a handler with stubbed
-    capabilities, and that try values against a refined type, are to follow.
+  - **Refined-type cells** try candidate values against a refined type. Start the
+    cell with `// @refined Percent`, then write one candidate per line (an
+    expression of the type's base type; blank lines and `//` comments are skipped):
+
+    ```
+    // @refined Percent
+    50
+    150      // too big
+    -1
+    ```
+
+    Running it sends every candidate through the real compiled constructor,
+    `Percent.of(…)`, in one `bynk eval` call, and shows one table: each candidate,
+    `accepted` or `refused`, and for a refusal the message of the `ValidationError`
+    (`must be in range [0, 100]`). A candidate that doesn't type-check as the
+    constructor's argument (`"x"` for an `Int`) is marked `does not check`, with
+    its diagnostic on its own line. It runs the project, so it runs only when you
+    run it, and the same unit, trust and timeout rules apply.
+  - Cells that call a handler with stubbed capabilities are to follow.
 - **Export OpenAPI** — **Bynk: Export OpenAPI…** writes an OpenAPI 3.1 document
   for the project's `from http` services with `bynk openapi`, as JSON or YAML by
   the file name you choose. It needs a `bynk` that has the command, and offers to

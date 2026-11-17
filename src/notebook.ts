@@ -14,15 +14,20 @@ import { dirtyBuffers } from "./dirtyBuffers";
 import {
   NOTEBOOK_TYPE,
   analyseCell,
+  analyseRefined,
   buildSnippet,
   decodeEval,
+  decodeRefined,
   evalArgs,
   isUnitName,
   placeDiagnostics,
+  refinedSource,
+  renderRefinedTable,
   renderValue,
   snippetNotes,
   unitFor,
   unitNames,
+  type CandidateRow,
   type CellDiagnostic,
   type CellInput,
   type EvalResult,
@@ -156,6 +161,10 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
       });
     const codeCells = nb.getCells().filter((c) => c.kind === vscode.NotebookCellKind.Code);
     const index = codeCells.findIndex((c) => c.index === cell.index);
+    // The cell kinds are told apart by `cellKindOf` (a leading `// @…` directive):
+    // a refined-type cell is its own run; every other cell is an expression.
+    const refined = analyseRefined(cell.document.getText());
+    if (refined) return runRefined({ cell, execution, root, unit, cells, index, codeCells, refined, remember: () => mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit }), forget: () => mine.delete(cell.document.uri.toString()) });
     const snippet = buildSnippet(cells, index, unit);
     if (snippet.text.trim() === "") return fail("This cell has no code to evaluate.");
 
@@ -200,6 +209,102 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     await execution.replaceOutput(outputs);
     if (ok && placed.every((d) => d.severity !== "error")) mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit });
     else mine.delete(cell.document.uri.toString());
+    execution.end(ok, Date.now());
+  }
+
+  interface RefinedRun {
+    cell: vscode.NotebookCell;
+    execution: vscode.NotebookCellExecution;
+    root: vscode.Uri;
+    unit: string;
+    cells: CellInput[];
+    index: number;
+    codeCells: vscode.NotebookCell[];
+    refined: NonNullable<ReturnType<typeof analyseRefined>>;
+    remember: () => void;
+    forget: () => void;
+  }
+
+  /** A refined-type cell: every candidate goes through the real constructor,
+   *  `Type.of(…)`, in one `bynk eval` call that returns a list of results. A
+   *  candidate that does not type-check as the constructor's argument fails the
+   *  whole call, so those are reported on their own lines and the rest run again
+   *  in a second call. */
+  async function runRefined(r: RefinedRun): Promise<void> {
+    const { cell, execution, root, unit, index, codeCells, refined } = r;
+    if (refined.candidates.length === 0) {
+      void execution.replaceOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error(new Error(`Write the values to try, one per line, under \`// @refined ${refined.type}\`.`))]));
+      execution.end(false, Date.now());
+      return;
+    }
+    const source = cell.document.getText();
+    const buffers = dirtyBuffers(root.fsPath);
+    const hasBuffers = Object.keys(buffers).length > 0;
+    const seconds = timeoutSeconds() ?? 60;
+    const skip = new Set<number>();
+    const invalid: CandidateRow[] = [];
+    const shown: CellDiagnostic[] = [];
+    const notes: string[] = [];
+    let rows: CandidateRow[] | undefined;
+    let failure: { items: vscode.NotebookCellOutputItem[]; placed: CellDiagnostic[] } | undefined;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { text, sent } = refinedSource(source, refined, skip);
+      if (sent.length === 0) break;
+      const snippet = buildSnippet(r.cells.map((c, i) => (i === index ? { ...c, source: text } : c)), index, unit);
+      const evaluated = await evaluate(evalArgs({ root: root.fsPath, unit, snippet: snippet.text, sourcesStdin: hasBuffers, timeoutSeconds: timeoutSeconds() }), root.fsPath, hasBuffers ? JSON.stringify(buffers) : undefined, execution.token, seconds);
+      if (evaluated === "cancelled") {
+        execution.end(undefined, Date.now());
+        return;
+      }
+      const placed = placeDiagnostics(evaluated.diagnostics, snippet.origins);
+      if (attempt === 0) notes.push(...snippetNotes(snippet, (i) => `cell ${codeCells[i].index + 1}`));
+      const byLine = new Map(sent.map((c) => [c.line, c]));
+      const errors = placed.filter((d) => d.severity === "error");
+      const bad = errors.filter((d) => d.cell === index && d.at !== undefined && byLine.has(d.at));
+      if (attempt === 0 && evaluated.kind !== "error" && bad.length > 0 && bad.length === errors.length) {
+        // Only candidates are at fault: set them aside and run the rest.
+        for (const d of bad) {
+          const c = byLine.get(d.at as number) as NonNullable<ReturnType<typeof byLine.get>>;
+          if (skip.has(c.line)) continue;
+          skip.add(c.line);
+          invalid.push({ candidate: c, outcome: "invalid", message: d.message });
+        }
+        shown.push(...bad.map((d) => ({ ...d, col: 1 })));
+        continue;
+      }
+      shown.push(...placed.map((d) => (d.cell === index && d.at !== undefined && byLine.has(d.at) ? { ...d, col: 1 } : d)));
+      if (evaluated.kind === "value") {
+        rows = decodeRefined(sent, evaluated.value);
+        if (!rows) failure = { items: [vscode.NotebookCellOutputItem.text(`Expected a list of results from \`${refined.type}.of\`, got ${renderValue(evaluated.value)}\n: ${evaluated.type}`, "text/plain")], placed };
+      } else if (evaluated.kind === "diagnostics") {
+        failure = { items: [vscode.NotebookCellOutputItem.text(placed.length > 0 ? "The cell doesn't check." : "bynk eval gave no value.", "text/plain")], placed };
+      } else {
+        failure = { items: [vscode.NotebookCellOutputItem.error(Object.assign(new Error(evaluated.message), { name: evaluated.errorKind === "timeout" ? "Timed out" : evaluated.errorKind === "setup" ? "Could not run" : "Runtime error" }))], placed };
+      }
+      break;
+    }
+    showDiagnostics(cell, index, shown);
+    const elsewhere = shown.filter((d) => d.cell === undefined || d.cell !== index);
+    for (const d of elsewhere) notes.push(describe(d, codeCells, index));
+
+    const outputs: vscode.NotebookCellOutput[] = [];
+    let ok = false;
+    if (failure) outputs.push(new vscode.NotebookCellOutput(failure.items));
+    else {
+      const all = [...(rows ?? []), ...invalid].sort((a, b) => a.candidate.line - b.candidate.line);
+      ok = all.length > 0;
+      outputs.push(
+        new vscode.NotebookCellOutput([
+          vscode.NotebookCellOutputItem.text(renderRefinedTable(refined.type, all), "text/plain"),
+          vscode.NotebookCellOutputItem.json({ type: refined.type, results: all.map((x) => ({ candidate: x.candidate.text, outcome: x.outcome, ...(x.message !== undefined ? { message: x.message } : {}), ...(x.field !== undefined ? { field: x.field } : {}) })) }, "application/json"),
+        ]),
+      );
+    }
+    if (notes.length > 0) outputs.push(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain")]));
+    await execution.replaceOutput(outputs);
+    // Nothing a later cell can use is bound here, but the cell counts as run.
+    if (ok) r.remember();
+    else r.forget();
     execution.end(ok, Date.now());
   }
 
