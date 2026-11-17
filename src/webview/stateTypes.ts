@@ -2,6 +2,7 @@
 // shape (`bynk-lsp/src/agent_state_request.rs`), maintained by hand like
 // every other custom request's types in this extension.
 
+import type { ModelCoverage } from "../modelCoverageCore";
 import type { DiffMark } from "./diffMarks";
 import type { Range } from "./types";
 
@@ -123,4 +124,7 @@ export interface AgentStateModel {
 export interface AgentStatePayload {
   model: AgentStateModel;
   uri: string;
+  /** #144: the last coverage run's lines for this file; client-only, never on
+   *  the wire. Absent when there is no run, or it did not measure the file. */
+  coverage?: ModelCoverage;
 }

@@ -35,19 +35,22 @@
 // compared by that body, the later revision sending and the earlier caller
 // receiving, so a type used on both sides is checked in both directions.
 //
-// Only a non-HTTP handler (`on call`, a cron job, an event handler) has no
-// response shape in the model: there `WcModel.types` holds the boundary types
-// of the request and the response together, so the response side is still
-// inferred as the types and instantiations the request does not reach, and a
-// type used on both sides is checked as a request only (`WIRE_NOTE` says so).
-// Until the server exposes an `on call` handler's return type, that is the
-// best the model allows.
+// Two kinds of handler have no response shape in the model:
+//   - an `on call` handler has a response, but `success` is HTTP-only
+//     (bynk-lang/bynk#3687 asks for it to be filled for `on call` too). Until
+//     then `WcModel.types` holds the request's and the response's boundary
+//     types together, so its response is inferred as the types and
+//     instantiations the request does not reach, and a type used on both sides
+//     is checked as a request only (`WIRE_NOTE` says so). Replace that with
+//     `success` when #3687 lands;
+//   - a cron, event, message or websocket handler has no response at all, so
+//     only its request side is classified.
 
 import type { DiffEntry } from "./modelDiffCore";
 import type { WcEnvelope, WcField, WcHttpResponse, WcInst, WcModel, WcRef, WcResponseBody, WcType } from "./webview/wireContractTypes";
 
 export const WIRE_NOTE =
-  "Each handler's wire contract in the two revisions is classified as a caller built against the earlier revision would meet the later one, by the language server's own rules for service contracts: breaking unless every value the sender can produce still decodes. For an HTTP handler each shared response is compared by the body the server reports for it (a value's type, a message, a redirect, raw bytes or a stream), the later revision's body against the earlier caller's, and a response that is new is breaking. A non-HTTP handler such as an `on call` has no response shape in the model, so its response is inferred from the boundary types the request does not reach and a type used on both sides is checked as a request only. Where unsure, it says breaking.";
+  "Each handler's wire contract in the two revisions is classified as a caller built against the earlier revision would meet the later one, by the language server's own rules for service contracts: breaking unless every value the sender can produce still decodes. For an HTTP handler each shared response is compared by the body the server reports for it (a value's type, a message, a redirect, raw bytes or a stream), the later revision's body against the earlier caller's, and a response that is new is breaking. The server does not yet report an `on call` handler's response type (bynk-lang/bynk#3687), so that response is inferred from the boundary types the request does not reach, and a type used on both sides is checked as a request only. A cron, event, message or websocket handler has no response, so only its request side applies. Where unsure, it says breaking.";
 
 /** A handler's contract in one revision, and the working-tree file it is in. */
 export interface WireHandler {
@@ -340,7 +343,7 @@ export function classifyWire(before: WcModel, after: WcModel): WireVerdict {
   // Response: the later callee sends, the earlier caller receives.
   const res = { sender: a, receiver: b, out: [] as string[], seen: new Set<string>() };
   if (before.kind.kind === "Http" && after.kind.kind === "Http") httpResponses(res, before, after);
-  else inferredResponse(res, before, after, b, a);
+  else if (before.kind.kind === "Call" && after.kind.kind === "Call") inferredResponse(res, before, after, b, a);
   reasons.push(...res.out);
 
   // A response the callers never saw is one they may not handle.
@@ -381,9 +384,9 @@ function httpResponses(c: Ctx, before: WcModel, after: WcModel): void {
   }
 }
 
-/** A non-HTTP handler's response, which the model does not carry: the types and
- *  instantiations its request does not reach. A type used on both sides is
- *  checked as a request only. */
+/** An `on call` handler's response, which the model does not carry yet
+ *  (bynk-lang/bynk#3687): the types and instantiations its request does not
+ *  reach. A type used on both sides is checked as a request only. */
 function inferredResponse(res: Ctx, before: WcModel, after: WcModel, b: Side, a: Side): void {
   const bReq = b.closure(requestRefs(before.envelope));
   const aReq = a.closure(requestRefs(after.envelope));

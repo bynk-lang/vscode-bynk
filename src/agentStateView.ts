@@ -11,6 +11,7 @@ import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
+import { modelCoverage } from "./modelCoverage";
 import type { ViewRefresh } from "./viewRefresh";
 import type { AgentStateModel, AgentStatePayload } from "./webview/stateTypes";
 
@@ -66,8 +67,13 @@ export function registerAgentStateView(
     request: requestAgentState,
     missMessage: "Bynk: no agent found at the cursor.",
   }, hub);
+  // #144: a coverage run, or clearing it, redraws the overlay in place.
+  const coverageChanged = modelCoverage.onDidChange(() => {
+    void view.refresh();
+  });
   context.subscriptions.push(
     view,
+    coverageChanged,
     vscode.commands.registerCommand(
       "bynk.showAgentState",
       (uriArg?: unknown, positionArg?: unknown) => {
@@ -95,5 +101,8 @@ async function requestAgentState(
     position: target.position,
   };
   const model = await client.sendRequest<AgentStateModel | null>("bynk/agentStateModel", params);
-  return model ? { model, uri: target.uri } : null;
+  if (!model) return null;
+  // #144: the last coverage run's lines for this file, if any.
+  const coverage = await modelCoverage.forUri(target.uri);
+  return coverage ? { model, uri: target.uri, coverage } : { model, uri: target.uri };
 }

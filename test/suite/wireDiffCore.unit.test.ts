@@ -144,7 +144,14 @@ describe("wire contract classification (#154)", () => {
     assert.strictEqual(verdict(http(null, [], [implicit(null)]), http(null, [], [implicit({ kind: "Message" })])).verdict, "compatible");
   });
 
-  it("still infers an `on call` handler's response, which the model does not carry", () => {
+  it("applies only the request side to a handler with no response", () => {
+    // A cron job's `types` are its request's; whatever else the model lists is no response.
+    const cron = (types: WcModel["types"]) => handler({ kind: { kind: "Cron", expr: "* * * * *" }, types });
+    assert.strictEqual(verdict(cron([record("Out", [field("id", INT), field("n", STR)])]), cron([record("Out", [field("id", INT)])])).verdict, "compatible");
+    assert.strictEqual(verdict(cron([record("Out", [field("id", INT)])]), cron([])).verdict, "compatible");
+  });
+
+  it("still infers an `on call` handler's response, which the model does not carry (bynk#3687)", () => {
     const call = (variants: string[]) => handler({ kind: { kind: "Call" }, envelope: keyed(["id", INT]), types: [sum("Status", variants)] });
     const added = verdict(call(["A"]), call(["A", "B"]));
     assert.deepStrictEqual(added.reasons, ["response Status: variant B is not accepted"]);
