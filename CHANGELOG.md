@@ -12,6 +12,14 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Test coverage on the model views** (#144). After **Run with Coverage**, the agent state view and the sequence diagram mark what no test ran, by projecting the run's line coverage onto each element's source range:
+  - **Agent state view:** a transition is dashed amber when none of its lines ran, solid green when they did; a state no tested transition enters is marked too, and the handler × state table adds `✗ not tested`. The counts read "3 of 5 transitions tested". Clicking a transition still opens its source.
+  - **Sequence diagram:** calls and sends, and each branch of an `if` or `match` (using the arm's own range, bynk v0.625.2 and later), are marked the same way, with "N of M calls tested" and "N of M branches tested".
+  - **Honest about what it is:** coverage is line-level and whole-run, so an element counts as tested when its lines ran; the view says it cannot say which test reached it. It also says how old the run is, and warns when the source has changed since (an unsaved edit, or a newer file). A path or branch whose lines hold no executable statement is left unmarked rather than claimed.
+  - A **Show test coverage** checkbox hides the overlay, and **Bynk: Clear Model Coverage** removes it; the next coverage run replaces it. Marks never depend on colour alone: each carries a word on its tooltip and accessible name.
+
 ### Fixed
 
 - **Worker groups (`[deploy.workers.<key>]`) are understood** (#182). A context in a group runs as part of the group's one Worker, which Bynk names by the group's key, but the extension assumed one Worker per context. It now reads the groups from `bynk.toml` and routes every context → Worker lookup through them: the Environments view shows a group as one node holding its members (not as "not deployed" contexts beside an unrecognised Worker), Send Request and scenarios on the dev server go to the group's single port, scenarios against a `[test.targets]` target use the URL keyed by the group, and the Contract Diff filter on a group covers every member. Deploy and Show Deploy Plan offer a group as one choice and pass `--worker <key>` (`bynk deploy --context <member>` is refused); Tail Deployed Logs tails the group with `--context <key>`. Sweep Migrations declines to sweep a group member's classes, because `bynk migrate sweep` aims them at the wrong Worker (bynk-lang/bynk#3686). Projects with no groups behave as before.
