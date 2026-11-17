@@ -194,6 +194,17 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   actions run Show Deploy Plan, Deploy…, Tail Logs and Sweep Migrations… for the
   environment with their usual confirmations (never `--yes`), and Show Contract
   Diff for a context. Everything is read locally; nothing contacts Cloudflare.
+  A **Worker group** (`[deploy.workers.<key>]` in `bynk.toml`, which deploys
+  several contexts as one Worker) is one node holding its member contexts.
+- **Worker groups** — a context in a `[deploy.workers.<key>]` group runs, deploys
+  and reverts as part of that group's one Worker, which `bynk` names by the
+  group's key. The extension reads the groups from `bynk.toml` and follows them:
+  Send Request and scenarios on the dev server go to the group's single port;
+  **Run Scenario Against…** looks a member up under `url.<key>` in the target;
+  Deploy and Show Deploy Plan offer the group as one choice and run `bynk deploy
+  --worker <key>` (a member cannot be deployed alone, and naming one means its
+  group); Tail Deployed Logs offers the group too, and tails it with `--context
+  <key>`, as `bynk tail` has no `--worker`. A project with no groups is unchanged.
 - **State migrations** — the sidebar's **State Migrations** node shows
   `bynk migrate status` for each agent class (version, floor, live and
   retirable `migrate` steps, environments) and links to its agent state view.
@@ -245,7 +256,15 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   wire contract, asking the language server for the project's HTTP handlers:
   the route must exist (name the `@context` when several contexts serve it),
   a JSON body must match the handler's `body` type, and captures must name an
-  earlier step. A contract change shows up as a diagnostic. A `Run scenario`
+  earlier step. What an earlier step's response carries is checked too, as
+  warnings only (the contract says what a handler declares, not what a running
+  service answers): `{{create.body.id}}` and `? body.id exists` are checked
+  against the response's type, `T` for a status the handler answers with a
+  value (or its declared success when the step expects no status) and only
+  `error` for an error message; a raw body, a redirect and a status the
+  handler does not name are left alone. A captured value is also checked against
+  where it is used, in a body field or a path parameter (a string into an `Int`).
+  A contract change shows up as a diagnostic. A `Run scenario`
   CodeLens runs every step on the dev server, `Run step` runs one with the
   steps it reads, and the results appear inline (status, timing and each
   expectation) and in the **Bynk Scenario** output channel. A step that reads a
@@ -262,9 +281,12 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   case's `by <Actor>`, which you pick; a suite never carries a header credential
   or an environment value. Whatever a suite cannot express is listed at the top
   of the file and in the summary you confirm before it is written: response
-  headers other than a redirect's `Location` (a test cannot read them), `exists`
-  and `contains` checks and list-index paths (they need the field's type), a
-  query string, and a step that reads any of these, which is left out. The suite
+  headers other than a redirect's `Location` (a test cannot read them), list-index
+  paths, a query string, and a step that reads any of these, which is left out.
+  With the response's type known (a server from `v0.633.4`), `? body.name
+  contains "x"` on a String field is written as `expect item.name.contains("x")`,
+  and `? body.id exists` on a field the type requires is noted as holding by its
+  type; `absent`, an Option field and a field the contract doesn't type stay listed. The suite
   is checked with `bynk check` first, in a scratch copy of the project that
   includes your unsaved buffers, and nothing is written if it does not check. It is a one-way copy: the scenario and the suite are not kept in
   sync.
@@ -285,6 +307,37 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   header in the file is refused (write `{{env.NAME}}`), a URL with credentials
   in `bynk.toml` is refused, and the target's declared `secrets` are hidden from
   the results like every `{{env.…}}` value.
+- **Notebooks** — **Bynk: New Notebook** creates a `.bynknb` notebook of
+  Markdown and Bynk cells. On vscode.dev a `.bynknb` opens and edits but has no kernel to run it (that needs the `bynk` CLI); on desktop, running a code cell evaluates it with
+  `bynk eval`, which compiles and runs it as a one-case suite for a unit of your
+  project, under the test runtime, and shows the value of its last expression
+  with its type, in Bynk's terms (`Ok(25)`, `Some(3)`, `Err({ field: "Percent", … })`).
+  A cell that doesn't check shows each error on its own line; a failed `expect`,
+  an unstubbed capability or a timeout shows as the cell's error. Nothing is
+  deployed and nothing reaches the network: a capability the cell calls needs a
+  `stub` line in the cell, as in a suite.
+  - **Re-run effects are named.** A `let x <- …` from an earlier cell runs again in
+    every later cell, so a stub that counts calls can answer differently: the
+    output says "Re-ran `let x <- …` from cell N". A cell edited since it last ran
+    is left out, and the output says so.
+  - **A cell runs only when you run it**, never on open, hover or save: it is
+    your code, at the trust of `bynk test`. A notebook in an untrusted workspace
+    won't run. A cell is stopped after `bynk.notebook.timeoutSeconds` (60).
+  - **The unit** a cell runs in is the one on its first line, `// @unit
+    shop.money`, else the notebook's (**Bynk: Choose Notebook Unit…**, asked for
+    on the first run and kept in the file). Your unsaved `.bynk` edits are
+    evaluated.
+  - **Earlier cells' `let`s** carry forward: `bynk eval` keeps nothing between
+    runs, so the extension sends the top-level `let`s of the earlier cells that
+    ran, in the same unit, ahead of the cell. A cell edited since it ran, or never
+    run, contributes nothing; `consumes` and `stub` lines of the cells that send `let`s are hoisted, once each, and a cell's own `stub` for a capability replaces an earlier cell's (the output names the stubs it applied from earlier cells).
+    Only `let`s start at the left margin and continue on indented lines. The
+    output says which cells' `let`s it used.
+  - The file is JSON with each cell's source as lines, so a diff shows what
+    changed. **Outputs are not saved**, so no value or stubbed data reaches the
+    repository.
+  - Expression cells are what exist so far; cells that call a handler with stubbed
+    capabilities, and that try values against a refined type, are to follow.
 - **Export OpenAPI** — **Bynk: Export OpenAPI…** writes an OpenAPI 3.1 document
   for the project's `from http` services with `bynk openapi`, as JSON or YAML by
   the file name you choose. It needs a `bynk` that has the command, and offers to
@@ -308,6 +361,37 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   opens its source; handler nodes have inline **Sequence Diagram** and
   **Wire Contract** actions, and unit nodes **Show Documentation**. The view
   refreshes on the same trigger as the live views below.
+- **Query view** — a **Query** view under the Bynk activity bar answers four
+  ready-made questions about the open project (the active file's, else the
+  workspace's), each a list that opens its source:
+  **Events** (who emits each event and who subscribes, and how it is delivered),
+  **Capabilities** (per context: what it declares, consumes and provides, the
+  handlers that use each through `given`, and the suites that `stub` it),
+  **Reachability** (the handlers from which a capability can be reached, through
+  `given` and the calls between handlers, across contexts; pick the capability
+  with the view's title button) and **Untested** (routes, handlers and agent
+  transitions no line of which ran in the last **Run with Coverage**: whole-run
+  line coverage, so it never says which test reached what). It needs a language
+  server from bynk v0.625.3 for events and capabilities, and v0.634.4 for the
+  calls Reachability follows; it says so when the server is older. For a single
+  function or handler, VS Code's own **Show Call Hierarchy** works on Bynk
+  and follows calls across contexts (bynk v0.626.1 and later).
+- **Impact view** — **Bynk: Show Impact** (in a `.bynk` file's context menu, or
+  the Command Palette) on a type, event or service opens an **Impact** view in
+  the sidebar listing everything that depends on it, each row opening its
+  source: the **other units** that mention it (grouped by unit), consume its
+  unit or call it (across contexts); an event's **emitters and subscribers**;
+  **the boundary** (the handlers whose wire contract carries it, in the request
+  or the response, what the contract diff reports changed against
+  `bynk.schema.lock`, and the deployed service contracts that changed, with
+  their environments); the routes of the **generated TypeScript client**
+  (`[build.client]`) that carry it; and the **tests** that mention it, by case.
+  References are by name, as the language server resolves them. Whether a type
+  sits in an *unchanged* lock entry is not in any language-server request, so the
+  view says only what the contract diff reports (bynk-lang/bynk#3688 proposes a
+  request that would list them). It builds on the Query view's
+  models and needs a language server from bynk v0.625.3 (v0.634.4 for the calls
+  between handlers); the view says what an older one could not tell it.
 - **Live model views** — the sequence diagram, documentation page, architecture
   map, wire contract, agent state view and contract diff (see Commands) open
   beside the editor and stay current: they refresh when you save (or as you type,
@@ -454,7 +538,7 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Agent State** | The state machines of the agent at the cursor: for each `store` Cell of an enum or sum type, a UML state machine generated from its handlers (the initial state, a dashed `?` where a computed write lands, unreachable states faded) and a handler × state table of what each handler does from each state, with moves a `transition` would refuse at commit marked ⚠, and each handler's effects — what it writes, reads and calls on each path (shown instead for an agent with no state field). Click a state or transition to open its source; zoom, **Copy as Mermaid**, **Save as SVG…** and **Save as PNG…** as on the other diagrams. Follows the cursor from agent to agent, highlighting the handler under it and its transitions. While `bynk dev` runs, a **Live instances** section lists the agent's running instances by key; choose one to see its stored state in Bynk's own terms, its schema version against the class's (linking to State Migrations when behind), and its recent transitions to step through, and the diagram marks the state it is in. Read-only, local dev server only (`bynk dev inspect`). |
 | **Bynk: Show Contract Diff** | Boundary changes since `bynk.schema.lock` and service contracts that differ from `bynk.deploy.lock`'s live record, each marked compatible or breaking. Refreshes when either lock changes. |
 | **Bynk: Show Last Request Trace** | Open the sequence diagram of the handler the newest traced request went through, with its trace over it. Needs the dev server started from the editor (traces come from `bynk dev --trace-events`, `bynk.dev.traceRequests`). |
-| **Bynk: Compare Model with…** | Pick a git ref (the first choice is the merge base with the default branch) and see what changed in the project's model against the working tree: contexts, adapters, `consumes` edges, services and agents added, removed or changed; boundary and service-contract changes, classified compatible or breaking where the language server classifies them; a compatible or breaking verdict, with reasons, for each handler's wire contract; agent states, handlers and transitions; and capabilities and their providers. Each row opens its source in the working tree, and the differences are also drawn on the architecture map and on the state diagram of each agent whose states changed: added elements green, changed amber, removed ones as dashed ghosts. **Bynk: Compare Model Between Revisions…** compares any two refs (or a ref and the working tree), and a pull request in the GitHub Pull Requests view has **Compare Bynk Model for Pull Request**. A revision whose locked dependencies were never fetched (`bynk fetch`) is analysed without them, and the page says so. Also on the Source Control view's title bar. |
+| **Bynk: Compare Model with…** | Pick a git ref (the first choice is the merge base with the default branch) and see what changed in the project's model against the working tree: contexts, adapters, `consumes` edges, services and agents added, removed or changed; boundary and service-contract changes, classified compatible or breaking where the language server classifies them; a compatible or breaking verdict, with reasons, for each handler's wire contract; agent states, handlers and transitions, and each agent's `invariant` and `transition` rules (added, removed, or with a changed predicate); and capabilities and their providers. Each row opens its source in the working tree, and the differences are also drawn on the architecture map and on the state diagram of each agent whose states changed: added elements green, changed amber, removed ones as dashed ghosts. **Bynk: Compare Model Between Revisions…** compares any two refs (or a ref and the working tree), and a pull request in the GitHub Pull Requests view has **Compare Bynk Model for Pull Request**. A revision whose locked dependencies were never fetched (`bynk fetch`) is analysed without them, and the page says so. Also on the Source Control view's title bar. |
 | **Bynk: Show Compiled Output** | The TypeScript the compiler emits for the active file, read-only, beside it. Compiled from your unsaved buffers through `bynk compile`; the cursor in either editor highlights the matching lines in the other, and the output follows your edits. |
 | **Bynk: Explain Diagnostic Code…** | The installed compiler's explanation of a diagnostic code, in a panel, offline: pick a code from the Problems panel or type one. The **Explain** quick fix on a diagnostic opens the same panel. |
 | **Bynk: Explore Refined Type** | Opened by the **Try values…** link in a refined type's hover: example values from the type's domain (fixed seed, so they stay put) and a box that checks a value you type against the predicate, naming each clause that fails. Runs none of your project's code. |
@@ -466,9 +550,9 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Worker Logs** | Open the *Bynk Logs* channel: the dev server's workers' output, with stack frames at their `.bynk` lines. |
 | **Bynk: Filter Worker Logs** | Show only some levels (all, warnings and errors, errors) and some contexts. |
 | **Bynk: Clear Worker Logs** | Empty the log buffer and the channel. |
-| **Bynk: Deploy…** | Pick an environment and a scope, review the dry-run plan, then deploy from the plan in a terminal. `bynk` asks you to confirm before it changes anything. |
+| **Bynk: Deploy…** | Pick an environment and a scope (the whole project, a Worker group or one context), review the dry-run plan, then deploy from the plan in a terminal. `bynk` asks you to confirm before it changes anything. |
 | **Bynk: Show Deploy Plan** | The same plan for review only. It never deploys. |
-| **Bynk: Tail Deployed Logs…** | Pick an environment (and a context, when there are several) and stream the deployed Worker's logs with `bynk tail`, in a terminal, with stack frames at their `.bynk` lines. Needs a `bynk` with the command (v0.436.0 or newer). |
+| **Bynk: Tail Deployed Logs…** | Pick an environment (and a context or Worker group, when there are several) and stream the deployed Worker's logs with `bynk tail`, in a terminal, with stack frames at their `.bynk` lines. Needs a `bynk` with the command (v0.436.0 or newer). |
 | **Bynk: Copy Playground Link** / **Bynk: Open in Playground** | Share the selection (or a single-file program, whole) as a [playground](https://playground.bynk-lang.dev) link. The code is compressed into the URL fragment, so it never reaches a server; a snippet too large for a link is refused, not truncated. Also in the editor context menu, and on the web. |
 | **Bynk: Export OpenAPI…** | Write an OpenAPI 3.1 document for the project's `from http` services (`bynk openapi`), as JSON or YAML by file name. |
 | **Bynk: Apply Fixes Across Project…** | Pick diagnostic codes (those in the Problems panel, or typed) and apply only their fixes in every file with `bynk check --fix=<codes>`: the project-wide version of the per-file Fix All, for a migration such as the per-file `consumes` warnings. Saves open Bynk files first; reports the files changed and what remains. |

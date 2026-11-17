@@ -16,6 +16,7 @@
 import * as vscode from "vscode";
 
 import type { ApprovalState } from "./approveRequirements";
+import type { WorkerGroup } from "./contextNames";
 import { BynkNotFoundError, findProjectRoot, projectContexts, runBynk } from "./cli";
 import { isActionMessage, renderActionHtml } from "./cliView";
 import {
@@ -32,6 +33,8 @@ import {
 } from "./deployPlan";
 import { reportBynkNotFound } from "./doctor";
 import { bynkPath } from "./tasks";
+import { resolveScope, workerScopes } from "./workerGroups";
+import { readWorkerGroups } from "./workerGroupsStore";
 
 interface PlanState {
   root: vscode.Uri;
@@ -54,6 +57,9 @@ export function registerDeploy(context: vscode.ExtensionContext, approvals: Appr
 interface Preset {
   environment?: string;
   context?: string;
+  /** A Worker by its directory name: a `[deploy.workers.<key>]` group's key. A
+   *  member named in `context` is turned into its group's Worker. */
+  worker?: string;
 }
 
 /** The project root and the environment (from the preset, else the picker), or
@@ -72,6 +78,10 @@ async function resolveEnvironment(
     void vscode.window.showErrorMessage(
       `Bynk: ${JSON.stringify(preset.environment)} is not an environment name (no spaces, and not starting with \`-\`).`,
     );
+    return undefined;
+  }
+  if (typeof preset?.worker === "string" && preset.worker && !validContextName(preset.worker)) {
+    void vscode.window.showErrorMessage(`Bynk: ${JSON.stringify(preset.worker)} is not a Worker name (a context's \`commerce-orders\`, or a group's key).`);
     return undefined;
   }
   if (typeof preset?.context === "string" && preset.context && !validContextName(preset.context)) {
@@ -102,10 +112,10 @@ class DeployView implements vscode.Disposable {
     const resolved = await resolveEnvironment(preset, pickEnvironment);
     if (!resolved) return;
     const { root, environment } = resolved;
-    const scope = typeof preset?.context === "string" ? preset.context : await pickScope(root);
+    const groups = await readWorkerGroups(root);
+    const scope = await scopeFor(root, groups, preset, "deploy");
     if (scope === undefined) return;
-    const target: DeployTarget = { environment };
-    if (scope) target.context = scope;
+    const target: DeployTarget = { environment, ...scope };
     await this.showPlan({ root, target, canDeploy });
   }
 
@@ -212,18 +222,22 @@ async function tail(preset?: Preset): Promise<void> {
   );
   if (!resolved) return;
   const { root, environment } = resolved;
-  // `bynk tail` follows one Worker; a project with several contexts must pick,
-  // and `""` (Deploy's "whole project") is no pick.
-  let context = preset?.context || undefined;
-  if (context === undefined) {
-    const names = await projectContexts(root);
-    if (names.length > 1) {
+  // `bynk tail` follows one Worker; a project with several Workers must pick,
+  // and `""` (Deploy's "whole project") is no pick. A Worker group is one
+  // choice, and a member named alone is the group's Worker.
+  const groups = await readWorkerGroups(root);
+  let scope: { context?: string; worker?: string } | undefined = {};
+  if (preset?.worker || preset?.context) {
+    scope = presetScope(preset, groups, "tail");
+  } else {
+    const choices = workerScopes(await projectContexts(root), groups);
+    if (choices.length > 1) {
       const picked = await vscode.window.showQuickPick(
-        names.map((n) => ({ label: n })),
-        { placeHolder: "Which context's Worker should be tailed?" },
+        choices.map((c) => ({ label: c.label, description: c.description, scope: c })),
+        { placeHolder: "Which Worker should be tailed?" },
       );
       if (!picked) return;
-      context = picked.label;
+      scope = picked.scope.kind === "worker" ? { worker: picked.scope.value } : { context: picked.scope.value };
     }
   }
   // A missing or older `bynk` would only close the terminal at once, with no
@@ -241,7 +255,7 @@ async function tail(preset?: Preset): Promise<void> {
     else void vscode.window.showErrorMessage(`Bynk: could not run \`bynk tail\`: ${String(e)}`);
     return;
   }
-  openBynkTerminal(`Bynk Tail (${environment})`, root, tailArgs({ environment, context }));
+  openBynkTerminal(`Bynk Tail (${environment})`, root, tailArgs({ environment, ...scope }));
 }
 
 /** Run `bynk <args>` as a terminal's own process, so its prompts and streamed
@@ -308,23 +322,59 @@ async function pickEnvironment(
   });
 }
 
-/** The whole project (`""`) or one context; `undefined` when cancelled. A
- *  project with one context skips the pick. */
-async function pickScope(root: vscode.Uri): Promise<string | undefined> {
-  const names = await projectContexts(root);
-  if (names.length <= 1) return "";
+/** The deploy scope a preset names: a Worker, or a context on its own Worker.
+ *  A member of a group is the group's Worker (`bynk deploy --context` refuses
+ *  it), and the user is told so. */
+function presetScope(
+  preset: Preset | undefined,
+  groups: readonly WorkerGroup[],
+  verb: "deploy" | "tail",
+): { context?: string; worker?: string } {
+  const name = preset?.worker || preset?.context;
+  if (!name) return {};
+  const resolved = resolveScope(name, groups);
+  if (resolved.kind === "context") return { context: resolved.context };
+  if (resolved.member) {
+    void vscode.window.showInformationMessage(
+      `Bynk: ${name} is in the Worker group \`${resolved.worker}\`, which runs as one Worker, so it is the group that ${verb === "deploy" ? "deploys" : "is tailed"}.`,
+    );
+  }
+  return { worker: resolved.worker };
+}
+
+/** The scope of a deploy (or tail): from the preset, else the picker. `{}` is
+ *  the whole project; `undefined` when cancelled. */
+async function scopeFor(
+  root: vscode.Uri,
+  groups: readonly WorkerGroup[],
+  preset: Preset | undefined,
+  verb: "deploy" | "tail",
+): Promise<{ context?: string; worker?: string } | undefined> {
+  if (typeof preset?.worker === "string" || typeof preset?.context === "string") return presetScope(preset, groups, verb);
+  return pickScope(root, groups);
+}
+
+/** The whole project, one Worker group or one context; `undefined` when
+ *  cancelled. A project with one Worker skips the pick. A group is one choice:
+ *  its members cannot be deployed alone. */
+async function pickScope(
+  root: vscode.Uri,
+  groups: readonly WorkerGroup[],
+): Promise<{ context?: string; worker?: string } | undefined> {
+  const choices = workerScopes(await projectContexts(root), groups);
+  if (choices.length <= 1) return {};
   const picked = await vscode.window.showQuickPick(
     [
-      { label: "Whole project", description: "every context, in dependency order", context: "" },
-      ...names.map((n) => ({
-        label: n,
-        description: "this context alone; the contexts it calls must already be live",
-        context: n,
+      { label: "Whole project", description: "every Worker, in dependency order", scope: {} as { context?: string; worker?: string } },
+      ...choices.map((c) => ({
+        label: c.label,
+        description: c.kind === "worker" ? `${c.description}; deploys as one Worker` : "this context alone; the contexts it calls must already be live",
+        scope: (c.kind === "worker" ? { worker: c.value } : { context: c.value }) as { context?: string; worker?: string },
       })),
     ],
     { placeHolder: "What should the deploy cover?" },
   );
-  return picked?.context;
+  return picked?.scope;
 }
 
 /** Run the real deploy in a terminal, with exactly the previewed arguments

@@ -38,6 +38,8 @@
     "src/approveReport.ts",
     "src/coverageModel.ts",
     "src/modelCoverageCore.ts",
+    "src/queryCore.ts",
+    "src/impactCore.ts",
     "src/webview/coverageMarks.ts",
     "src/testPlan.ts",
     "src/testStream.ts",

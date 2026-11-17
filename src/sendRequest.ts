@@ -15,6 +15,7 @@
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 
+import { groupHolding, workerKey, type WorkerGroup } from "./contextNames";
 import { devServerState, onDidChangeDevServer } from "./devServer";
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
 import {
@@ -32,6 +33,7 @@ import {
   type SrResult,
 } from "./sendRequestCore";
 import type { ViewRefresh } from "./viewRefresh";
+import { workerGroupsFor } from "./workerGroupsStore";
 import { registerHandlerLens } from "./viewsCodeLens";
 import { requestWireContract } from "./wireContract";
 
@@ -140,7 +142,7 @@ export function registerSendRequest(context: vscode.ExtensionContext, hub: ViewR
     { dispose: () => inflight.forEach((a) => a.abort()) },
     // Where a request goes follows the dev server. Only the target changes,
     // so recompute it on the shown payload rather than re-request the model.
-    onDidChangeDevServer(() => view.repost((p) => ({ ...p, target: devTarget(p.unit, devServerState()) }))),
+    onDidChangeDevServer(() => view.repost((p) => ({ ...p, target: devTarget(p.unit, devServerState(), shownGroups) }))),
     // Test seam (not contributed): send `input` for the shown route as the
     // page's Send would, resolving to what the page would be posted.
     vscode.commands.registerCommand("bynk._sendRequestSend", (input: SendInput) => {
@@ -185,9 +187,14 @@ export function isHttpHandler(
   return isHttpHandlerHeader(lines);
 }
 
+/** The shown route's project's Worker groups, so the dev target is recomputed
+ *  (on a dev-server change) with the group that holds the route's context. */
+let shownGroups: WorkerGroup[] = [];
+
 async function requestPayload(client: LanguageClient, target: ViewTarget): Promise<SrPayload | null> {
   const wc = await requestWireContract(client, target);
   if (!wc) return null;
+  shownGroups = await workerGroupsFor(vscode.Uri.parse(wc.uri));
   const form = routeForm(wc.model);
   if (!form) return null;
   const { unit, service, range } = wc.model;
@@ -198,7 +205,7 @@ async function requestPayload(client: LanguageClient, target: ViewTarget): Promi
     service,
     range,
     form,
-    target: devTarget(unit, devServerState()),
+    target: devTarget(unit, devServerState(), shownGroups),
   };
 }
 
@@ -218,9 +225,10 @@ async function send(
     return;
   }
   // Where it goes is decided now, not from the payload the page last saw.
-  const target = devTarget(payload.unit, devServerState());
+  const groups = await workerGroupsFor(vscode.Uri.parse(payload.uri));
+  const target = devTarget(payload.unit, devServerState(), groups);
   if (target.kind !== "ready") {
-    fail(targetProblem(payload.unit, target.kind));
+    fail(targetProblem(payload.unit, target.kind, groups));
     return;
   }
   const built = buildRequest(payload.form, target.url, sanitize(input));
@@ -330,14 +338,20 @@ function sanitize(input: SendInput): SendInput {
   };
 }
 
-export function targetProblem(unit: string, kind: "stopped" | "starting" | "notServed"): string {
+export function targetProblem(
+  unit: string,
+  kind: "stopped" | "starting" | "notServed",
+  groups?: readonly WorkerGroup[],
+): string {
   switch (kind) {
     case "stopped":
       return "The dev server isn't running. Start it (Bynk: Start Dev Server) and send again.";
     case "starting":
       return "The dev server is still starting. Send again once it's ready.";
     case "notServed":
-      return `The dev server isn't serving ${unit}. Restart it with that context.`;
+      return groupHolding(unit, groups)
+        ? `The dev server isn't serving ${unit}, which is in the Worker group \`${workerKey(unit, groups)}\` and runs with it. Restart it with that context.`
+        : `The dev server isn't serving ${unit}. Restart it with that context.`;
   }
 }
 

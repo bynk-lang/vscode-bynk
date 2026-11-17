@@ -20,6 +20,7 @@ import {
   worstDrift,
 } from "../../src/environmentsCore";
 import { parseMigrateStatus } from "../../src/migrationsCore";
+import { parseWorkerGroups } from "../../src/workerGroups";
 import type { CdService } from "../../src/webview/contractDiffTypes";
 
 const fixture = (name: string) => fs.readFileSync(path.resolve(__dirname, "../../../test/fixtures", name), "utf8");
@@ -208,5 +209,151 @@ describe("context matching", () => {
     });
     assert.strictEqual(tree[0].children.filter((c) => c.data.kind === "context").length, 1);
     assert.match(tree[0].children[0].description ?? "", /breaking/);
+  });
+});
+
+// #182: Worker groups, against the fixture project's manifest and ledger
+// (test/fixtures/groups). The ledger's group record is `WorkerRecord` in
+// bynk v0.639.1 `bynk/src/deploy/ledger.rs`: `contexts` and `script`, omitted
+// for a context on a Worker of its own.
+describe("Worker groups in the Environments view (#182)", () => {
+  const dir = path.resolve(__dirname, "../../../test/fixtures/groups");
+  const GROUP_LOCK = fs.readFileSync(path.join(dir, "bynk.deploy.lock"), "utf8");
+  const GROUPS = parseWorkerGroups(fs.readFileSync(path.join(dir, "bynk.toml"), "utf8"));
+  const unavailable = { kind: "unavailable", detail: "" } as const;
+  const tree = (over: Partial<Parameters<typeof buildEnvironmentsTree>[0]> = {}) =>
+    buildEnvironmentsTree({ lock: GROUP_LOCK, drift: null, migrations: unavailable, groups: GROUPS, ...over });
+
+  it("reads a group Worker's members and script from the ledger, and none for another", () => {
+    const [env] = parseDeployLock(GROUP_LOCK);
+    const [core, payment] = env.workers;
+    assert.deepStrictEqual(core, {
+      worker: "core",
+      deployed: true,
+      contracts: { lookup: "aaaaaaaaaaaaaaaa" },
+      contexts: ["shop.orders", "shop.catalogue"],
+      script: "acme-core",
+    });
+    assert.deepStrictEqual(payment, { worker: "shop-payment", deployed: true, contracts: { authorise: "bbbbbbbbbbbbbbbb" } });
+  });
+
+  it("shows the group as one node holding its members, beside the context on its own Worker", () => {
+    const [env] = tree();
+    const [core, payment] = env.children;
+    assert.strictEqual(core.label, "core");
+    assert.strictEqual(core.contextValue, "bynkEnvWorker");
+    assert.deepStrictEqual(core.data, { kind: "workerGroup", environment: "default", worker: "core", contexts: ["shop.orders", "shop.catalogue"], drift: "in-sync" });
+    assert.match(core.description ?? "", /Worker group · 2 contexts · deployed/);
+    assert.match(core.tooltip ?? "", /script acme-core/);
+    assert.match(core.tooltip ?? "", /--worker core/);
+    assert.deepStrictEqual(core.children.filter((c) => c.contextValue === "bynkEnvContext").map((c) => c.label), ["shop.orders", "shop.catalogue"]);
+    assert.strictEqual(payment.contextValue, "bynkEnvContext");
+    assert.strictEqual(payment.label, "shop.payment");
+    assert.strictEqual(env.description?.startsWith("2 Workers"), true, "a group is one Worker");
+  });
+
+  it("is no longer a group of 'not deployed' contexts beside an unrecognised Worker", () => {
+    // The old behaviour: with drift rows, members were looked up by their own dashed names.
+    const rows = [row({ context: "shop.orders", service: "api", live: null, current: "x", status: "added" }), row({ context: "shop.catalogue", service: "lookup", live: "aaaaaaaaaaaaaaaa", current: "aaaaaaaaaaaaaaaa", status: "unchanged" as never })];
+    const [env] = tree({ drift: rows });
+    const labels = env.children.map((c) => c.label);
+    assert.deepStrictEqual(labels.slice(0, 2), ["core", "shop.payment"]);
+    assert.ok(!env.children.some((c) => c.description?.includes("not deployed") && c.data.kind === "context" && c.data.context !== "shop.payment"));
+    const core = env.children[0];
+    const orders = core.children.find((c) => c.label === "shop.orders");
+    assert.match(orders?.description ?? "", /deployed/);
+  });
+
+  it("attributes the Worker's live contracts to the member the working tree says provides them", () => {
+    const rows = [row({ context: "shop.catalogue", service: "lookup", status: "changed" })];
+    const [env] = tree({ drift: rows });
+    const core = env.children[0];
+    assert.strictEqual(core.data.kind === "workerGroup" && core.data.drift, "changed");
+    const catalogue = core.children.find((c) => c.label === "shop.catalogue");
+    assert.deepStrictEqual(catalogue?.children.map((c) => c.label), ["lookup"]);
+    assert.deepStrictEqual(core.children.find((c) => c.label === "shop.orders")?.children, []);
+    assert.strictEqual(driftedContexts([env]), 1, "counts the member, not the group");
+  });
+
+  it("keeps a live service no member's row names on the group itself, and when drift is unknown", () => {
+    const [env] = tree();
+    const core = env.children[0];
+    assert.deepStrictEqual(core.children.filter((c) => c.contextValue === "bynkEnvService").map((c) => c.label), ["lookup"]);
+  });
+
+  it("shows a group the environment has not deployed as undeployed, from the manifest", () => {
+    const lock = "version = 1\n[environments.staging.workers.shop-payment]\ndeployed = true\n";
+    const rows = [row({ environment: "staging", context: "shop.orders", service: "api", status: "added", live: null })];
+    const [env] = tree({ lock, drift: rows });
+    const core = env.children.find((c) => c.label === "core");
+    assert.ok(core && core.data.kind === "workerGroup");
+    assert.match(core.description ?? "", /not deployed/);
+    assert.deepStrictEqual(core.children.map((c) => c.label), ["shop.orders", "shop.catalogue"]);
+  });
+
+  it("still shows a group from the ledger alone, when the manifest cannot be read", () => {
+    const [env] = tree({ groups: undefined });
+    assert.strictEqual(env.children[0].contextValue, "bynkEnvWorker");
+    assert.deepStrictEqual(env.children[0].children.filter((c) => c.contextValue === "bynkEnvContext").map((c) => c.label), ["shop.orders", "shop.catalogue"]);
+  });
+
+  it("marks a member the Worker was not last pushed with", () => {
+    const groups = [{ key: "core", contexts: ["shop.orders", "shop.catalogue", "shop.pricing"], name: "acme-core" }];
+    const [env] = tree({ groups });
+    const pricing = env.children[0].children.find((c) => c.label === "shop.pricing");
+    assert.match(pricing?.description ?? "", /not deployed/);
+  });
+
+  it("counts a group member's agent classes as deployed where the group's Worker is", () => {
+    // `bynk migrate status` keys deployment by the dashed context, which is no group's Worker.
+    const classes = parseMigrateStatus(fixture("migrate-status.json")).slice(0, 1).map((c) => ({ ...c, class: "shop.orders.Cart", deployedTo: [] as string[] }));
+    const [env] = tree({ migrations: { kind: "status", classes } });
+    const migrations = env.children.find((c) => c.data.kind === "migrations");
+    assert.deepStrictEqual(migrations?.children.map((c) => c.label), ["shop.orders.Cart"]);
+  });
+
+  const ids = (nodes: EnvTreeNode[]): string[] => nodes.flatMap((n) => [n.id, ...ids(n.children)]);
+  const unique = (nodes: EnvTreeNode[]): void => {
+    const all = ids(nodes);
+    assert.deepStrictEqual(all, [...new Set(all)], "every tree id is unique (VS Code throws on a duplicate)");
+  };
+
+  it("keeps every tree id unique, with the member ids scoped under the group", () => {
+    const [env] = tree();
+    unique([env]);
+    assert.ok(find([env], "default/core/shop.orders"));
+  });
+
+  it("keeps ids unique for a renamed group, and says the old one is not in bynk.toml", () => {
+    // The ledger still holds `core`; the manifest now calls the group `main`.
+    const renamed = [{ key: "main", contexts: ["shop.orders", "shop.catalogue"] }];
+    const rows = [row({ context: "shop.orders", service: "api", status: "added", live: null })];
+    const [env] = tree({ groups: renamed, drift: rows });
+    unique([env]);
+    const old = env.children.find((c) => c.label === "core");
+    assert.match(old?.description ?? "", /not in bynk\.toml/);
+  });
+
+  it("marks a Worker left over from before its context joined a group, rather than showing it as in sync", () => {
+    const lock = GROUP_LOCK + "\n[environments.default.workers.shop-orders]\ndeployed = true\n";
+    const rows = [row({ context: "shop.orders", service: "api", status: "added", live: null })];
+    const [env] = tree({ lock, drift: rows });
+    unique([env]);
+    const old = env.children.find((c) => c.contextValue === "bynkEnvContext" && c.label === "shop.orders");
+    assert.match(old?.description ?? "", /superseded by Worker group core/);
+    assert.ok(!/in sync/.test(old?.description ?? ""));
+  });
+
+  it("keeps ids unique when a group's key is a member's name", () => {
+    const groups = [{ key: "orders", contexts: ["orders", "billing"] }];
+    const lock = 'version = 1\n[environments.default.workers.orders]\ndeployed = true\ncontexts = ["orders", "billing"]\n';
+    const [env] = tree({ lock, groups, drift: [row({ context: "orders", service: "orders", status: "added", live: null })] });
+    unique([env]);
+  });
+
+  it("leaves an ungrouped project's tree exactly as it was", () => {
+    const base = buildEnvironmentsTree({ lock: LOCK, drift: [row({})], migrations: { kind: "status", classes: CLASSES } });
+    const same = buildEnvironmentsTree({ lock: LOCK, drift: [row({})], migrations: { kind: "status", classes: CLASSES }, groups: [] });
+    assert.deepStrictEqual(same, base);
   });
 });

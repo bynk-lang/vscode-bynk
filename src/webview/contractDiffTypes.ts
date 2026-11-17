@@ -76,7 +76,7 @@ export interface CdPayload {
   model: CdModel;
   uri: string;
   /** #157: scope to one context and/or environment; absent means everything. */
-  filter?: { context?: string; environment?: string };
+  filter?: { context?: string; contexts?: string[]; environment?: string };
 }
 
 /** #157: the chip's "Show all". */

@@ -10,6 +10,7 @@
 // value, the JSON `body`, or `headers: RequestHeaders`, which the router fills
 // from the request's own headers. There are no query parameters.
 
+import { workerKey, type WorkerGroup } from "./contextNames";
 import type { DevPhase, ServedContext } from "./devEvents";
 import type {
   WcHttpMethod,
@@ -246,8 +247,9 @@ export function joinUrl(base: string, path: string): string {
 }
 
 /** Where a handler's request would go: its context's dev server, or why
- *  there is none. A `bynk dev` context is named in its worker-dir form (`a-b`
- *  for context `a.b`, `ServedContext.name`). */
+ *  there is none. A `bynk dev` Worker is named in its worker-dir form (`a-b`
+ *  for context `a.b`, the group's key for a member of a Worker group:
+ *  `ServedContext.name`). */
 export type DevTarget =
   | { kind: "ready"; url: string; note?: string }
   | { kind: "starting" }
@@ -257,10 +259,13 @@ export type DevTarget =
 export function devTarget(
   unit: string,
   state: { phase: DevPhase; contexts: readonly ServedContext[]; ready: boolean } | undefined,
+  groups?: readonly WorkerGroup[],
 ): DevTarget {
   if (!state || state.phase === "stopped") return { kind: "stopped" };
   if (!state.ready) return { kind: "starting" };
-  const worker = unit.replace(/\./g, "-");
+  // A group runs as one Worker on one port, named by its key in the `serving`
+  // event (`bynk/src/dev.rs` `serving_event`: `name: s.worker`, a Worker directory).
+  const worker = workerKey(unit, groups);
   const ctx = state.contexts.find((c) => c.name === worker || c.name === unit);
   if (!ctx) return { kind: "notServed", served: state.contexts.map((c) => c.name) };
   // A rebuild in flight, or one that failed, leaves the last good build

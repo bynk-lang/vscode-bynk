@@ -17,9 +17,14 @@ import { MISSING_CWD } from "./procCore";
 import { activeProjectRoot } from "./projectRoots";
 import { bynkPath } from "./tasks";
 
-/** The contexts the project's `.bynk` sources declare, sorted: what a
- *  `--context` picker offers. */
-export async function projectContexts(root: vscode.Uri): Promise<string[]> {
+/** The names `extract` finds in the project's `.bynk` sources, sorted. With
+ *  `preferOpen`, a file that is open in the editor is read from the editor, so
+ *  an unsaved declaration counts. */
+export async function projectNames(
+  root: vscode.Uri,
+  extract: (source: string) => string[],
+  preferOpen = false,
+): Promise<string[]> {
   const files = await vscode.workspace.findFiles(
     new vscode.RelativePattern(root, "**/*.bynk"),
     "**/{node_modules,.bynk}/**",
@@ -27,13 +32,20 @@ export async function projectContexts(root: vscode.Uri): Promise<string[]> {
   const names = new Set<string>();
   for (const file of files) {
     try {
-      const text = new TextDecoder().decode(await vscode.workspace.fs.readFile(file));
-      for (const n of contextNames(text)) names.add(n);
+      const open = preferOpen ? vscode.workspace.textDocuments.find((d) => d.uri.toString() === file.toString()) : undefined;
+      const text = open ? open.getText() : new TextDecoder().decode(await vscode.workspace.fs.readFile(file));
+      for (const n of extract(text)) names.add(n);
     } catch {
       /* unreadable: skip */
     }
   }
   return [...names].sort();
+}
+
+/** The contexts the project's `.bynk` sources declare, sorted: what a
+ *  `--context` picker offers. */
+export function projectContexts(root: vscode.Uri): Promise<string[]> {
+  return projectNames(root, contextNames);
 }
 
 /** The environment a `bynk` child runs with: the extension host's. The

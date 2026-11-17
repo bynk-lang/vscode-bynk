@@ -54,7 +54,9 @@ export type WcBoundaryKind =
   | { kind: "Message" }
   | { kind: "Open" }
   | { kind: "Close" }
-  | { kind: "Event" };
+  | { kind: "Event" }
+  /** v0.639.1: a handler that rejects what reaches it. */
+  | { kind: "Rejected" };
 
 export type WcExpected =
   | { kind: "Json"; json: WcJsonKind }
@@ -148,10 +150,25 @@ export type WcResponseOrigin =
   | { kind: "Constructed"; range: Range }
   | { kind: "BoundaryImplicit"; why: string };
 
+/** #3632 (v0.633.9): what a response body is, the classification `bynk openapi`
+ *  makes. `ref` is the same ref as the response's `payload`. */
+export type WcResponseBody =
+  | { kind: "Value"; ref: WcRef }
+  | { kind: "Message" } // `{ "error": String }`
+  | { kind: "Redirect"; header: string }
+  | { kind: "Raw" }
+  | { kind: "Stream" };
+
 export interface WcHttpResponse {
   status: number;
   variant: string;
   origin: WcResponseOrigin;
+  /** #3609 (v0.633.4): `T` for a value variant, `null` otherwise. Absent from
+   *  an older language server. */
+  payload?: WcRef | null;
+  /** #3632 (v0.633.9): the body of every kind of response; `null` when there
+   *  is none to describe. Absent from an older language server. */
+  body?: WcResponseBody | null;
 }
 
 export interface WcModel {
@@ -170,6 +187,10 @@ export interface WcModel {
   recursive: string[];
   /** Empty for a non-HTTP handler. */
   responses: WcHttpResponse[];
+  /** #3609 (v0.633.4): the `T` of the handler's `HttpResult[T]`; `null` for a
+   *  non-HTTP handler and for a raw or unit-payload return. Absent from an
+   *  older language server. */
+  success?: WcRef | null;
   noCrossContext: WcNoCrossContextReason | null;
 }
 

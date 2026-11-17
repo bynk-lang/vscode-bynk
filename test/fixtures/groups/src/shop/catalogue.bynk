@@ -1,0 +1,7 @@
+context shop.catalogue
+
+service lookup {
+  on call(id: String) -> Effect[String] {
+    id
+  }
+}

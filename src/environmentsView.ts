@@ -12,6 +12,7 @@ import type { LanguageClient } from "vscode-languageclient/node";
 
 import { requestContractDiff } from "./contractDiff";
 import { buildEnvironmentsTree, type EnvTreeNode } from "./environmentsCore";
+import { readWorkerGroups } from "./workerGroupsStore";
 import { findProjectRoot } from "./cli";
 import { sharedMigrationsStore } from "./migrationsView";
 import type { ViewRefresh } from "./viewRefresh";
@@ -89,12 +90,18 @@ class EnvironmentsProvider implements vscode.TreeDataProvider<EnvTreeNode>, vsco
     if (!root) return undefined;
     const store = sharedMigrationsStore();
     if (fresh) store.clear(root);
-    const [lock, drift, migrations] = await Promise.all([readLock(root), this.drift(root, fresh), store.get(root)]);
+    const [lock, drift, migrations, groups] = await Promise.all([
+      readLock(root),
+      this.drift(root, fresh),
+      store.get(root),
+      readWorkerGroups(root),
+    ]);
     return {
       root,
       tree: buildEnvironmentsTree({
         lock,
         drift,
+        groups,
         migrations:
           migrations.kind === "status"
             ? migrations
@@ -153,6 +160,19 @@ export function registerEnvironments(
     hub.onDidStartClient(() => provider.invalidate()),
     sharedMigrationsStore().onDidChange(() => provider.invalidate()),
     vscode.commands.registerCommand("bynk.environments.refresh", () => provider.refresh(true)),
+    // Test seam (not contributed): the tree as the view would show it.
+    vscode.commands.registerCommand("bynk._environmentsSnapshot", async () => {
+      provider.refresh(true);
+      const plain = (n: EnvTreeNode): unknown => ({
+        id: n.id,
+        label: n.label,
+        description: n.description,
+        contextValue: n.contextValue,
+        data: n.data,
+        children: n.children.map(plain),
+      });
+      return (await provider.getChildren()).map(plain);
+    }),
     // Each action hands the existing command a preset; their pickers, plans and
     // confirmations are unchanged.
     vscode.commands.registerCommand("bynk.environments.showPlan", (n?: EnvTreeNode) =>
@@ -176,7 +196,12 @@ export function registerEnvironments(
         "bynk.showContractDiff",
         (await provider.projectFile())?.toString(),
         // #157: scope the panel to the node it was invoked on.
-        n?.data.kind === "context" ? { context: n.data.context, environment: n.data.environment } : undefined,
+        n?.data.kind === "context"
+          ? { context: n.data.context, environment: n.data.environment }
+          : // A Worker group's contracts are read together: every member's rows.
+            n?.data.kind === "workerGroup"
+            ? { context: n.data.worker, contexts: n.data.contexts, environment: n.data.environment }
+            : undefined,
       ),
     ),
   );

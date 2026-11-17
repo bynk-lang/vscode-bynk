@@ -53,6 +53,8 @@ import { registerFeatures } from "./features";
 import { ViewRefresh } from "./viewRefresh";
 import { StartQueue } from "./startQueue";
 import { registerProjectTree } from "./projectTree";
+import { registerImpactView } from "./impactView";
+import { registerQueryView } from "./queryView";
 import { activeProjectRoot, watchProjectRoots } from "./projectRoots";
 import type { LivePanel } from "./livePanel";
 
@@ -151,6 +153,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // #2097: the Bynk activity-bar project tree — units, `consumes` edges and
   // declarations — on the same refresh hub and model cache as the views.
   registerProjectTree(context, viewRefresh, approvals);
+  // #148: the Query view — events, capabilities, reachability and untested code.
+  registerQueryView(context, viewRefresh);
+  // #146: the Impact view — everything that depends on a type, event or service.
+  registerImpactView(context, viewRefresh, testApi);
   // Test seams for the integration suite (not contributed, so never in the
   // palette): read a view's state, pin it, and drive the reload path.
   context.subscriptions.push(

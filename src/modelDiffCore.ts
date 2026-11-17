@@ -10,9 +10,10 @@
 //     fetched with the same language-server requests the live views use) into
 //     added / removed / changed entries.
 
+import type { SymbolLike } from "./refreshScheduler";
 import type { ArchLoc, ArchModel } from "./webview/architectureTypes";
 import type { CdModel } from "./webview/contractDiffTypes";
-import type { AgentStateModel } from "./webview/stateTypes";
+import type { AgentInvariant, AgentStateModel } from "./webview/stateTypes";
 import { diffWire, WIRE_NOTE, type WireHandler } from "./wireDiffCore";
 
 // ---------------------------------------------------------------- git side
@@ -378,6 +379,19 @@ export function withoutLocations(diff: ModelDiff): ModelDiff {
   };
 }
 
+/** A raw `textDocument/documentSymbol` answer, as `vscode.executeDocumentSymbolProvider`
+ *  would give it. The protocol numbers symbol kinds from 1 (`Class` is 5,
+ *  `Method` 6) and VS Code from 0 (`Class` is 4, `Method` 5), and
+ *  `handlerSymbols` reads VS Code's, so a revision's checkout, which the client
+ *  asks the server about directly, is shifted to match the working tree's. */
+export function fromLspSymbols(symbols: readonly SymbolLike[]): SymbolLike[] {
+  return symbols.map((s) => ({
+    ...s,
+    kind: s.kind - 1,
+    ...(s.children ? { children: fromLspSymbols(s.children) } : {}),
+  }));
+}
+
 /** The key an agent is known by across revisions. */
 export function agentKey(context: string, agent: string): string {
   return `${context}.${agent}`;
@@ -624,7 +638,34 @@ export function diffAgentModel(
       ),
     );
   }
+  out.push(...diffInvariants(before, after, entry));
   return out;
+}
+
+/** An agent's `invariant`s and `transition` rules (bynk#3608), keyed by kind
+ *  and name: one added, removed, or whose predicate text changed. A rule that
+ *  is only reworded or reordered inside the predicate reads as changed, since
+ *  the printed text is what the server gives; its documentation is not
+ *  compared. A server that predates `invariants` sends none, so every rule
+ *  would read as added: both revisions come from the same server, so neither
+ *  side has any and nothing is reported. */
+function diffInvariants(
+  before: AgentStateModel,
+  after: AgentStateModel,
+  entry: (change: ChangeKind, element: string, name: string, detail?: string) => DiffEntry,
+): DiffEntry[] {
+  const element = (i: AgentInvariant): string => (i.kind === "transition" ? "transition rule" : "invariant");
+  return diffKeyed(
+    byKey(before.invariants ?? [], (i) => `${i.kind} ${i.name}`),
+    byKey(after.invariants ?? [], (i) => `${i.kind} ${i.name}`),
+    (change, _key, b, a) => {
+      const i = (a ?? b)!;
+      const detail =
+        change === "changed" ? `${b!.predicate} → ${a!.predicate}` : change === "added" ? a!.predicate : undefined;
+      return entry(change, element(i), i.name, detail);
+    },
+    (b, a) => b.predicate !== a.predicate,
+  );
 }
 
 /** Diff two snapshots. A section whose model either revision could not supply

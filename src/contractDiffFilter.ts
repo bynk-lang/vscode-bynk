@@ -15,6 +15,10 @@ import type { CdModel, CdService } from "./webview/contractDiffTypes";
 export interface ContractDiffFilter {
   /** A dotted context name (`shop.payment`); a Worker key (`shop-payment`) matches too. */
   context?: string;
+  /** A Worker group's members: `context` is then the group's key, and a
+   *  service row matches when its context is any member (a group is one Worker,
+   *  so its contracts are read together). */
+  contexts?: string[];
   environment?: string;
 }
 
@@ -30,7 +34,9 @@ export function isActive(filter: ContractDiffFilter | null | undefined): filter 
 }
 
 export function matchesService(filter: ContractDiffFilter, s: CdService): boolean {
-  if (filter.context && !sameContext(filter.context, s.context)) return false;
+  if (filter.contexts && filter.contexts.length > 0) {
+    if (!filter.contexts.some((c) => sameContext(c, s.context))) return false;
+  } else if (filter.context && !sameContext(filter.context, s.context)) return false;
   if (filter.environment && filter.environment !== s.environment) return false;
   return true;
 }
@@ -66,9 +72,12 @@ export function hiddenSentence(hiddenChanges: number, hiddenServices: number): s
 /** Read a filter from an untrusted command argument. Empty strings are dropped. */
 export function parseFilter(value: unknown): ContractDiffFilter | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const v = value as { context?: unknown; environment?: unknown };
+  const v = value as { context?: unknown; contexts?: unknown; environment?: unknown };
   const filter: ContractDiffFilter = {};
   if (typeof v.context === "string" && v.context !== "") filter.context = v.context;
+  if (Array.isArray(v.contexts) && v.contexts.every((c) => typeof c === "string" && c !== "")) {
+    if (v.contexts.length > 0) filter.contexts = v.contexts as string[];
+  }
   if (typeof v.environment === "string" && v.environment !== "") filter.environment = v.environment;
   return isActive(filter) ? filter : undefined;
 }

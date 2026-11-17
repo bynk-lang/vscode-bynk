@@ -5,6 +5,7 @@ import * as assert from "assert";
 
 import {
   agentKey,
+  fromLspSymbols,
   defaultBranch,
   diffArchitecture,
   diffContracts,
@@ -20,6 +21,7 @@ import {
   type Git,
   type ModelSnapshot,
 } from "../../src/modelDiffCore";
+import { handlerSymbols } from "../../src/refreshScheduler";
 import { renderModelDiffHtml } from "../../src/modelDiffHtml";
 import type { ArchModel, ArchNode } from "../../src/webview/architectureTypes";
 import type { CdModel } from "../../src/webview/contractDiffTypes";
@@ -210,6 +212,18 @@ describe("contract diff (#147)", () => {
   });
 });
 
+describe("fromLspSymbols (#154)", () => {
+  it("shifts the protocol's symbol kinds to VS Code's, so a revision's handlers are found", () => {
+    const at = { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } };
+    // `bynk-lsp` answers a service as `Class` (5) holding a `Method` (6) per handler.
+    const raw = [{ name: "md", kind: 2, range: at, selectionRange: at, children: [{ name: "answers", kind: 5, range: at, selectionRange: at, children: [{ name: "call", kind: 6, range: at, selectionRange: at }] }] }];
+    assert.strictEqual(handlerSymbols(raw).length, 0, "unshifted, no handler is found");
+    const shifted = fromLspSymbols(raw);
+    assert.deepStrictEqual(handlerSymbols(shifted).map((h) => [h.owner, h.symbol.name]), [["answers", "call"]]);
+    assert.strictEqual(raw[0].children[0].kind, 5, "the input is left as it was");
+  });
+});
+
 describe("snapshots and agents (#147)", () => {
   const machine = (states: string[], edges: AgentStateModel["machines"][number]["edges"] = []) => ({
     field: "status", fieldRange: rng, states, initial: states[0] ?? null, edges, reachable: states, truncated: [], notEvaluated: [],
@@ -236,6 +250,37 @@ describe("snapshots and agents (#147)", () => {
     ]);
     assert.strictEqual(agents.entries[0].loc?.uri, "file:///w/o.bynk");
     assert.strictEqual(agents.entries.find((e) => e.element === "state machine")?.detail, "states +Shipped");
+  });
+
+  it("diffs an agent's invariants and transition rules, by kind and name (#154, bynk#3608)", () => {
+    const rule = (kind: "invariant" | "transition", name: string, predicate: string, doc?: string) => ({ kind, name, predicate, range: rng, ...(doc ? { doc } : {}) });
+    const withRules = (invariants?: AgentStateModel["invariants"]): AgentStateModel => ({ ...model(["New"], ["place"]), ...(invariants ? { invariants } : {}) });
+    const snap = (m: AgentStateModel): ModelSnapshot => ({ architecture: arch, contracts: null, agents: { [agentKey("shop", "Order")]: m } });
+    const entries = (b: AgentStateModel, a: AgentStateModel) =>
+      diffSnapshots(snap(b), snap(a)).sections.find((s) => s.id === "agents")!.entries;
+
+    const d = entries(
+      withRules([rule("invariant", "positive", "total > 0"), rule("invariant", "old", "x", "doc"), rule("transition", "forward", "next > prev")]),
+      withRules([rule("invariant", "positive", "total >= 0"), rule("invariant", "fresh", "y"), rule("transition", "forward", "next > prev", "now documented")]),
+    );
+    assert.deepStrictEqual(
+      d.map((e) => `${e.change} ${e.element} ${e.name}: ${e.detail ?? ""}`).sort(),
+      [
+        "added invariant shop.Order: fresh: y",
+        "changed invariant shop.Order: positive: total > 0 → total >= 0",
+        "removed invariant shop.Order: old: ",
+      ],
+      "documentation alone is not a change",
+    );
+    assert.strictEqual(d[0].loc?.uri, "file:///w/o.bynk");
+
+    // The same name as an invariant and as a transition are two rules.
+    const kinds = entries(withRules([rule("invariant", "r", "a")]), withRules([rule("invariant", "r", "a"), rule("transition", "r", "b")]));
+    assert.deepStrictEqual(kinds.map((e) => `${e.change} ${e.element}`), ["added transition rule"]);
+    // An agent with none sends no field, and an unchanged set is no change.
+    assert.deepStrictEqual(entries(withRules(), withRules()), []);
+    assert.deepStrictEqual(entries(withRules([rule("invariant", "r", "a")]), withRules([rule("invariant", "r", "a")])), []);
+    assert.deepStrictEqual(entries(withRules([rule("invariant", "r", "a")]), withRules()).map((e) => e.change), ["removed"]);
   });
 
   it("marks a section unavailable instead of reporting no differences", () => {

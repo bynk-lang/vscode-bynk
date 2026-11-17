@@ -20,6 +20,8 @@
 // it. The suite is a one-way copy.
 
 import {
+  checkResponsePath,
+  fieldKind,
   findRefs,
   parseRef,
   stepDependencies,
@@ -501,7 +503,7 @@ function makeStep(
   for (const e of step.expects) {
     // A status that named no variant was reported above.
     if (e === status && !variant) continue;
-    const out = assertion(e, variable, variant, payload, status === e);
+    const out = assertion(e, variable, variant, payload, status === e, route, status ? Number(status.value) : undefined);
     if ("why" in out) {
       report(e.line, describe(e), out.why);
       continue;
@@ -542,7 +544,7 @@ function describe(e: Expectation): string {
 type Assertion = { text?: string; payload: boolean } | { why: string };
 
 /** One expectation as an assertion on the bound outcome. */
-function assertion(e: Expectation, variable: string, variant: string | undefined, payload: Payload, isStatus: boolean): Assertion {
+function assertion(e: Expectation, variable: string, variant: string | undefined, payload: Payload, isStatus: boolean, route: PromoteRoute, status: number | undefined): Assertion {
   const s = e.subject;
   if (s.kind === "status") {
     // The status became the pattern of the `let`; it is the assertion.
@@ -560,9 +562,9 @@ function assertion(e: Expectation, variable: string, variant: string | undefined
   // A body expectation.
   if (payload === "none") return { why: "the answer carries no body" };
   if (payload === "location") return { why: "a redirect's answer is its Location, not a body" };
-  // These need the field's type, which `bynk/wireContract` does not carry for a
-  // response yet (bynk-lang/bynk#3609, with vscode-bynk#160): listed until it does.
-  if (e.op === "exists" || e.op === "absent" || e.op === "contains") return { why: `\`${e.op}\` has no typed spelling without the field's type` };
+  // These need the field's type, which the contract carries for a value
+  // response since bynk-lang/bynk#3609 (v0.633.4); an older server leaves them listed.
+  if (e.op === "exists" || e.op === "absent" || e.op === "contains") return typedAssertion(e, s.path, variable, payload, route, status);
   const target = payload === "message" ? (s.path.length === 1 && s.path[0] === "error" ? variable : undefined) : pathExpr(variable, s.path);
   if (!target) return { why: "that path has no typed spelling (a list index, or a message's other fields)" };
   const v = e.value;
@@ -570,6 +572,31 @@ function assertion(e: Expectation, variable: string, variant: string | undefined
     typeof v === "string" ? (hasControl(v) ? undefined : quote(v)) : typeof v === "number" ? (Number.isInteger(v) ? String(v) : String(v)) : typeof v === "boolean" ? String(v) : undefined;
   if (lit === undefined) return { why: "only a string, number or boolean can be compared without the field's type" };
   return { payload: true, text: `expect ${target} ${e.op === "==" ? "==" : "!="} ${lit}` };
+}
+
+/** `exists`, `absent` and `contains` on a body field, spelt by the field's type (#160). */
+function typedAssertion(e: Expectation, path: readonly PathSeg[], variable: string, payload: Payload, route: PromoteRoute, status: number | undefined): Assertion {
+  if (payload !== "value") return { why: "an error message carries only `error`, a String, and its presence is the variant" };
+  const target = pathExpr(variable, path);
+  if (!target) return { why: "that path has no typed spelling (a list index)" };
+  const found = checkResponsePath(route, status, path);
+  if (!found.ref) return { why: found.issue ? `${found.issue}, so there is nothing to assert` : `\`${e.op}\` has no typed spelling: the field's type is not in the contract` };
+  // Only a path of record fields is read directly in a suite: a field of one sum
+  // variant, or what is inside a `Some`, `Ok` or `Err`, is matched, not selected.
+  if (!found.plain) return { why: "a field reached through a sum variant, an Option, a Result or a list can't be read directly in a suite" };
+  const kind = fieldKind(found.ref, route.model);
+  if (e.op === "contains") {
+    const v = e.value;
+    if (kind !== "string") return { why: "`contains` is spelt only for a String field (a list's `contains` is not)" };
+    if (typeof v !== "string" || hasControl(v)) return { why: "`contains` takes a string" };
+    return { payload: true, text: `expect ${target}.contains(${quote(v)})` };
+  }
+  if (kind === "option") return { why: "an Option field is `Some` or `None` in a suite, which a body's `exists` does not tell apart" };
+  if (kind !== "required" && kind !== "string") return { why: `\`${e.op}\` has no typed spelling: the field's type is not in the contract` };
+  // A field the type requires is always there, so `exists` holds by the type
+  // and `absent` can never hold.
+  if (e.op === "absent") return { why: "the field is required by its type, so it is never absent" };
+  return { text: `// ${describe(e)}: ${target} is required by its type`, payload: false };
 }
 
 /** The variant a route answers with for `status`, or why none can be chosen. */

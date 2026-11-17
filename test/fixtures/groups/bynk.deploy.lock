@@ -1,0 +1,15 @@
+version = 1
+
+[environments.default.workers.core]
+deployed = true
+contexts = ["shop.orders", "shop.catalogue"]
+script = "acme-core"
+
+[environments.default.workers.core.contracts]
+lookup = "aaaaaaaaaaaaaaaa"
+
+[environments.default.workers.shop-payment]
+deployed = true
+
+[environments.default.workers.shop-payment.contracts]
+authorise = "bbbbbbbbbbbbbbbb"
