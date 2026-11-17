@@ -57,16 +57,17 @@ describe("sequence view (jsdom)", () => {
   };
 
   describe("coverage overlay (#144)", () => {
-    // Messages are on lines 11 and 12 (range lines 10, 11); the arms on 20 and 21.
+    // Messages are on lines 11 and 12 (range lines 10, 11). The `then` arm is
+    // its `if` line (20) and its body (21); the `else` arm is lines 22-23.
     const withCoverage = (ran: number[], missed: number[]): SequencePayload => {
       const p = payload();
-      p.model.blocks[0].branches[0].range = R(19);
-      p.model.blocks[0].branches[1].range = R(20);
+      p.model.blocks[0].branches[0].range = { start: { line: 19, character: 0 }, end: { line: 20, character: 1 } };
+      p.model.blocks[0].branches[1].range = { start: { line: 21, character: 0 }, end: { line: 22, character: 1 } };
       return { ...p, coverage: { runAt: Date.now(), scope: "the whole project", stale: false, ran, missed } };
     };
 
     it("marks the calls and branches no test reached, in words as well as style", async () => {
-      await open(withCoverage([11, 20], [12, 21]));
+      await open(withCoverage([11, 21], [12, 23]));
       assert.ok(el("m0").classList.contains("bynk-cov-covered"));
       assert.ok(el("m1").classList.contains("bynk-cov-uncovered"));
       assert.ok(el("m1").getAttribute("aria-label")?.endsWith(", not tested"));
@@ -79,7 +80,7 @@ describe("sequence view (jsdom)", () => {
     });
 
     it("clears the marks with the toggle", async () => {
-      await open(withCoverage([11], [12, 20, 21]));
+      await open(withCoverage([11], [12, 21, 23]));
       const box = dom.root.querySelector("#bynk-coverage-toggle") as HTMLInputElement;
       box.checked = false;
       box.dispatchEvent(new dom.window.Event("change"));
@@ -94,7 +95,7 @@ describe("sequence view (jsdom)", () => {
     });
 
     it("leaves a branch unmarked when an older server sent no branch range", async () => {
-      const p = withCoverage([11], [12, 20, 21]);
+      const p = withCoverage([11], [12, 21, 23]);
       delete p.model.blocks[0].branches[1].range;
       await open(p);
       assert.ok(!el("b0.1").classList.contains("bynk-cov-uncovered"));
