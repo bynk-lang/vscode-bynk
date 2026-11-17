@@ -41,6 +41,7 @@ import {
   runSteps,
   stepsNeededFor,
   validateStep,
+  type EarlierStep,
   type Problem,
   type Resolved,
   type RouteInfo,
@@ -232,9 +233,12 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
     if (doc.isClosed || doc.version !== version) return;
     const names = new Set(scenario.steps.map((s) => s.name));
     const before = new Set<string>();
+    const earlier = new Map<string, EarlierStep>();
     scenario.steps.forEach((step, i) => {
-      if (step.requestLine >= 0) problems.push(...validateStep(step, resolved[i], before, names));
+      if (step.requestLine >= 0) problems.push(...validateStep(step, resolved[i], before, names, earlier));
       before.add(step.name);
+      const r = resolved[i];
+      earlier.set(step.name, { step, route: r && "route" in r ? r.route : undefined });
     });
     diagnostics.set(doc.uri, problems.map((p) => toDiagnostic(doc, p)));
   }
