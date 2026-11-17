@@ -118,6 +118,8 @@ export async function runInProject(
   label?: string,
 ): Promise<"retry" | void> {
   const { ctrl, problems, seeds, hub, driverSupport } = env;
+  // #144: when this project's run started, for the model views' stale-source check.
+  const startedAt = Date.now();
   // With several projects in the run, say which one a message is about.
   const say = (m: string): void => run.appendOutput(label ? m.replace(/^Bynk:/, `Bynk (${label}):`) : m);
   // DECISION D: in a continuous session a notification is shown once, and every
@@ -344,10 +346,10 @@ export async function runInProject(
   if (coverage && coverageDoc?.coverage) {
     const files = coverageFiles(coverageDoc.coverage, root.fsPath);
     // #144: the same lines, projected onto the model views.
-    modelCoverage.set({
+    modelCoverage.record(run, {
       files,
       scope: measured?.kind === "case" ? `the case "${measured.name}"` : "the whole project",
-      runAt: Date.now(),
+      runAt: startedAt,
     });
     for (const f of files) {
       const fc = new vscode.FileCoverage(

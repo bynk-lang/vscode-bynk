@@ -16,7 +16,7 @@ import { stateIds } from "./diagram/structure/stateMachine";
 import type { FileLines } from "./coverageModel";
 import { groupTransitions } from "./webview/state-gen";
 import type { StateMachine } from "./webview/stateTypes";
-import type { Range, SequenceModel } from "./webview/types";
+import type { AltBlock, Range, SequenceModel } from "./webview/types";
 
 /** How much of a model element's source the run executed. `unmeasured`: the
  *  element's lines have no executable statement (or the file was not in the
@@ -36,6 +36,27 @@ export interface ModelCoverage {
   ran: number[];
   /** Executable lines (1-based) that did not. */
   missed: number[];
+}
+
+/** One coverage run: what each of its projects measured. */
+export interface CoverageRun {
+  files: FileLines[];
+  /** What the run measured: `the whole project`, or `the case "…"`. */
+  scope: string;
+  /** When the run started, in ms since the epoch (before `bynk test` ran, so a
+   *  file saved during the run reads as changed since). */
+  runAt: number;
+}
+
+/** Add one project's part of a run to the run so far. A Run All with Coverage
+ *  reports each project in turn, and each keeps its files (a file is replaced
+ *  only by a newer report of itself); a part of another run starts afresh.
+ *  `runAt` is the earliest start among the parts, so a file saved while any of
+ *  them ran reads as changed since. */
+export function mergeRun(current: CoverageRun | undefined, sameRun: boolean, part: CoverageRun): CoverageRun {
+  if (!current || !sameRun) return part;
+  const kept = current.files.filter((f) => !part.files.some((p) => p.file === f.file));
+  return { files: [...kept, ...part.files], scope: part.scope, runAt: Math.min(current.runAt, part.runAt) };
 }
 
 /** A run's coverage of `file`, or `undefined` when the report does not list
@@ -74,13 +95,38 @@ function linesOf(range: Range): [number, number] {
 export function rangeMark(cov: ModelCoverage, range: Range | null | undefined): CoverageMark {
   if (!range) return "unmeasured";
   const [first, last] = linesOf(range);
-  let ran = 0;
-  let missed = 0;
-  for (const l of cov.ran) if (l >= first && l <= last) ran++;
-  for (const l of cov.missed) if (l >= first && l <= last) missed++;
+  return linesMark(cov, first, last, []);
+}
+
+/** The mark of the 1-based lines `first`..`last`, leaving out `exclude` (each a
+ *  1-based, inclusive `[first, last]`). */
+function linesMark(cov: ModelCoverage, first: number, last: number, exclude: ReadonlyArray<readonly [number, number]>): CoverageMark {
+  const inside = (l: number): boolean => l >= first && l <= last && !exclude.some(([a, b]) => l >= a && l <= b);
+  const ran = cov.ran.filter(inside).length;
+  const missed = cov.missed.filter(inside).length;
   if (ran === 0 && missed === 0) return "unmeasured";
   if (missed === 0) return "covered";
   return ran === 0 ? "uncovered" : "partial";
+}
+
+/** The mark of a sequence diagram's branch. Its range is the arm's source
+ *  (bynk#3584), which overreaches in two ways that would mark a branch tested
+ *  when its body never ran:
+ *  - an `else if` arm's range covers the rest of the chain (bynk#3599), and an
+ *    arm's range can share its last line with the next arm (`} else {`), so the
+ *    lines of every later branch of the block are left out;
+ *  - an `if`'s `then` range starts at the `if` keyword, and its condition line
+ *    runs whenever the `if` is reached, taken or not, so that first line is
+ *    left out. A `then` arm that fits on its condition's line has nothing left
+ *    and reads as unmeasured, rather than as tested.
+ *  Whether the arm was entered is then whether its own body lines ran. */
+export function branchMark(cov: ModelCoverage, block: Pick<AltBlock, "kind" | "branches">, index: number): CoverageMark {
+  const range = block.branches[index]?.range;
+  if (!range) return "unmeasured";
+  let [first, last] = linesOf(range);
+  if (block.kind === "If" && index === 0) first += 1;
+  const later = block.branches.slice(index + 1).flatMap((b): Array<[number, number]> => (b.range ? [linesOf(b.range)] : []));
+  return linesMark(cov, first, last, later);
 }
 
 /** Whether a mark counts as exercised: a partly-run range was reached. */
@@ -179,7 +225,7 @@ export function sequenceCoverage(model: SequenceModel, cov: ModelCoverage): Sequ
     b.branches.forEach((br, i) => {
       // `range` is bynk#3584 (v0.625.2): an older server sends none, and
       // coverage says nothing about the branch rather than guess from the block.
-      if (br.range) branches[sequenceIds.operand(b.id, i)] = rangeMark(cov, br.range);
+      if (br.range) branches[sequenceIds.operand(b.id, i)] = branchMark(cov, b, i);
     });
   }
   return {
@@ -192,11 +238,12 @@ export function sequenceCoverage(model: SequenceModel, cov: ModelCoverage): Sequ
 
 // -- Wording. --
 
-/** The legend line under a view's coverage toggle: what the marks mean, how
- *  old they are, and that they are not per-test. */
-export function coverageNote(cov: ModelCoverage, now: number): string[] {
+/** The legend line under a view's coverage toggle: what the marks mean, when
+ *  the run started (a time of day, which stays true as the page sits open, where
+ *  an age would not), and that they are not per-test. */
+export function coverageNote(cov: ModelCoverage): string[] {
   const lines = [
-    `Line coverage from the last whole-run coverage run (${cov.scope}), ${age(now - cov.runAt)}. ` +
+    `Line coverage from the last whole-run coverage run (${cov.scope}), started ${clockTime(cov.runAt)}. ` +
       "An element counts as tested when its lines ran; this cannot say which test reached it.",
   ];
   if (cov.stale) {
@@ -205,16 +252,14 @@ export function coverageNote(cov: ModelCoverage, now: number): string[] {
   return lines;
 }
 
-/** "2 minutes ago". */
-export function age(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 45) return "just now";
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
-  const h = Math.round(m / 60);
-  if (h < 36) return `${h} hour${h === 1 ? "" : "s"} ago`;
-  const d = Math.round(h / 24);
-  return `${d} day${d === 1 ? "" : "s"} ago`;
+/** A time of day, `14:32` (the local zone, 24 hours), with the date when it
+ *  is not today: `16 Nov, 14:32`. `now` is the page's clock. */
+export function clockTime(ms: number, now: number = Date.now()): string {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return d.toDateString() === new Date(now).toDateString()
+    ? time
+    : `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, ${time}`;
 }
 
 /** The word a mark adds to an element's accessible name and tooltip, so a

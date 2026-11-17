@@ -4,10 +4,12 @@ import * as assert from "assert";
 
 import type { FileLines } from "../../src/coverageModel";
 import {
-  age,
+  branchMark,
+  clockTime,
   combineMarks,
   coverageNote,
   type ModelCoverage,
+  mergeRun,
   modelCoverageFor,
   rangeMark,
   sequenceCoverage,
@@ -55,6 +57,30 @@ describe("modelCoverageFor", () => {
   it("matches a Windows path whatever its case or separators", () => {
     const win: FileLines[] = [{ file: "C:\\Work\\Shop\\a.bynk", covered: 0, total: 1, statements: [{ line: 1, executed: false }] }];
     assert.ok(modelCoverageFor(win, "c:/work/shop/a.bynk", { runAt: 1, scope: "x", stale: false }));
+  });
+});
+
+describe("mergeRun (#144)", () => {
+  const part = (file: string, runAt: number, scope = "the whole project"): { files: FileLines[]; scope: string; runAt: number } => ({
+    files: [{ file, covered: 1, total: 1, statements: [{ line: 1, executed: true }] }],
+    scope,
+    runAt,
+  });
+  it("keeps every project's files when a Run All reports them one after another", () => {
+    const first = mergeRun(undefined, false, part("/a/x.bynk", 100));
+    const both = mergeRun(first, true, part("/b/y.bynk", 120));
+    assert.deepStrictEqual(both.files.map((f) => f.file), ["/a/x.bynk", "/b/y.bynk"]);
+    assert.strictEqual(both.runAt, 100, "the earliest start, so a file saved during any part reads as changed");
+  });
+  it("replaces a file only with a newer report of itself", () => {
+    const merged = mergeRun(part("/a/x.bynk", 100), true, part("/a/x.bynk", 150));
+    assert.strictEqual(merged.files.length, 1);
+  });
+  it("starts afresh for another run", () => {
+    const next = mergeRun(part("/a/x.bynk", 100), false, part("/b/y.bynk", 200, 'the case "c"'));
+    assert.deepStrictEqual(next.files.map((f) => f.file), ["/b/y.bynk"]);
+    assert.strictEqual(next.scope, 'the case "c"');
+    assert.strictEqual(next.runAt, 200);
   });
 });
 
@@ -189,7 +215,8 @@ describe("sequenceCoverage", () => {
       msg("StateWrite", 12), // m3: not a call
     ],
     blocks: [
-      block(0, "If", [{ range: R(7, 8) }, { range: R(9, 11) }, {}]),
+      // `then`: the `if` line (7) and its body (8-9); `else`: lines 10-12.
+      block(0, "If", [{ range: R(6, 8) }, { range: R(9, 11) }, {}]),
       block(1, "Collapsed", [{ range: R(20) }]),
     ],
   };
@@ -201,7 +228,7 @@ describe("sequenceCoverage", () => {
     assert.deepStrictEqual(sc.calls, { tested: 1, total: 2, unmeasured: 0 });
   });
   it("marks each branch of a block by its own range", () => {
-    // Lines 8-9 hold the executed line 8; lines 10-12 are all missed.
+    // The `then` body (lines 8-9) ran line 8; the `else` (lines 10-12) is all missed.
     assert.deepStrictEqual(sc.branches, { "b0.0": "covered", "b0.1": "uncovered" });
     assert.deepStrictEqual(sc.branchTally, { tested: 1, total: 2, unmeasured: 0 });
   });
@@ -211,23 +238,64 @@ describe("sequenceCoverage", () => {
   });
 });
 
-describe("coverageNote and age", () => {
-  it("says what the marks are, and that they are not per-test", () => {
-    const [line] = coverageNote(cov([], [], { runAt: 0 }), 5 * 60_000);
+describe("branchMark (#144, bynk#3599)", () => {
+  // if a {            line 1  cond a
+  //   X               line 2
+  // } else if b {     line 3  cond b (the inner `if` starts here)
+  //   Y               line 4
+  // } else {          line 5
+  //   Z               line 6
+  // }                 line 7
+  const outer = block(0, "If", [{ range: { start: { line: 0, character: 0 }, end: { line: 2, character: 1 } } }, { range: { start: { line: 2, character: 9 }, end: { line: 6, character: 1 } } }]);
+  const inner = block(1, "If", [{ range: { start: { line: 2, character: 9 }, end: { line: 4, character: 1 } } }, { range: { start: { line: 4, character: 7 }, end: { line: 6, character: 1 } } }]);
+
+  it("does not call an arm tested because its condition, or a later arm, ran", () => {
+    // Only the final `else` ran: both conditions were evaluated, then Z.
+    const c = cov([1, 3, 6], [2, 4]);
+    assert.strictEqual(branchMark(c, outer, 0), "uncovered", "X never ran: the condition line and the `} else if b {` line are not its body");
+    assert.strictEqual(branchMark(c, inner, 0), "uncovered", "Y never ran, though `else if b` was evaluated");
+    assert.strictEqual(branchMark(c, inner, 1), "covered", "Z ran");
+    assert.strictEqual(branchMark(c, outer, 1), "partial", "the else arm was entered: its chain is partly run");
+  });
+
+  it("marks each arm tested when its own body ran", () => {
+    const c = cov([1, 2], [4, 6]);
+    assert.strictEqual(branchMark(c, outer, 0), "covered");
+    assert.strictEqual(branchMark(c, inner, 0), "uncovered");
+  });
+
+  it("leaves a `then` arm that fits on its condition's line unmeasured, rather than tested", () => {
+    const oneLine = block(2, "If", [{ range: R(0) }, { range: R(1) }]);
+    assert.strictEqual(branchMark(cov([1], []), oneLine, 0), "unmeasured");
+  });
+
+  it("does not skip the first line of a `match` arm, or of an `else` arm", () => {
+    const m = block(3, "Match", [{ range: R(0, 1) }, { range: R(2, 3) }]);
+    assert.strictEqual(branchMark(cov([1], [3, 4]), m, 0), "covered");
+    assert.strictEqual(branchMark(cov([1], [3, 4]), m, 1), "uncovered");
+  });
+
+  it("is unmeasured for a branch with no range (an older server)", () => {
+    assert.strictEqual(branchMark(cov([1], []), block(4, "If", [{}]), 0), "unmeasured");
+  });
+});
+
+describe("coverageNote and clockTime", () => {
+  it("says what the marks are, when the run started, and that they are not per-test", () => {
+    const [line] = coverageNote(cov([], [], { runAt: new Date(2026, 10, 17, 14, 32).getTime() }));
     assert.ok(line.includes("the whole project"));
-    assert.ok(line.includes("5 minutes ago"));
+    assert.ok(/started (14:32|16 Nov|17 Nov)/.test(line), line);
     assert.ok(line.includes("cannot say which test reached it"));
   });
   it("warns when the source changed after the run", () => {
-    assert.strictEqual(coverageNote(cov([], []), 2_000).length, 1);
-    const lines = coverageNote(cov([], [], { stale: true }), 2_000);
+    assert.strictEqual(coverageNote(cov([], [])).length, 1);
+    const lines = coverageNote(cov([], [], { stale: true }));
     assert.strictEqual(lines.length, 2);
     assert.ok(lines[1].includes("changed since that run"));
   });
-  it("words an age", () => {
-    assert.strictEqual(age(10_000), "just now");
-    assert.strictEqual(age(60_000), "1 minute ago");
-    assert.strictEqual(age(3 * 3_600_000), "3 hours ago");
-    assert.strictEqual(age(3 * 86_400_000), "3 days ago");
+  it("shows a time of day, with the date when it is not today", () => {
+    const ran = new Date(2026, 10, 17, 9, 5).getTime();
+    assert.strictEqual(clockTime(ran, new Date(2026, 10, 17, 23, 0).getTime()), "09:05");
+    assert.strictEqual(clockTime(ran, new Date(2026, 10, 19, 8, 0).getTime()), "17 Nov, 09:05");
   });
 });
