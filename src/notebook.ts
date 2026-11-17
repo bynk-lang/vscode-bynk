@@ -36,8 +36,12 @@ import {
   type CellInput,
   type EvalResult,
 } from "./notebookCore";
+import { decodeResponse, handlerSource, noUnitSuite, renderResponse, responseJson, suiteNote, withCall } from "./notebookHandlerCore";
 import { registerNotebookSerializer } from "./notebookSerializer";
 import { activeProjectRoot, projectRootFor } from "./projectRoots";
+import { projectRoutes } from "./scenario";
+import { actorClause, writeCall } from "./scenarioPromoteCore";
+import { unitMatches } from "./scenarioCore";
 
 const CONTROLLER_ID = "bynk-notebook-controller";
 /** The extension kills `bynk eval` this long after its own time limit, in case
@@ -169,6 +173,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     // a refined-type cell is its own run; every other cell is an expression.
     const directive = cellKindOf(cell.document.getText());
     if (directive.kind === "bad-directive") return fail(`${directive.problem} (${directive.directive})`);
+    if (directive.kind === "handler") return runHandler({ cell, execution, root, unit, cells, index, codeCells, forget: () => mine.delete(cell.document.uri.toString()) });
     const refined = analyseRefined(cell.document.getText());
     if (refined) return runRefined({ cell, execution, root, unit, cells, index, codeCells, refined, remember: () => mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit }), forget: () => mine.delete(cell.document.uri.toString()) });
     const snippet = buildSnippet(cells, index, unit);
@@ -215,6 +220,97 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     await execution.replaceOutput(outputs);
     if (ok && placed.every((d) => d.severity !== "error")) mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit });
     else mine.delete(cell.document.uri.toString());
+    execution.end(ok, Date.now());
+  }
+
+  interface HandlerRun {
+    cell: vscode.NotebookCell;
+    execution: vscode.NotebookCellExecution;
+    root: vscode.Uri;
+    unit: string;
+    cells: CellInput[];
+    index: number;
+    codeCells: vscode.NotebookCell[];
+    forget: () => void;
+  }
+
+  /** A handler cell (#191): the cell's `stub`s and typed call, run inside the
+   *  unit's own unit-tier suite when it has one (so its stubs and fixtures
+   *  apply), else on their own. When the call is the cell's last statement, the
+   *  response is read back as a variant and its payload. */
+  async function runHandler(r: HandlerRun): Promise<void> {
+    const { cell, execution, root, unit, index, codeCells } = r;
+    const source = cell.document.getText();
+    const { text, cell: observed } = handlerSource(source);
+    const snippet = buildSnippet(r.cells.map((c, i) => (i === index ? { ...c, source: text } : c)), index, unit);
+    // The cell's own body, not the snippet: stubs and earlier cells' `let`s fill it too.
+    if (analyseCell(source).body.length === 0) {
+      void execution.replaceOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error(new Error("This cell has no call to run: write the handler's call under `// @handler`, or use **Bynk: Insert Handler Call…**."))]));
+      execution.end(false, Date.now());
+      return;
+    }
+    const buffers = dirtyBuffers(root.fsPath);
+    const hasBuffers = Object.keys(buffers).length > 0;
+    // One limit for the cell: a second call, without the suite, gets what is left of it.
+    const limit = timeoutSeconds() ?? 60;
+    const startedAt = Date.now();
+    let usedSuite = true;
+    let evaluated: EvalResult | "cancelled" | undefined;
+    for (const suite of [unit, undefined]) {
+      const seconds = Math.max(1, Math.floor(limit - (Date.now() - startedAt) / 1000));
+      evaluated = await evaluate(evalArgs({ root: root.fsPath, unit, suite, snippet: snippet.text, sourcesStdin: hasBuffers, timeoutSeconds: seconds }), root.fsPath, hasBuffers ? JSON.stringify(buffers) : undefined, execution.token, seconds);
+      if (evaluated === "cancelled") {
+        execution.end(undefined, Date.now());
+        return;
+      }
+      usedSuite = suite !== undefined;
+      // A unit with no unit-tier suite (none, or only another tier) is run without one.
+      if (!(suite !== undefined && evaluated.kind === "error" && evaluated.errorKind === "setup" && noUnitSuite(evaluated.message))) break;
+    }
+    const result = evaluated as EvalResult;
+
+    const placed = placeDiagnostics(result.diagnostics, snippet.origins);
+    // A bare call was bound on its own line: a column there is shifted by the binding.
+    const shifted = placed.map((d) => (d.cell === index && d.at !== undefined && d.at === observed.rewritten ? { ...d, col: 1 } : d));
+    // A problem in the `match` the extension appended is not on a line the user wrote.
+    const inAppended = (d: CellDiagnostic): boolean => observed.appendedFrom !== undefined && d.cell === index && d.at !== undefined && d.at >= observed.appendedFrom;
+    showDiagnostics(codeCells[index], index, shifted.filter((d) => !inAppended(d)));
+    const notes: string[] = snippetNotes(snippet, (i) => `cell ${codeCells[i].index + 1}`);
+    for (const d of shifted.filter((x) => x.cell === undefined || x.cell !== index)) notes.push(describe(d, codeCells, index));
+    for (const d of shifted.filter(inAppended)) notes.push(`The extension's \`match\` over the response didn't check (${d.code || d.severity}): ${d.message} End the cell with a \`match\` of your own to show the response.`);
+    const hasStubs = snippet.stubs.length > 0 || analyseCell(source).header.some((h) => h.text.trimStart().startsWith("stub"));
+    if (result.kind !== "diagnostics") notes.push(suiteNote(unit, usedSuite, hasStubs));
+
+    let items: vscode.NotebookCellOutputItem[] = [];
+    let ok = false;
+    switch (result.kind) {
+      case "value": {
+        const response = observed.response ? decodeResponse(result.value) : undefined;
+        if (observed.response && !response) {
+          items = [vscode.NotebookCellOutputItem.text(`Expected the response of \`${observed.response}\`, got ${renderValue(result.value)}\n: ${result.type}`, "text/plain")];
+        } else if (response) {
+          ok = response.variant !== null;
+          items = [vscode.NotebookCellOutputItem.text(ok ? renderResponse(response) : `${renderResponse(response)}: it is a raw or streamed body. End the cell with a \`match\` of your own to read it.`, "text/plain"), vscode.NotebookCellOutputItem.json(responseJson(response), "application/json")];
+        } else {
+          ok = true;
+          items = [vscode.NotebookCellOutputItem.text(`${renderValue(result.value)}\n: ${result.type}`, "text/plain"), vscode.NotebookCellOutputItem.json({ value: result.value, type: result.type }, "application/json")];
+        }
+        break;
+      }
+      case "diagnostics":
+        items = [vscode.NotebookCellOutputItem.text(placed.length > 0 ? "The cell doesn't check." : "bynk eval gave no value.", "text/plain")];
+        break;
+      case "error":
+        items = [vscode.NotebookCellOutputItem.error(Object.assign(new Error(result.message), { name: result.errorKind === "timeout" ? "Timed out" : result.errorKind === "setup" ? "Could not run" : "Runtime error" }))];
+        break;
+    }
+    const outputs = [new vscode.NotebookCellOutput(items)];
+    if (notes.length > 0) outputs.push(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain")]));
+    await execution.replaceOutput(outputs);
+    // A handler cell binds nothing a later cell may use: its `let`s would send the
+    // call again, in a cell that runs without the suite (and its stubs). It counts
+    // as not run, so `buildSnippet` leaves it out.
+    r.forget();
     execution.end(ok, Date.now());
   }
 
@@ -364,6 +460,60 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
       const doc = await vscode.workspace.openNotebookDocument(NOTEBOOK_TYPE, data);
       await vscode.window.showNotebookDocument(doc);
       if (root) await chooseUnit(doc, root);
+    }),
+    vscode.commands.registerCommand("bynk.notebook.insertHandlerCall", async () => {
+      const editor = vscode.window.activeNotebookEditor;
+      const nb = editor?.notebook;
+      const cell = editor && editor.selections[0] ? nb?.cellAt(editor.selections[0].start) : undefined;
+      if (!nb || nb.notebookType !== NOTEBOOK_TYPE || !cell || cell.kind !== vscode.NotebookCellKind.Code) {
+        void vscode.window.showErrorMessage("Bynk Notebook: select a code cell to put the handler call in.");
+        return;
+      }
+      const source = cell.document.getText();
+      const kind = cellKindOf(source);
+      if (kind.kind !== "expression" && kind.kind !== "handler") {
+        void vscode.window.showErrorMessage(kind.kind === "refined" ? "Bynk Notebook: this is a refined-type cell; use an empty cell for a handler call." : `Bynk Notebook: ${kind.problem}`);
+        return;
+      }
+      if (!vscode.workspace.isTrusted) {
+        void vscode.window.showErrorMessage("Bynk Notebook: trust this workspace first; the routes come from the language server's analysis of your project.");
+        return;
+      }
+      const root = await projectRootFor(nb.uri);
+      if (!root) {
+        void vscode.window.showErrorMessage("Bynk Notebook: this notebook is not in a Bynk project (no `bynk.toml` above it).");
+        return;
+      }
+      const unit = await resolveUnit(nb, cell, root);
+      if (!unit) return;
+      const { routes, complete } = await projectRoutes(root);
+      const here = routes.filter((r) => unitMatches(r.unit, unit) && r.service);
+      if (here.length === 0) {
+        void vscode.window.showErrorMessage(complete ? `Bynk Notebook: \`${unit}\` serves no HTTP route to call. A handler cell calls an HTTP handler of the cell's unit.` : "Bynk Notebook: the language server hasn't described the project's routes yet. Wait for it to start and try again.");
+        return;
+      }
+      const pick = await vscode.window.showQuickPick(
+        here.map((r) => ({ label: `${r.method} ${r.path}`, description: r.service, route: r })),
+        { title: `Bynk Notebook: the handler of \`${unit}\` to call`, ignoreFocusOut: true },
+      );
+      if (!pick) return;
+      const route = pick.route;
+      const admits = route.actors ?? [];
+      let actor: string | undefined;
+      if (admits.length > 0) {
+        actor = admits.includes("Visitor") ? "Visitor" : admits.length === 1 ? admits[0] : await vscode.window.showQuickPick(admits, { title: "Run the call as which actor?", ignoreFocusOut: true });
+        if (!actor) return;
+      }
+      const call = writeCall(route, actor ? actorClause(actor, route.identities?.[actor]) : undefined);
+      if (!call) {
+        void vscode.window.showErrorMessage(`Bynk Notebook: ${route.method} ${route.path} can't be written as a call (it takes a raw body, or the server named no service).`);
+        return;
+      }
+      const edit = new vscode.WorkspaceEdit();
+      const doc = cell.document;
+      edit.replace(doc.uri, new vscode.Range(0, 0, doc.lineCount, 0), withCall(source, call.text, kind.kind));
+      await vscode.workspace.applyEdit(edit);
+      if (call.holes.length > 0) void vscode.window.showWarningMessage(`Bynk Notebook: fill in ${call.holes.join("; ")}`);
     }),
     vscode.commands.registerCommand("bynk.notebook.chooseUnit", async () => {
       const nb = vscode.window.activeNotebookEditor?.notebook;

@@ -320,6 +320,23 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
     every later cell, so a stub that counts calls can answer differently: the
     output says "Re-ran `let x <- …` from cell N". A cell edited since it last ran
     is left out, and the output says so.
+  - **Handler cells** (`// @handler` on a cell's first line) call a handler of the
+    cell's unit as a unit-test case does: `stub` lines, then a call such as
+    `let r <- api.POST("/todos", Todo { title: "a", done: false }) by User(UserId.unsafe("bob"))`.
+    The output is the response, as the `HttpResult` variant, its status and its payload
+    (`Created({ done: false, title: "a" })`), with the JSON as an alternate output.
+    **Bynk: Insert Handler Call…** picks one of the unit's HTTP routes and writes the
+    call with placeholder arguments of the right types and the `by` clause. The cell
+    runs inside the unit's own unit-tier suite when it has one (`bynk eval --suite`),
+    so its `stub`s, `fn`s and fixtures apply (where the suite and the cell stub the
+    same operation, the suite's answers), and on its own otherwise; the output says
+    which. The response is read when the call is the cell's last statement; end the
+    cell with a `match` of your own to show something else, or to read a raw or
+    streamed body. A handler cell's `let`s are not sent ahead of later cells (that would
+    call the handler again, outside the suite).
+    `trace(Cap.op)` records are not shown: a snippet can count them
+    (`trace(Cap.op).length()`) but `bynk eval` cannot return the list (v0.639.1;
+    bynk-lang/bynk#3699, #3700).
   - **A cell runs only when you run it**, never on open, hover or save: it is
     your code, at the trust of `bynk test`. A notebook in an untrusted workspace
     won't run. A cell is stopped after `bynk.notebook.timeoutSeconds` (60).

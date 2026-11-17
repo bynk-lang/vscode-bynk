@@ -610,6 +610,11 @@
         "category": "Bynk"
       },
       {
+        "command": "bynk.notebook.insertHandlerCall",
+        "title": "Insert Handler Call…",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.scenario.run",
         "title": "Run Scenario",
         "category": "Bynk",
@@ -945,6 +950,10 @@
         },
         {
           "command": "bynk.notebook.chooseUnit",
+          "when": "!isWeb && notebookType == 'bynk-notebook'"
+        },
+        {
+          "command": "bynk.notebook.insertHandlerCall",
           "when": "!isWeb && notebookType == 'bynk-notebook'"
         },
         {

@@ -67,7 +67,7 @@ const EXCLUDE = "**/{node_modules,.bynk,.git}/**";
 /** Every HTTP route a project's handlers serve, as the language server
  *  describes them; `complete` is false when the server could not answer (not
  *  started, a request failed), so "no such route" would be a guess. */
-interface RouteSet {
+export interface RouteSet {
   routes: RouteInfo[];
   complete: boolean;
 }
@@ -187,8 +187,17 @@ async function readTarget(root: vscode.Uri, name: string): Promise<TestTarget | 
   return refusedReason(found) ? { error: refusedReason(found)! } : found;
 }
 
+/** The routes of a project, once `registerScenario` has run (a notebook's
+ *  handler cell picks its call from them, #191). */
+let routeProvider: ((root: vscode.Uri) => Promise<RouteSet>) | undefined;
+export function projectRoutes(root: vscode.Uri): Promise<RouteSet> {
+  return routeProvider ? routeProvider(root) : Promise.resolve({ routes: [], complete: false });
+}
+
 export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefresh): void {
   const index = new RouteIndex(hub);
+  routeProvider = (root) => index.routes(root);
+  context.subscriptions.push({ dispose: () => { routeProvider = undefined; } });
   const diagnostics = vscode.languages.createDiagnosticCollection("bynk-http");
   const runDiagnostics = vscode.languages.createDiagnosticCollection("bynk-http-run");
   const output = vscode.window.createOutputChannel("Bynk Scenario");
