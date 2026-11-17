@@ -312,6 +312,45 @@ describe("Worker groups in the Environments view (#182)", () => {
     assert.deepStrictEqual(migrations?.children.map((c) => c.label), ["shop.orders.Cart"]);
   });
 
+  const ids = (nodes: EnvTreeNode[]): string[] => nodes.flatMap((n) => [n.id, ...ids(n.children)]);
+  const unique = (nodes: EnvTreeNode[]): void => {
+    const all = ids(nodes);
+    assert.deepStrictEqual(all, [...new Set(all)], "every tree id is unique (VS Code throws on a duplicate)");
+  };
+
+  it("keeps every tree id unique, with the member ids scoped under the group", () => {
+    const [env] = tree();
+    unique([env]);
+    assert.ok(find([env], "default/core/shop.orders"));
+  });
+
+  it("keeps ids unique for a renamed group, and says the old one is not in bynk.toml", () => {
+    // The ledger still holds `core`; the manifest now calls the group `main`.
+    const renamed = [{ key: "main", contexts: ["shop.orders", "shop.catalogue"] }];
+    const rows = [row({ context: "shop.orders", service: "api", status: "added", live: null })];
+    const [env] = tree({ groups: renamed, drift: rows });
+    unique([env]);
+    const old = env.children.find((c) => c.label === "core");
+    assert.match(old?.description ?? "", /not in bynk\.toml/);
+  });
+
+  it("marks a Worker left over from before its context joined a group, rather than showing it as in sync", () => {
+    const lock = GROUP_LOCK + "\n[environments.default.workers.shop-orders]\ndeployed = true\n";
+    const rows = [row({ context: "shop.orders", service: "api", status: "added", live: null })];
+    const [env] = tree({ lock, drift: rows });
+    unique([env]);
+    const old = env.children.find((c) => c.contextValue === "bynkEnvContext" && c.label === "shop.orders");
+    assert.match(old?.description ?? "", /superseded by Worker group core/);
+    assert.ok(!/in sync/.test(old?.description ?? ""));
+  });
+
+  it("keeps ids unique when a group's key is a member's name", () => {
+    const groups = [{ key: "orders", contexts: ["orders", "billing"] }];
+    const lock = 'version = 1\n[environments.default.workers.orders]\ndeployed = true\ncontexts = ["orders", "billing"]\n';
+    const [env] = tree({ lock, groups, drift: [row({ context: "orders", service: "orders", status: "added", live: null })] });
+    unique([env]);
+  });
+
   it("leaves an ungrouped project's tree exactly as it was", () => {
     const base = buildEnvironmentsTree({ lock: LOCK, drift: [row({})], migrations: { kind: "status", classes: CLASSES } });
     const same = buildEnvironmentsTree({ lock: LOCK, drift: [row({})], migrations: { kind: "status", classes: CLASSES }, groups: [] });

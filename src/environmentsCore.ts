@@ -318,7 +318,16 @@ function buildEnvironment(env: LedgerEnvironment, input: EnvironmentsInput): Env
     seen.add(w.worker);
     const group = groupByKey(w.worker, groups);
     const mine = rows.filter((r) => workerKey(r.context, groups) === w.worker);
-    contexts.push(group ? buildGroup(env.name, w, group, mine, driftKnown) : buildContext(env.name, w, mine, driftKnown));
+    // A Worker left over from before its context joined a group (the extension never passes
+    // `--prune`): it is not where that context lives now, so it is marked, not shown as in sync.
+    const holder = group ? undefined : groups.find((g) => g.contexts.some((c) => workerKey(c) === w.worker));
+    contexts.push(
+      group
+        ? buildGroup(env.name, w, group, mine, driftKnown, input.groups !== undefined && !(input.groups ?? []).some((g) => g.key === group.key))
+        : holder
+          ? buildContext(env.name, w, [], false, undefined, { note: `superseded by Worker group ${holder.key}` })
+          : buildContext(env.name, w, mine, driftKnown),
+    );
   }
   // A context (or group) the working tree has, and the environment does not: undeployed.
   const extra = [...new Set(rows.map((r) => workerKey(r.context, groups)).filter((k) => !seen.has(k)))].sort();
@@ -386,7 +395,7 @@ function contextState(n: EnvTreeNode): DriftState {
  *  ledger holds one contract table for the whole Worker, so each member shows
  *  the services the working tree attributes to it, and any live service no
  *  member's row names stays on the group. */
-function buildGroup(environment: string, w: WorkerRecord, group: WorkerGroup, rows: CdService[], driftKnown: boolean): EnvTreeNode {
+function buildGroup(environment: string, w: WorkerRecord, group: WorkerGroup, rows: CdService[], driftKnown: boolean, stale = false): EnvTreeNode {
   const live = w.contracts;
   const claimed = new Set<string>();
   const members: EnvTreeNode[] = [];
@@ -399,20 +408,21 @@ function buildGroup(environment: string, w: WorkerRecord, group: WorkerGroup, ro
     for (const svc of Object.keys(own ?? {})) claimed.add(svc);
     // A member the Worker was not last pushed with joins it at the next deploy.
     const inWorker = w.deployed && (recorded.length === 0 || recorded.some((c) => sameContext(c, member)));
-    members.push(buildContext(environment, { worker: w.worker, deployed: inWorker, contracts: own }, mine, driftKnown, member));
+    members.push(buildContext(environment, { worker: w.worker, deployed: inWorker, contracts: own }, mine, driftKnown, member, { idBase: `${group.key}/${member}` }));
   }
   const states = members.map(contextState);
   const state = worstDrift(states);
   const leftover: EnvTreeNode[] = Object.entries(live ?? {})
     .filter(([svc]) => !claimed.has(svc))
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([svc, hash]) => serviceNode(environment, group.key, svc, hash, undefined, undefined));
+    .map(([svc, hash]) => serviceNode(environment, `${group.key}/~`, svc, hash, undefined, undefined));
   const script = group.name && group.name !== group.key ? group.name : w.script && w.script !== w.worker ? w.script : undefined;
   const bits = [`Worker group · ${names.length} context${names.length === 1 ? "" : "s"}`];
   if (!w.deployed) bits.push("not deployed");
   else if (live === undefined) bits.push("deployed · no contract record");
   else bits.push("deployed");
   if (driftKnown) bits.push(driftLabel(state));
+  if (stale) bits.push("not in bynk.toml");
   return {
     id: `${environment}/${group.key}`,
     label: group.key,
@@ -435,8 +445,12 @@ function buildContext(
   rows: CdService[],
   driftKnown: boolean,
   dotted?: string,
+  opts: { idBase?: string; note?: string } = {},
 ): EnvTreeNode {
   const context = dotted ?? rows[0]?.context ?? contextFromWorker(w.worker);
+  // A group's member is scoped under the group (`env/<group>/<member>`), so the same context
+  // shown under two groups, or beside a Worker left over from before the group, keeps a unique id.
+  const base = opts.idBase ?? context;
   const state = worstDrift(rows.map(serviceDrift));
   const byService = new Map(rows.map((r) => [r.service, r]));
   const services: EnvTreeNode[] = [];
@@ -444,23 +458,24 @@ function buildContext(
     const row = byService.get(service);
     byService.delete(service);
     const d = row ? serviceDrift(row) : "in-sync";
-    services.push(serviceNode(environment, context, service, hash, driftKnown ? d : undefined, row));
+    services.push(serviceNode(environment, base, service, hash, driftKnown ? d : undefined, row));
   }
   // Rows the ledger does not hold a hash for: new services, or ones whose live
   // record is absent.
   for (const row of [...byService.values()].sort((a, b) => a.service.localeCompare(b.service))) {
-    services.push(serviceNode(environment, context, row.service, row.live ?? undefined, serviceDrift(row), row));
+    services.push(serviceNode(environment, base, row.service, row.live ?? undefined, serviceDrift(row), row));
   }
   const bits: string[] = [];
   if (!w.deployed) bits.push("not deployed");
   else if (w.contracts === undefined) bits.push("deployed · no contract record");
   else bits.push("deployed");
   if (driftKnown) bits.push(driftLabel(state));
+  if (opts.note) bits.push(opts.note);
   const node: EnvTreeNode = {
-    id: `${environment}/${context}`,
+    id: `${environment}/${base}`,
     label: context,
     description: bits.join(" · "),
-    tooltip: `${context} (Worker ${w.worker}) in ${environment}`,
+    tooltip: `${context} (Worker ${w.worker}) in ${environment}${opts.note ? `\n${opts.note}` : ""}`,
     icon: !w.deployed ? "circle-slash" : state === "breaking" ? "error" : state === "in-sync" || !driftKnown ? "pass" : "warning",
     contextValue: "bynkEnvContext",
     data: { kind: "context", environment, context, drift: driftKnown ? state : "in-sync" },

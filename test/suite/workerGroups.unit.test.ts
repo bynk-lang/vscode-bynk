@@ -54,6 +54,11 @@ describe("parseWorkerGroups (#182)", () => {
     ]);
   });
 
+  it("does not read an array of tables' keys as the group's", () => {
+    const text = '[deploy.workers.core]\ncontexts = ["a.b"]\n\n[[other]]\nname = "x"\ncontexts = ["z.z"]\n';
+    assert.deepStrictEqual(parseWorkerGroups(text), [{ key: "core", contexts: ["a.b"] }]);
+  });
+
   it("ignores other tables' keys and a group with no contexts", () => {
     assert.deepStrictEqual(parseWorkerGroups('[workers]\ncontexts = ["x.y"]\n\n[deploy.workers.empty]\nname = "n"\n'), []);
   });

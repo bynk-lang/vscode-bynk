@@ -95,7 +95,12 @@ export function parseWorkerGroups(text: string): WorkerGroup[] {
       if (prefix && prefix[1] === "workers" && prefix.length >= 3) draft(prefix[2]);
       continue;
     }
-    if (line.startsWith("[[") || !prefix) continue;
+    // An array of tables ends the table before it: its keys are not that table's.
+    if (line.startsWith("[[")) {
+      prefix = undefined;
+      continue;
+    }
+    if (!prefix) continue;
     const eq = line.indexOf("=");
     if (eq < 0) continue;
     const key = keyParts(line.slice(0, eq));
