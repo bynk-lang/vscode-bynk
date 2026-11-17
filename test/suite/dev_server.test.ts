@@ -191,16 +191,22 @@ describe("Bynk dev server (#2094)", () => {
     this.timeout(60_000);
     await vscode.commands.executeCommand("bynk.clearLogs");
     process.env.BYNK_FAKE_VERSION = "0.626.0";
+    const devRuns = () => fake.read().filter((e) => e.argv?.[0] === "dev");
     try {
       for (let run = 0; run < 2; run++) {
+        const before = devRuns().length;
         const started = nextTask(vscode.tasks.onDidStartTask);
         await vscode.commands.executeCommand("bynk.startDevServer");
         await started;
-        const runs = fake.read().filter((e) => e.argv?.[0] === "dev");
-        assert.ok(!runs[runs.length - 1].argv!.includes("--trace-events"), "an older bynk is not given the flag");
-        const ended = nextTask(vscode.tasks.onDidEndTask);
-        await vscode.commands.executeCommand("bynk.stopDevServer");
-        await ended;
+        // The stand-in logs its argv as it starts, which can be after the task does.
+        const runs = await waitFor(devRuns, (r) => r.length > before, "the stand-in to start");
+        try {
+          assert.ok(!runs[runs.length - 1].argv!.includes("--trace-events"), "an older bynk is not given the flag");
+        } finally {
+          const ended = nextTask(vscode.tasks.onDidEndTask);
+          await vscode.commands.executeCommand("bynk.stopDevServer");
+          await ended;
+        }
       }
       const lines = (await vscode.commands.executeCommand<string[]>("bynk.logLines")) ?? [];
       assert.strictEqual(lines.filter((l) => l.includes("Request traces need bynk v0.627.1")).length, 1, "said once, not at every start");
@@ -215,12 +221,12 @@ describe("Bynk dev server (#2094)", () => {
     const config = vscode.workspace.getConfiguration("bynk");
     await config.update("dev.traceRequests", false, vscode.ConfigurationTarget.Global);
     try {
-      const before = fake.read().filter((e) => e.argv?.[0] === "dev").length;
+      const devRuns = () => fake.read().filter((e) => e.argv?.[0] === "dev");
+      const before = devRuns().length;
       const started = nextTask(vscode.tasks.onDidStartTask);
       await vscode.commands.executeCommand("bynk.startDevServer");
       await started;
-      const runs = fake.read().filter((e) => e.argv?.[0] === "dev");
-      assert.ok(runs.length > before);
+      const runs = await waitFor(devRuns, (r) => r.length > before, "the stand-in to start");
       assert.ok(!runs[runs.length - 1].argv!.includes("--trace-events"));
     } finally {
       await config.update("dev.traceRequests", undefined, vscode.ConfigurationTarget.Global);
