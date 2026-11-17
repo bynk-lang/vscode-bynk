@@ -193,20 +193,26 @@ export function unitFor(cell: Pick<Cell, "unit">, notebookUnit: string | undefin
 // that follow (handler cells, #191) add a directive and a case here and a branch
 // where the editor side runs them.
 
-export type CellKind = { kind: "expression" } | { kind: "refined"; type: string };
+export type CellKind = { kind: "expression" } | { kind: "refined"; type: string } | { kind: "bad-directive"; directive: string; problem: string };
 
-const REFINED_DIRECTIVE = /^\s*\/\/\s*@refined\s+(\S+)\s*$/;
+const REFINED_DIRECTIVE = /^\s*\/\/\s*@refined(?:\s+(.*?))?\s*$/;
 const TYPE_NAME = /^[A-Z][A-Za-z0-9_]*$/;
 
 /** The kind of a code cell: a refined-type cell when a `// @refined Type` line
- *  comes before any code, else an expression cell. */
+ *  comes before any code, else an expression cell. A `// @refined` that doesn't
+ *  name a type (`percent`, `money.Percent`, nothing) is `bad-directive`, so the
+ *  cell is not quietly run as expressions. */
 export function cellKindOf(source: string): CellKind {
   for (const line of source.split("\n")) {
     const t = line.trim();
     if (t === "") continue;
     if (!t.startsWith("//")) break;
     const m = REFINED_DIRECTIVE.exec(line);
-    if (m && TYPE_NAME.test(m[1])) return { kind: "refined", type: m[1] };
+    if (m) {
+      const name = m[1] ?? "";
+      if (TYPE_NAME.test(name)) return { kind: "refined", type: name };
+      return { kind: "bad-directive", directive: t, problem: name === "" ? "`// @refined` needs the name of a refined type, as in `// @refined Percent`." : `\`${name}\` is not a type name: write \`// @refined\` followed by a type declared in the unit, starting with a capital letter (a qualified name is not accepted).` };
+    }
   }
   return { kind: "expression" };
 }
@@ -310,6 +316,48 @@ export function decodeRefined(sent: readonly Candidate[], value: unknown): Candi
     } else return undefined;
   }
   return rows;
+}
+
+/** Whether the problems of a run are the candidates' own, and so the candidates
+ *  can be set aside and the rest run again: every error is on a line a
+ *  candidate was written on, in this cell. Any other error (an earlier cell's
+ *  `let`, an unknown type, another file) would fail the rest too, so there is
+ *  nothing to set aside. Returns the lines to skip and a row for each candidate
+ *  (one row per candidate even when it has several errors, the first one's
+ *  message), or undefined. */
+export function setAside(placed: readonly CellDiagnostic[], sent: readonly Candidate[], index: number): { skip: Set<number>; invalid: CandidateRow[] } | undefined {
+  const errors = placed.filter((d) => d.severity === "error");
+  if (errors.length === 0) return undefined;
+  const byLine = new Map(sent.map((c) => [c.line, c]));
+  const skip = new Set<number>();
+  const invalid: CandidateRow[] = [];
+  for (const d of errors) {
+    const c = d.cell === index && d.at !== undefined ? byLine.get(d.at) : undefined;
+    if (!c) return undefined;
+    if (skip.has(c.line)) continue;
+    skip.add(c.line);
+    invalid.push({ candidate: c, outcome: "invalid", message: d.message });
+  }
+  return { skip, invalid };
+}
+
+/** The rows of both calls in the order the candidates were written. */
+export function mergeRows(...groups: readonly (readonly CandidateRow[] | undefined)[]): CandidateRow[] {
+  return groups.flatMap((g) => g ?? []).sort((a, b) => a.candidate.line - b.candidate.line);
+}
+
+/** The rows as the cell's `application/json` output. */
+export function refinedJson(type: string, rows: readonly CandidateRow[]): unknown {
+  return {
+    type,
+    results: rows.map((r) => ({
+      candidate: r.candidate.text,
+      outcome: r.outcome,
+      ...(r.value !== undefined ? { value: r.value } : {}),
+      ...(r.message !== undefined ? { message: r.message } : {}),
+      ...(r.field !== undefined ? { field: r.field } : {}),
+    })),
+  };
 }
 
 /** The rows as an aligned table, in the order the candidates were written. */

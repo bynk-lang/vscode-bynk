@@ -16,14 +16,18 @@ import {
   analyseCell,
   analyseRefined,
   buildSnippet,
+  cellKindOf,
   decodeEval,
   decodeRefined,
   evalArgs,
   isUnitName,
+  mergeRows,
   placeDiagnostics,
+  refinedJson,
   refinedSource,
   renderRefinedTable,
   renderValue,
+  setAside,
   snippetNotes,
   unitFor,
   unitNames,
@@ -163,6 +167,8 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const index = codeCells.findIndex((c) => c.index === cell.index);
     // The cell kinds are told apart by `cellKindOf` (a leading `// @…` directive):
     // a refined-type cell is its own run; every other cell is an expression.
+    const directive = cellKindOf(cell.document.getText());
+    if (directive.kind === "bad-directive") return fail(`${directive.problem} (${directive.directive})`);
     const refined = analyseRefined(cell.document.getText());
     if (refined) return runRefined({ cell, execution, root, unit, cells, index, codeCells, refined, remember: () => mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit }), forget: () => mine.delete(cell.document.uri.toString()) });
     const snippet = buildSnippet(cells, index, unit);
@@ -240,7 +246,9 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const source = cell.document.getText();
     const buffers = dirtyBuffers(root.fsPath);
     const hasBuffers = Object.keys(buffers).length > 0;
-    const seconds = timeoutSeconds() ?? 60;
+    // One limit for the cell: the second call gets what is left of it.
+    const limit = timeoutSeconds() ?? 60;
+    const startedAt = Date.now();
     const skip = new Set<number>();
     const invalid: CandidateRow[] = [];
     const shown: CellDiagnostic[] = [];
@@ -251,7 +259,8 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
       const { text, sent } = refinedSource(source, refined, skip);
       if (sent.length === 0) break;
       const snippet = buildSnippet(r.cells.map((c, i) => (i === index ? { ...c, source: text } : c)), index, unit);
-      const evaluated = await evaluate(evalArgs({ root: root.fsPath, unit, snippet: snippet.text, sourcesStdin: hasBuffers, timeoutSeconds: timeoutSeconds() }), root.fsPath, hasBuffers ? JSON.stringify(buffers) : undefined, execution.token, seconds);
+      const seconds = Math.max(1, Math.floor(limit - (Date.now() - startedAt) / 1000));
+      const evaluated = await evaluate(evalArgs({ root: root.fsPath, unit, snippet: snippet.text, sourcesStdin: hasBuffers, timeoutSeconds: seconds }), root.fsPath, hasBuffers ? JSON.stringify(buffers) : undefined, execution.token, seconds);
       if (evaluated === "cancelled") {
         execution.end(undefined, Date.now());
         return;
@@ -259,17 +268,12 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
       const placed = placeDiagnostics(evaluated.diagnostics, snippet.origins);
       if (attempt === 0) notes.push(...snippetNotes(snippet, (i) => `cell ${codeCells[i].index + 1}`));
       const byLine = new Map(sent.map((c) => [c.line, c]));
-      const errors = placed.filter((d) => d.severity === "error");
-      const bad = errors.filter((d) => d.cell === index && d.at !== undefined && byLine.has(d.at));
-      if (attempt === 0 && evaluated.kind !== "error" && bad.length > 0 && bad.length === errors.length) {
+      const aside = attempt === 0 && evaluated.kind !== "error" ? setAside(placed, sent, index) : undefined;
+      if (aside) {
         // Only candidates are at fault: set them aside and run the rest.
-        for (const d of bad) {
-          const c = byLine.get(d.at as number) as NonNullable<ReturnType<typeof byLine.get>>;
-          if (skip.has(c.line)) continue;
-          skip.add(c.line);
-          invalid.push({ candidate: c, outcome: "invalid", message: d.message });
-        }
-        shown.push(...bad.map((d) => ({ ...d, col: 1 })));
+        for (const line of aside.skip) skip.add(line);
+        invalid.push(...aside.invalid);
+        shown.push(...placed.filter((d) => d.severity === "error").map((d) => ({ ...d, col: 1 })));
         continue;
       }
       shown.push(...placed.map((d) => (d.cell === index && d.at !== undefined && byLine.has(d.at) ? { ...d, col: 1 } : d)));
@@ -291,12 +295,14 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     let ok = false;
     if (failure) outputs.push(new vscode.NotebookCellOutput(failure.items));
     else {
-      const all = [...(rows ?? []), ...invalid].sort((a, b) => a.candidate.line - b.candidate.line);
-      ok = all.length > 0;
+      const all = mergeRows(rows, invalid);
+      // A cell where no candidate reached the constructor (a misspelt type, say)
+      // did not run: it shows what was found, but not as a success.
+      ok = rows !== undefined && all.length > 0;
       outputs.push(
         new vscode.NotebookCellOutput([
           vscode.NotebookCellOutputItem.text(renderRefinedTable(refined.type, all), "text/plain"),
-          vscode.NotebookCellOutputItem.json({ type: refined.type, results: all.map((x) => ({ candidate: x.candidate.text, outcome: x.outcome, ...(x.message !== undefined ? { message: x.message } : {}), ...(x.field !== undefined ? { field: x.field } : {}) })) }, "application/json"),
+          vscode.NotebookCellOutputItem.json(refinedJson(refined.type, all), "application/json"),
         ]),
       );
     }

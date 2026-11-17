@@ -353,7 +353,7 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
     (`must be in range [0, 100]`). A candidate that doesn't type-check as the
     constructor's argument (`"x"` for an `Int`) is marked `does not check`, with
     its diagnostic on its own line. It runs the project, so it runs only when you
-    run it, and the same unit, trust and timeout rules apply.
+    run it, and the same unit, trust and timeout rules apply (the timeout is for the whole cell, both calls together). A cell where no candidate reached the constructor, such as a misspelt type name, shows what was found but is not marked as run successfully.
   - Cells that call a handler with stubbed capabilities are to follow.
 - **Export OpenAPI** — **Bynk: Export OpenAPI…** writes an OpenAPI 3.1 document
   for the project's `from http` services with `bynk openapi`, as JSON or YAML by
