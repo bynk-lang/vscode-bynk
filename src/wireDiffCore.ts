@@ -342,8 +342,12 @@ export function classifyWire(before: WcModel, after: WcModel): WireVerdict {
 
   // Response: the later callee sends, the earlier caller receives.
   const res = { sender: a, receiver: b, out: [] as string[], seen: new Set<string>() };
-  if (before.kind.kind === "Http" && after.kind.kind === "Http") httpResponses(res, before, after);
-  else if (before.kind.kind === "Call" && after.kind.kind === "Call") inferredResponse(res, before, after, b, a);
+  if (before.kind.kind === "Http" && after.kind.kind === "Http") {
+    // A server before v0.633.4 (bynk#3609) reports no response shape, not even a
+    // `null` `success`: infer it as before, rather than compare nothing.
+    if (before.success !== undefined && after.success !== undefined) httpResponses(res, before, after);
+    else inferredResponse(res, before, after, b, a);
+  } else if (before.kind.kind === "Call" && after.kind.kind === "Call") inferredResponse(res, before, after, b, a);
   reasons.push(...res.out);
 
   // A response the callers never saw is one they may not handle.

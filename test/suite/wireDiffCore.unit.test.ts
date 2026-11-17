@@ -144,6 +144,15 @@ describe("wire contract classification (#154)", () => {
     assert.strictEqual(verdict(http(null, [], [implicit(null)]), http(null, [], [implicit({ kind: "Message" })])).verdict, "compatible");
   });
 
+  it("infers an HTTP handler's response from a server that reports none (before v0.633.4)", () => {
+    // No `success`, `payload` or `body` anywhere: the response is the types the request does not reach.
+    const old = (fields: WcField[]) => handler({ envelope: keyed(["id", INT]), types: [record("Out", fields)] });
+    const gone = verdict(old([field("id", INT), field("n", STR)]), old([field("id", INT)]));
+    assert.strictEqual(gone.verdict, "breaking");
+    assert.deepStrictEqual(gone.reasons, ["response Out.n: is now required"]);
+    assert.strictEqual(verdict(old([field("id", INT)]), old([field("id", INT), field("n", STR)])).verdict, "compatible");
+  });
+
   it("applies only the request side to a handler with no response", () => {
     // A cron job's `types` are its request's; whatever else the model lists is no response.
     const cron = (types: WcModel["types"]) => handler({ kind: { kind: "Cron", expr: "* * * * *" }, types });
