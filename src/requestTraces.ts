@@ -9,6 +9,7 @@ import * as vscode from "vscode";
 
 import { isInside } from "./pathInside";
 import {
+  newestTraceTarget,
   type RequestTrace,
   toTraceView,
   TraceStore,
@@ -59,13 +60,20 @@ export function tracesFor(model: SequenceModel, uri: string): TraceView[] {
     .filter((t) => traceRelevant(model, uri, t));
 }
 
-/** The newest trace's first located step, to open its handler's diagram at. */
-export function latestTraceLocation(): { uri: string; line: number; character: number } | undefined {
-  for (const t of store.all()) {
-    const at = view(t).steps.find((s) => s.at)?.at;
-    if (at) return { uri: at.uri, line: at.range.start.line, character: at.range.start.character };
-  }
-  return undefined;
+/** Where **Bynk: Show Last Request Trace** goes for the newest trace. */
+export function latestTraceTarget(): ReturnType<typeof newestTraceTarget> {
+  return newestTraceTarget(store.all().slice(0, 1).map(view));
+}
+
+let intent = 0;
+/** #143: the user asked to see a trace (Show trace, Show Last Request Trace):
+ *  the page follows the latest request again, whatever it had picked. */
+export function bumpTraceIntent(): number {
+  return ++intent;
+}
+
+export function traceIntent(): number {
+  return intent;
 }
 
 /** Every stored trace, newest first (a test seam). */

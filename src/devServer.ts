@@ -58,15 +58,23 @@ let controller: DevServerController | undefined;
 /** Whether the output channel has said that request traces need a newer `bynk`. */
 let noted = false;
 
-/** What `bynk --version` prints, or `undefined` when it cannot be run. */
+/** What `bynk --version` prints, or `undefined` when it cannot be run. Bounded:
+ *  a `bynk` that hangs here (a wrapper script, a stuck managed binary) must not
+ *  stop `bynk dev` from starting. */
 async function bynkVersionOutput(root: vscode.Uri): Promise<string | undefined> {
+  const cts = new vscode.CancellationTokenSource();
+  const timer = setTimeout(() => cts.cancel(), VERSION_TIMEOUT_MS);
   try {
-    const run = await runBynk(["--version"], root.fsPath);
+    const run = await runBynk(["--version"], root.fsPath, cts.token);
     return run.code === 0 ? run.stdout : undefined;
   } catch {
     return undefined;
+  } finally {
+    clearTimeout(timer);
+    cts.dispose();
   }
 }
+const VERSION_TIMEOUT_MS = 5000;
 const stateChanged = new vscode.EventEmitter<void>();
 
 /** #67: the running session's state (its contexts' URLs), for the Send

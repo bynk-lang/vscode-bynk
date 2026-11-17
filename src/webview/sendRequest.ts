@@ -288,7 +288,9 @@ function renderResult(): void {
   const trace = el("button", { text: "Show trace" });
   trace.title = "Open this handler's sequence diagram with the request's trace laid over it (needs the dev server's request traces)";
   trace.addEventListener("click", () => shown && api.postMessage({ type: "showTrace", key: shown.payload.key }));
-  const parts: Node[] = [el("p", {}, status, meta, document.createTextNode(" "), trace), headers];
+  // Only while the dev server serves this context: otherwise there is no trace to show.
+  const offer = shown?.payload.target.kind === "ready";
+  const parts: Node[] = [offer ? el("p", {}, status, meta, document.createTextNode(" "), trace) : el("p", {}, status, meta), headers];
   if (result.body !== "") parts.push(el("pre", { text: result.body }));
   else parts.push(el("p", { className: "sr-muted", text: "Empty body." }));
   if (result.partial) parts.push(el("p", { className: "sr-note", text: result.partial }));

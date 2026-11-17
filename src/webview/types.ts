@@ -104,6 +104,9 @@ export interface SequencePayload {
   /** #143: the request traces from the running dev server that belong on this
    *  handler's diagram, newest first. Absent when there are none. */
   traces?: TraceView[];
+  /** #143: bumped each time the user asks to see a trace (Show trace); the page
+   *  then follows the latest request again. */
+  traceIntent?: number;
   /** #144: the last coverage run's lines for this file; client-only, never on
    *  the wire. Absent when there is no run, or it did not measure the file. */
   coverage?: ModelCoverage;

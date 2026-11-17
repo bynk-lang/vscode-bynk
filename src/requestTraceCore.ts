@@ -127,29 +127,59 @@ export function parseRequestEvent(obj: Record<string, unknown>, receivedAt: numb
   };
 }
 
-/** How many traces are kept per handler (a context and route), and how many
- *  handlers; the oldest go first. Held in memory only: nothing is written to
- *  disk or to a log, since a route can carry an id or a token. */
+/** How many traces are kept per route, and how many routes; the oldest go
+ *  first. Held in memory only: nothing is written to disk or to a log, since a
+ *  route can carry an id or a token. */
 export const MAX_TRACES_PER_HANDLER = 20;
 export const MAX_TRACED_HANDLERS = 100;
 
+/** A path segment that is a value, not a name: all digits, a UUID, or a long
+ *  token with a digit in it (`9f3a1c7e`, `ord_2024x9`). */
+function looksLikeValue(segment: string): boolean {
+  if (/^\d+$/.test(segment)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)) return true;
+  return segment.length >= 8 && /\d/.test(segment);
+}
+
+/** The route a concrete request belongs to: its method and path with each
+ *  segment that looks like a value folded to `:`, so `GET /orders/1` and `GET
+ *  /orders/2` share a bucket (the driver reports the concrete path, not the
+ *  route's template) and a load of distinct ids cannot push every other
+ *  handler out. A query string is dropped. */
+export function routeShape(route: string): string {
+  const [method = "", rest = ""] = route.split(/\s+/, 2);
+  const path = rest.split(/[?#]/, 1)[0] ?? "";
+  const shaped = path
+    .split("/")
+    .map((seg) => (looksLikeValue(seg) ? ":" : seg))
+    .join("/");
+  return `${method.toUpperCase()} ${shaped}`;
+}
+
 export class TraceStore {
   private readonly byHandler = new Map<string, RequestTrace[]>();
+  private readonly ids = new Map<string, RequestTrace>();
 
-  /** Add a trace; returns it. A handler used again moves to the back of the eviction order. */
+  /** Add a trace; returns it. A route used again moves to the back of the eviction order. */
   add(trace: RequestTrace): RequestTrace {
-    const key = `${trace.context}\u0000${trace.route}`;
+    const key = `${trace.context}\u0000${routeShape(trace.route)}`;
     const list = this.byHandler.get(key) ?? [];
     this.byHandler.delete(key);
     list.push(trace);
-    while (list.length > MAX_TRACES_PER_HANDLER) list.shift();
+    this.ids.set(trace.id, trace);
+    while (list.length > MAX_TRACES_PER_HANDLER) this.forget(list.shift());
     this.byHandler.set(key, list);
     while (this.byHandler.size > MAX_TRACED_HANDLERS) {
       const oldest = this.byHandler.keys().next().value;
       if (oldest === undefined) break;
+      for (const t of this.byHandler.get(oldest) ?? []) this.forget(t);
       this.byHandler.delete(oldest);
     }
     return trace;
+  }
+
+  private forget(trace: RequestTrace | undefined): void {
+    if (trace && this.ids.get(trace.id) === trace) this.ids.delete(trace.id);
   }
 
   /** Every trace, newest first. */
@@ -157,12 +187,14 @@ export class TraceStore {
     return [...this.byHandler.values()].flat().sort((a, b) => b.receivedAt - a.receivedAt);
   }
 
+  /** One trace by its request id, without walking the store. */
   byId(id: string): RequestTrace | undefined {
-    return this.all().find((t) => t.id === id);
+    return this.ids.get(id);
   }
 
   clear(): void {
     this.byHandler.clear();
+    this.ids.clear();
   }
 }
 
@@ -408,10 +440,33 @@ export function traceRelevant(model: SequenceModel, uri: string, trace: TraceVie
   return t?.kind === "Request" && sameRoute(t.label, trace.route);
 }
 
-/** `POST /orders` against a handler's trigger label, ignoring case and spacing. */
+/** A handler's trigger label against a request's concrete route, ignoring
+ *  case in the method and spacing: `GET /orders/:id` (or `{id}`) matches `GET
+ *  /orders/42`, one path segment per parameter. */
 export function sameRoute(label: string, route: string): boolean {
-  const norm = (s: string): string => s.replace(/\s+/g, " ").trim().toUpperCase();
-  return norm(label) === norm(route);
+  const split = (s: string): [string, string[]] => {
+    const [method = "", rest = ""] = s.trim().split(/\s+/, 2);
+    return [method.toUpperCase(), (rest.split(/[?#]/, 1)[0] ?? "").split("/")];
+  };
+  const [lm, lp] = split(label);
+  const [rm, rp] = split(route);
+  if (lm !== rm || lp.length !== rp.length) return false;
+  return lp.every((seg, i) => seg === rp[i] || /^(:[^/]+|\{[^/}]+\})$/.test(seg));
+}
+
+/** What **Bynk: Show Last Request Trace** should do for the newest trace in
+ *  `views` (newest first): open the handler at its first located step; say
+ *  that it has none (a request that made no calls, or none with a source
+ *  location); or that there is no trace at all. */
+export function newestTraceTarget(
+  views: readonly TraceView[],
+): { kind: "open"; uri: string; line: number; character: number } | { kind: "no-location"; route: string } | { kind: "none" } {
+  const newest = views[0];
+  if (!newest) return { kind: "none" };
+  const at = newest.steps.find((s) => s.at)?.at;
+  return at
+    ? { kind: "open", uri: at.uri, line: at.range.start.line, character: at.range.start.character }
+    : { kind: "no-location", route: newest.route };
 }
 
 // -- Comparing two traces. --

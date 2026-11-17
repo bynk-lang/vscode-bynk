@@ -68,6 +68,8 @@ const ranges = new Map<string, Range>();
  *  with. Kept across live updates. */
 let traceChoice: "latest" | "off" | { id: string } = "latest";
 let compareId: string | undefined;
+/** The last `traceIntent` seen: a new one resets the choice to the latest request. */
+let seenIntent = 0;
 /** #144: whether the coverage overlay is drawn (when there is coverage). */
 let showCoverage = true;
 /** The toggle and legend above the diagram; rebuilt on each render. */
@@ -130,6 +132,15 @@ function markCursor(scroll: boolean): void {
   if (!el) return;
   el.classList.add("bynk-current");
   if (scroll) viewport.reveal(el);
+}
+
+function followIntent(p: SequencePayload): void {
+  const intent = p.traceIntent ?? 0;
+  if (intent > seenIntent) {
+    seenIntent = intent;
+    traceChoice = "latest";
+    compareId = undefined;
+  }
 }
 
 function tracesOf(p: SequencePayload | null): TraceView[] {
@@ -365,6 +376,7 @@ function render(root: HTMLElement, next: SequencePayload | null): void {
     return;
   }
   ensureDiagramStyles(document);
+  followIntent(next);
 
   const entry = next.model.participants.find((p) => p.kind === "Entry")?.name ?? "";
   const key = `${next.uri}#${entry}`;

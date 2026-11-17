@@ -11,9 +11,11 @@ import {
   formatMs,
   MAX_TRACED_HANDLERS,
   MAX_TRACES_PER_HANDLER,
+  newestTraceTarget,
   overlayTrace,
   parseFrameLocation,
   parseRequestEvent,
+  routeShape,
   type RequestTrace,
   sameRoute,
   toTraceView,
@@ -106,11 +108,31 @@ describe("TraceStore", () => {
     assert.strictEqual(s.all()[0].id, `a${MAX_TRACES_PER_HANDLER + 4}`, "newest first");
     assert.strictEqual(s.byId("a0"), undefined, "the oldest went");
     const t = new TraceStore();
-    for (let i = 0; i < MAX_TRACED_HANDLERS + 3; i++) t.add(trace({ id: `h${i}`, route: `GET /${i}`, receivedAt: i }));
+    for (let i = 0; i < MAX_TRACED_HANDLERS + 3; i++) t.add(trace({ id: `h${i}`, route: `GET /r${i}x`, receivedAt: i }));
     assert.strictEqual(t.all().length, MAX_TRACED_HANDLERS);
     assert.strictEqual(t.byId("h0"), undefined);
     t.clear();
     assert.deepStrictEqual(t.all(), []);
+    assert.strictEqual(t.byId("h5"), undefined, "clear forgets the ids too");
+  });
+
+  it("finds a trace by id without walking the store, and forgets the ones it evicts", () => {
+    const s = new TraceStore();
+    for (let i = 0; i < MAX_TRACES_PER_HANDLER + 2; i++) s.add(trace({ id: `a${i}`, receivedAt: i }));
+    assert.strictEqual(s.byId(`a${MAX_TRACES_PER_HANDLER + 1}`)?.id, `a${MAX_TRACES_PER_HANDLER + 1}`);
+    assert.strictEqual(s.byId("a0"), undefined);
+    const t = new TraceStore();
+    for (let i = 0; i < MAX_TRACED_HANDLERS + 1; i++) t.add(trace({ id: `h${i}`, route: `GET /r${i}x`, receivedAt: i }));
+    assert.strictEqual(t.byId("h0"), undefined, "an evicted route's traces are forgotten");
+    assert.ok(t.byId(`h${MAX_TRACED_HANDLERS}`));
+  });
+
+  it("keeps one bucket per route, however many ids it is called with", () => {
+    const s = new TraceStore();
+    for (let i = 0; i < 500; i++) s.add(trace({ id: `x${i}`, route: `GET /orders/${i}`, receivedAt: i }));
+    s.add(trace({ id: "other", route: "GET /health", receivedAt: 1000 }));
+    assert.strictEqual(s.all().filter((t) => t.route.startsWith("GET /orders/")).length, MAX_TRACES_PER_HANDLER);
+    assert.ok(s.byId("other"), "a flood of ids on one route does not push another handler out");
   });
 
   it("keeps handlers apart by context and route", () => {
@@ -215,7 +237,30 @@ describe("overlayTrace", () => {
   });
 });
 
+describe("routeShape", () => {
+  it("folds the values in a path, and only those", () => {
+    assert.strictEqual(routeShape("get /orders/42"), "GET /orders/:");
+    assert.strictEqual(routeShape("GET /orders/9f3a1c7e-1111-4222-8333-444455556666/lines"), "GET /orders/:/lines");
+    assert.strictEqual(routeShape("GET /orders/ord_2024x9?x=1"), "GET /orders/:");
+    assert.strictEqual(routeShape("POST /orders"), "POST /orders");
+    assert.strictEqual(routeShape("GET /health/live"), "GET /health/live");
+  });
+});
+
 describe("traceRelevant and sameRoute", () => {
+  it("matches a parameterised trigger against a concrete route", () => {
+    assert.ok(sameRoute("GET /orders/:id", "GET /orders/42"));
+    assert.ok(sameRoute("get /orders/{id}/lines", "GET /orders/42/lines"));
+    assert.ok(!sameRoute("GET /orders/:id", "GET /orders/42/lines"), "one segment per parameter");
+    assert.ok(!sameRoute("GET /orders/:id", "POST /orders/42"));
+    assert.ok(!sameRoute("GET /orders", "GET /orders/42"));
+  });
+
+  it("belongs on the diagram of a parameterised handler with no calls", () => {
+    const m: SequenceModel = { ...MODEL, trigger: { kind: "Request", label: "GET /a/:id" } };
+    assert.ok(traceRelevant(m, URI, view([], { route: "GET /a/7" })));
+  });
+
   it("belongs on a diagram a step is on, or whose route triggers the handler", () => {
     assert.ok(traceRelevant(MODEL, URI, view([step(3)])));
     assert.ok(!traceRelevant(MODEL, URI, view([step(20)])));
@@ -274,5 +319,22 @@ describe("chooseTraceEvents", () => {
   it("does nothing, silently, when the setting is off", () => {
     assert.deepStrictEqual(chooseTraceEvents(false, "bynk 0.639.1"), { flag: false });
     assert.deepStrictEqual(chooseTraceEvents(false, undefined), { flag: false });
+  });
+});
+
+describe("newestTraceTarget", () => {
+  it("opens the newest request's first located step", () => {
+    const t = newestTraceTarget([view([step(3, { at: null }), step(7)], { route: "GET /a" }), view([step(1)])]);
+    assert.deepStrictEqual(t, { kind: "open", uri: URI, line: 7, character: 10 });
+  });
+
+  it("says so when the newest request has no call site, rather than opening an older one", () => {
+    const t = newestTraceTarget([view([], { route: "GET /quiet" }), view([step(1)])]);
+    assert.deepStrictEqual(t, { kind: "no-location", route: "GET /quiet" });
+    assert.deepStrictEqual(newestTraceTarget([view([step(2, { at: null })], { route: "GET /b" })]), { kind: "no-location", route: "GET /b" });
+  });
+
+  it("has nothing to open without a trace", () => {
+    assert.deepStrictEqual(newestTraceTarget([]), { kind: "none" });
   });
 });

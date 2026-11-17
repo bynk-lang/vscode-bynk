@@ -127,7 +127,7 @@ export function registerSendRequest(context: vscode.ExtensionContext, hub: ViewR
           case "showTrace":
             // The diagram follows the newest trace that belongs on the handler.
             if (typeof m.key === "string" && shown?.key === m.key) {
-              void vscode.commands.executeCommand("bynk.showSequenceDiagram", shown.uri, shown.range.start);
+              void vscode.commands.executeCommand("bynk._showTraceAt", shown.uri, shown.range.start);
             }
             break;
         }
