@@ -19,7 +19,9 @@ import {
   compareVersions,
   downloadServer,
   DownloadCancelled,
+  classifyServerVersion,
   expectedServerVersion,
+  staleServerPrompt,
   isBelowMinVersion,
   parseVersion,
   readServerVersion,
@@ -480,52 +482,24 @@ async function checkVersionMatch(
     return;
   }
 
-  const reportedVer = parseVersion(reported);
-  const expectedVer = parseVersion(expected);
-  // Compare parsed versions where both read, so `0.639.10` doesn't pass as `0.639.1`.
-  if (reportedVer && expectedVer ? compareVersions(reportedVer, expectedVer) === 0 : reported.includes(expected)) return;
+  const standing = classifyServerVersion(reported, expected);
+  if (standing === "match") return;
 
   output.appendLine(
     `[server] version note: running "${reported}" (${resolved.source}), extension expects ${expected}`,
   );
+  if (standing !== "older") return;
 
-  const isStale =
-    reportedVer && expectedVer && compareVersions(reportedVer, expectedVer) < 0;
-
-  if (isStale && resolved.source === "setting") {
-    // Forcing a download here would silently paper over the pinned setting
-    // for this session only — it reverts (and re-warns) on the next reload,
-    // without ever telling the user the *setting* is what's stale. Point them
-    // at it instead.
-    void vscode.window
-      .showWarningMessage(
-        `Bynk: the language server pinned by \`bynk.executablePath\` is "${reported}", ` +
-          `older than the ${expected} this extension expects. It may flag valid syntax as errors.`,
-        "Open Settings",
-        "Ignore",
-      )
-      .then((pick) => {
-        if (pick === "Open Settings") {
-          void vscode.commands.executeCommand(
-            "workbench.action.openSettings",
-            "bynk.executablePath",
-          );
-        }
-      });
-  } else if (isStale) {
-    void vscode.window
-      .showWarningMessage(
-        `Bynk: language server is "${reported}" (${resolved.source}), older than the ` +
-          `${expected} this extension expects. It may flag valid syntax as errors.`,
-        "Download Matching Server",
-        "Ignore",
-      )
-      .then((pick) => {
-        if (pick === "Download Matching Server") {
-          void startServer(context, { interactive: true, forceDownload: true });
-        }
-      });
-  }
+  const { message, action } = staleServerPrompt(resolved.source, resolved.path, reported, expected);
+  void vscode.window
+    .showWarningMessage(message, ...(action ? [action, "Ignore"] : []))
+    .then((pick) => {
+      if (pick === "Open Settings") {
+        void vscode.commands.executeCommand("workbench.action.openSettings", "bynk.executablePath");
+      } else if (pick === "Download Matching Server") {
+        void startServer(context, { interactive: true, forceDownload: true });
+      }
+    });
   // A newer or otherwise-differing server: the version note above is all.
 }
 

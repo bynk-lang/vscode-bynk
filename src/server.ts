@@ -133,6 +133,51 @@ export function tooOldServerPrompt(
   }
 }
 
+/** How a server's `--version` output compares with the version expected
+ *  ({@link expectedServerVersion}). Parsed versions are compared, so
+ *  `0.639.10` is not taken for `0.639.1`. Only when one side does not parse
+ *  does it fall back to finding the expected text in the output: `match` if
+ *  found, otherwise `unknown`. */
+export function classifyServerVersion(
+  reported: string,
+  expected: string,
+): "match" | "older" | "newer" | "unknown" {
+  const r = parseVersion(reported);
+  const e = parseVersion(expected);
+  if (!r || !e) return reported.includes(expected) ? "match" : "unknown";
+  const c = compareVersions(r, e);
+  return c === 0 ? "match" : c < 0 ? "older" : "newer";
+}
+
+/** What to tell the user about a server older than the version expected, by
+ *  where it came from. As in {@link tooOldServerPrompt}, a `PATH` server wins
+ *  over a download on every reload (`resolveExistingServer`), so a download
+ *  would last one session: name the binary to update instead. */
+export function staleServerPrompt(
+  source: ResolvedServer["source"],
+  serverPath: string,
+  reported: string,
+  expected: string,
+): { message: string; action?: "Open Settings" | "Download Matching Server" } {
+  const tail = "It may flag valid syntax as errors.";
+  switch (source) {
+    case "setting":
+      return {
+        message: `Bynk: the language server pinned by \`bynk.executablePath\` is "${reported}", older than the ${expected} this extension expects. ${tail}`,
+        action: "Open Settings",
+      };
+    case "path":
+      return {
+        message: `Bynk: language server is "${reported}" (path), older than the ${expected} this extension expects. ${tail} Update or remove that \`${path.basename(serverPath)}\` (${serverPath}); it takes precedence over a downloaded one.`,
+      };
+    default:
+      return {
+        message: `Bynk: language server is "${reported}" (${source}), older than the ${expected} this extension expects. ${tail}`,
+        action: "Download Matching Server",
+      };
+  }
+}
+
 /** A binary the extension can provision from a release. */
 export type Tool = "bynk-lsp" | "bynk";
 
