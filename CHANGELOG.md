@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Fixed
+
+- **No more "older than the … this extension expects" warning for a matching `bynk-lsp`.** A language server from `PATH` or `bynk.executablePath` was checked against the extension's own version. Since the extension has had patch releases of its own (0.639.2, 0.639.3, built against `bynk` v0.639.1), every matching server was reported as older, and the warning added that "the downloadable server is older still". Every server is now checked against `bynkServerVersion`, the `bynk` release the extension is built against. One older than that still gets the warning, with **Download Matching Server**; a newer one gets only a note in the output channel.
+
 ## [0.639.3] - 2026-11-17
 
 Built against `bynk` v0.639.1. Handler and refined-type cells in Bynk notebooks; coverage on the project sidebar.

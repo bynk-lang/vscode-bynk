@@ -57,15 +57,18 @@ describe("compareVersions", () => {
   });
 });
 
-describe("expectedServerVersion (#1673)", () => {
-  it("holds a downloaded or cached server to the pin, the last shipped release", () => {
-    assert.strictEqual(expectedServerVersion("downloaded", "v0.290.0", "0.303.3"), "0.290.0");
-    assert.strictEqual(expectedServerVersion("cached", "v0.290.0", "0.303.3"), "0.290.0");
+describe("expectedServerVersion", () => {
+  it("holds every server to the pin, the bynk release the extension was built against", () => {
+    assert.strictEqual(expectedServerVersion("v0.639.1"), "0.639.1");
+    assert.strictEqual(expectedServerVersion("0.639.1"), "0.639.1");
   });
 
-  it("holds a server from PATH or the setting to the extension's own version", () => {
-    assert.strictEqual(expectedServerVersion("path", "v0.290.0", "0.303.3"), "0.303.3");
-    assert.strictEqual(expectedServerVersion("setting", "v0.290.0", "0.303.3"), "0.303.3");
+  it("does not depend on the extension's own version, which runs ahead of the pin", () => {
+    // The extension 0.639.3 is built against bynk v0.639.1: a bynk-lsp 0.639.1
+    // on PATH matches, so the version check is silent.
+    const expected = expectedServerVersion("v0.639.1");
+    assert.ok("bynk-lsp 0.639.1".includes(expected));
+    assert.ok(!"bynk-lsp 0.639.1".includes("0.639.3"));
   });
 });
 

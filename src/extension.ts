@@ -443,8 +443,8 @@ function reportNoServer(
 }
 
 /** Warn if the running server's version disagrees with the one this extension
- *  build expects ({@link expectedServerVersion}: the pin for a downloaded server,
- *  the extension's own version for one from PATH or the setting, #1673). A
+ *  build expects ({@link expectedServerVersion}: the pin, `bynkServerVersion`,
+ *  wherever the server came from). A
  *  server *older* than expected (most likely a stale `bynk-lsp` or `bynkc-lsp` on PATH —
  *  `resolveExistingServer` prefers PATH over the pinned/downloaded copy without
  *  comparing versions, #484) gets an actionable prompt, since it can silently
@@ -456,11 +456,7 @@ async function checkVersionMatch(
   resolved: ResolvedServer,
 ): Promise<void> {
   const reported = await readServerVersion(resolved.path); // "bynk-lsp 0.23.0"
-  const expected = expectedServerVersion(
-    resolved.source,
-    serverVersion(context),
-    context.extension.packageJSON.version as string,
-  ); // "0.23.0"
+  const expected = expectedServerVersion(serverVersion(context)); // "0.23.0"
   if (!reported) return;
 
   // Older than the oldest server the extension supports: not a stale-version
@@ -484,14 +480,15 @@ async function checkVersionMatch(
     return;
   }
 
-  if (reported.includes(expected)) return;
+  const reportedVer = parseVersion(reported);
+  const expectedVer = parseVersion(expected);
+  // Compare parsed versions where both read, so `0.639.10` doesn't pass as `0.639.1`.
+  if (reportedVer && expectedVer ? compareVersions(reportedVer, expectedVer) === 0 : reported.includes(expected)) return;
 
   output.appendLine(
     `[server] version note: running "${reported}" (${resolved.source}), extension expects ${expected}`,
   );
 
-  const reportedVer = parseVersion(reported);
-  const expectedVer = parseVersion(expected);
   const isStale =
     reportedVer && expectedVer && compareVersions(reportedVer, expectedVer) < 0;
 
@@ -515,15 +512,6 @@ async function checkVersionMatch(
           );
         }
       });
-  } else if (isStale && !downloadIsNewer(context, reportedVer)) {
-    // #1673: a PATH server can be older than this extension build yet newer
-    // than the last shipped release the download fetches, so downloading would
-    // only go further back. Point at the PATH install instead.
-    void vscode.window.showWarningMessage(
-      `Bynk: language server is "${reported}" (${resolved.source}), older than the ` +
-        `${expected} this extension expects. Rebuild or reinstall that \`${path.basename(resolved.path)}\`; ` +
-        "the downloadable server is older still.",
-    );
   } else if (isStale) {
     void vscode.window
       .showWarningMessage(
@@ -539,16 +527,6 @@ async function checkVersionMatch(
       });
   }
   // A newer or otherwise-differing server: the version note above is all.
-}
-
-/** Whether the server a download would fetch (the pin) is newer than
- *  `reported`, i.e. whether "Download Matching Server" actually helps. */
-function downloadIsNewer(
-  context: vscode.ExtensionContext,
-  reported: ReturnType<typeof parseVersion>,
-): boolean {
-  const pin = parseVersion(serverVersion(context));
-  return !!reported && !!pin && compareVersions(reported, pin) < 0;
 }
 
 async function stopClient(): Promise<void> {
