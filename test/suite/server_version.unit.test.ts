@@ -7,11 +7,13 @@ import * as fs from "fs";
 import * as path from "path";
 
 import {
+  classifyServerVersion,
   compareVersions,
   expectedServerVersion,
   isBelowMinVersion,
   parseVersion,
   serverAssetName,
+  staleServerPrompt,
   tooOldServerPrompt,
   toolAssetName,
 } from "../../src/server";
@@ -57,15 +59,58 @@ describe("compareVersions", () => {
   });
 });
 
-describe("expectedServerVersion (#1673)", () => {
-  it("holds a downloaded or cached server to the pin, the last shipped release", () => {
-    assert.strictEqual(expectedServerVersion("downloaded", "v0.290.0", "0.303.3"), "0.290.0");
-    assert.strictEqual(expectedServerVersion("cached", "v0.290.0", "0.303.3"), "0.290.0");
+describe("expectedServerVersion", () => {
+  it("holds every server to the pin, the bynk release the extension was built against", () => {
+    assert.strictEqual(expectedServerVersion("v0.639.1"), "0.639.1");
+    assert.strictEqual(expectedServerVersion("0.639.1"), "0.639.1");
   });
 
-  it("holds a server from PATH or the setting to the extension's own version", () => {
-    assert.strictEqual(expectedServerVersion("path", "v0.290.0", "0.303.3"), "0.303.3");
-    assert.strictEqual(expectedServerVersion("setting", "v0.290.0", "0.303.3"), "0.303.3");
+  it("does not depend on the extension's own version, which runs ahead of the pin", () => {
+    // Extension 0.639.3 is built against bynk v0.639.1: a bynk-lsp 0.639.1 matches.
+    assert.strictEqual(classifyServerVersion("bynk-lsp 0.639.1", expectedServerVersion("v0.639.1")), "match");
+  });
+});
+
+describe("classifyServerVersion", () => {
+  it("matches the same version, whatever the binary's name", () => {
+    assert.strictEqual(classifyServerVersion("bynk-lsp 0.639.1", "0.639.1"), "match");
+    assert.strictEqual(classifyServerVersion("bynkc-lsp 0.639.1", "0.639.1"), "match");
+  });
+
+  it("compares parsed versions, so 0.639.10 is not 0.639.1", () => {
+    assert.strictEqual(classifyServerVersion("bynk-lsp 0.639.10", "0.639.1"), "newer");
+  });
+
+  it("tells an older server from a newer one", () => {
+    assert.strictEqual(classifyServerVersion("bynk-lsp 0.639.0", "0.639.1"), "older");
+    assert.strictEqual(classifyServerVersion("bynk-lsp 0.614.0", "0.639.1"), "older");
+    assert.strictEqual(classifyServerVersion("bynk-lsp 0.640.0", "0.639.1"), "newer");
+  });
+
+  it("is unknown for an unreadable version, unless the expected text is there", () => {
+    assert.strictEqual(classifyServerVersion("bynk-lsp dev", "0.639.1"), "unknown");
+    assert.strictEqual(classifyServerVersion("", "0.639.1"), "unknown");
+    assert.strictEqual(classifyServerVersion("bynk-lsp dev build", "dev"), "match");
+  });
+});
+
+describe("staleServerPrompt", () => {
+  it("points a setting at the setting", () => {
+    const p = staleServerPrompt("setting", "/opt/bynk-lsp", "bynk-lsp 0.639.0", "0.639.1");
+    assert.strictEqual(p.action, "Open Settings");
+    assert.ok(p.message.includes("bynk.executablePath"), p.message);
+  });
+
+  it("names a PATH binary instead of offering a download it would override", () => {
+    const p = staleServerPrompt("path", "/usr/local/bin/bynk-lsp", "bynk-lsp 0.639.0", "0.639.1");
+    assert.strictEqual(p.action, undefined);
+    assert.ok(p.message.includes("/usr/local/bin/bynk-lsp"), p.message);
+    assert.ok(p.message.includes("takes precedence"), p.message);
+  });
+
+  it("offers the download for a cached or downloaded server", () => {
+    assert.strictEqual(staleServerPrompt("cached", "/c/bynk-lsp", "bynk-lsp 0.639.0", "0.639.1").action, "Download Matching Server");
+    assert.strictEqual(staleServerPrompt("downloaded", "/c/bynk-lsp", "bynk-lsp 0.639.0", "0.639.1").action, "Download Matching Server");
   });
 });
 
