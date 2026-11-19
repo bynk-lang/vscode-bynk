@@ -135,9 +135,11 @@ describe("Insert Handler Call for a cron and a queue handler (#213)", () => {
         return doc.cellAt(index).document.getText();
       },
       (t) => t.trim() !== "",
-      `the call to ${handler} to be inserted${refusals.length > 0 ? ` (${refusals[refusals.length - 1]})` : ""}`,
+      "the call to be inserted",
       90_000,
-    );
+    ).catch((e: unknown) => {
+      throw new Error(`${String(e)}; wanted ${handler}; the picker offered ${JSON.stringify(offered[offered.length - 1])}; refusals: ${JSON.stringify([...new Set(refusals)])}`);
+    });
   }
 
   it("inserts a cron and a queue call, runs them, promotes them, and `bynk test` passes", async function () {
