@@ -124,7 +124,8 @@ describe("Generate Edge Cases… (#229)", () => {
     const scenario = fs.readFileSync(path.join(dir, "edge-cases", "edge-cases-POST-discounts.bynk-http"), "utf8");
     assert.ok(scenario.startsWith("@context shop\n\n"), scenario);
     assert.strictEqual(scenario.split("\n? status == 400").length - 1, 4, scenario);
-    assert.ok(scenario.includes('{"name":"ab","pct":101,"note":') || scenario.includes('"pct":101'), scenario);
+    // The other field is held at the value the compiler accepted first (`"a"`), so the failure names `pct`.
+    assert.ok(scenario.includes('{"name":"a","pct":101}'), scenario);
 
     // Generating again numbers the files (the scenario's too) and the notebook names the scenario written.
     const again = await vscode.commands.executeCommand<vscode.Uri | undefined>("bynk.generateEdgeCases", file.toString(), position);
