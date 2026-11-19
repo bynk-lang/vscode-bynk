@@ -11,6 +11,7 @@ import {
   decodeFragment,
   encodeFragment,
   MAX_LINK_LENGTH,
+  lacksPlaygroundService,
   missingUses,
   PLAYGROUND_ORIGIN,
   playgroundLink,
@@ -90,5 +91,17 @@ describe("Cross-file names in a selection (#2480, DECISION B)", () => {
   it("names only the units left out", () => {
     const file = "commons x\n\nuses a\nuses b.c\n\nfn f() { g() }\n";
     assert.deepStrictEqual(missingUses(file, "uses a\nfn f() { g() }"), ["b.c"]);
+  });
+});
+
+describe("lacksPlaygroundService", () => {
+  it("flags a service with `on call` but no `service playground`", () => {
+    assert.ok(lacksPlaygroundService("service greet {\n  on call() -> 1\n}\n"));
+  });
+  it("is quiet when `service playground` is present", () => {
+    assert.ok(!lacksPlaygroundService("service playground {\n  on call() -> 1\n}\n"));
+  });
+  it("is quiet for code with no `on call`", () => {
+    assert.ok(!lacksPlaygroundService("commons a\n\nfn b() { 1 }\n"));
   });
 });

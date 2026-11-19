@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Changed
+
+- **Playground links say that Run only calls `service playground`.** The playground's Run now calls only the `on call` handler of a service named `playground`. **Copy Playground Link** and **Open in Playground** still send your code as it is, but now note when it has a service with an `on call` and none named `playground`; the README says the same.
+
 ### Fixed
 
 - **No more "older than the … this extension expects" warning for a matching `bynk-lsp`.** A language server from `PATH` or `bynk.executablePath` was checked against the extension's own version. Since the extension has had patch releases of its own (0.639.2, 0.639.3, built against `bynk` v0.639.1), every matching server was reported as older, and the warning added that "the downloadable server is older still". Every server is now checked against `bynkServerVersion`, the `bynk` release the extension is built against. One older than that still gets the warning, with **Download Matching Server**; a newer one gets only a note in the output channel.
