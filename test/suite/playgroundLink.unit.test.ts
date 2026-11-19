@@ -98,6 +98,9 @@ describe("lacksPlaygroundService", () => {
   it("flags a service with `on call` but no `service playground`", () => {
     assert.ok(lacksPlaygroundService("service greet {\n  on call() -> 1\n}\n"));
   });
+  it("flags an agent-only snippet, whose handlers Run does not call", () => {
+    assert.ok(lacksPlaygroundService("agent counter {\n  on call peek() -> 1\n}\n"));
+  });
   it("is quiet when `service playground` is present", () => {
     assert.ok(!lacksPlaygroundService("service playground {\n  on call() -> 1\n}\n"));
   });

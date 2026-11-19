@@ -40,11 +40,6 @@ async function linkForActiveEditor(): Promise<string | undefined> {
   } else {
     source = document.getText();
   }
-  if (lacksPlaygroundService(source)) {
-    void vscode.window.showInformationMessage(
-      "Run in the playground calls only `service playground`; this code has none, so Run will have nothing to call.",
-    );
-  }
   const link = await playgroundLink(source);
   if (!link.ok) {
     void vscode.window.showWarningMessage(
@@ -52,6 +47,11 @@ async function linkForActiveEditor(): Promise<string | undefined> {
         "once compressed). Select less code.",
     );
     return undefined;
+  }
+  if (lacksPlaygroundService(source)) {
+    void vscode.window.showInformationMessage(
+      "Run in the playground calls only `service playground`; this code has none, so Run will have nothing to call.",
+    );
   }
   return link.url;
 }

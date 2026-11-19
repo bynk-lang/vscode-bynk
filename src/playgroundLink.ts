@@ -77,8 +77,9 @@ export function missingUses(documentText: string, selection: string): string[] {
 }
 
 /**
- * Whether Run would have nothing to call: the code has a service with an
- * `on call` handler, but none is named `playground`. The playground runs only
+ * Whether Run would have nothing to call: the code has an `on call` handler
+ * (a service's, or an agent's named one, which Run does not call either), but no
+ * service is named `playground`. The playground runs only
  * `service playground { on call() ... }`. Code with no `on call` at all (a
  * commons, say) is not flagged, since it was never meant to be run.
  */
