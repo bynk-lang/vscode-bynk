@@ -332,7 +332,7 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
     `svc.schedule("<expr>")`, `svc.message(…)` or `svc.event(…)`, and the `by` clause where
     the handler runs as an actor with an identity. Only HTTP responses are read with a
     `match`; other kinds show their value as an expression does (a `QueueResult` has none
-    to show: `bynk eval` cannot report it), and promoting offers checks that follow the
+    to show: `bynk eval` cannot report it, bynk-lang/bynk#3700), and promoting offers checks that follow the
     result type (`is Ok(_)`, `is Ack`, …). WebSocket handlers are not offered yet. The cell
     runs inside the unit's own unit-tier suite when it has one (`bynk eval --suite`),
     so its `stub`s, `fn`s and fixtures apply (where the suite and the cell stub the
