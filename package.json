@@ -1997,6 +1997,24 @@
           "default": true,
           "description": "Mark the TypeScript client `bynk client` writes (`[build.client] out` in `bynk.toml`, or the four modules of `layout = \"dir\"`) with a `GN` badge in the Explorer, wherever it is in the workspace, and offer a one-time notice on the first edit to one. Regenerate rather than edit: a hand edit is lost at the next `bynk build`."
         },
+        "bynk.platform.plan": {
+          "type": "string",
+          "enum": [
+            "free",
+            "paid"
+          ],
+          "enumDescriptions": [
+            "Cloudflare Workers Free: the lower limits (50 subrequests, 10 ms CPU time).",
+            "Cloudflare Workers Paid: the higher limits."
+          ],
+          "default": "free",
+          "description": "Your Cloudflare Workers plan, which chooses the platform limits the extension warns about: the CPU-time note in the request timing diagram and the payload-size hints. The default is the free plan's lower limits."
+        },
+        "bynk.platform.limitHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show an Information diagnostic (source `bynk limits`) on a handler whose payload may pass a platform limit, a queue handler whose message holds `Bytes`, a `List` or a `Map`. It only says \"may\", and only where the language server's models show it."
+        },
         "bynk.viewsCodeLens": {
           "type": "boolean",
           "default": false,

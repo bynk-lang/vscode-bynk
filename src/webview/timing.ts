@@ -16,6 +16,7 @@ import { ensureDiagramStyles } from "../diagram/style";
 import { renderTiming, type TimingRender } from "../diagram/timing/render";
 import { buildToolbar } from "../diagram/toolbar";
 import { DiagramViewport } from "../diagram/viewport";
+import type { CpuNote } from "../cpuNoteCore";
 import { CRITICAL_NOTE, TIMING_NOTE, toMermaidGantt } from "../requestTimingCore";
 import { formatMs, type TraceLocation } from "../requestTraceCore";
 import type { TimingPayload, TimingUpdate } from "./timingTypes";
@@ -103,7 +104,7 @@ function para(text: string, cls?: string): HTMLParagraphElement {
 }
 
 /** The legend: what the colours mean, and, always, what the timing does not say. */
-function renderLegend(r: TimingRender): void {
+function renderLegend(r: TimingRender, cpu?: CpuNote): void {
   legend.replaceChildren();
   const t = r.timeline;
   const note = para(TIMING_NOTE, "bynk-timing-note");
@@ -122,6 +123,7 @@ function renderLegend(r: TimingRender): void {
     key.append(span, " ");
   }
   legend.append(key, para(CRITICAL_NOTE, "bynk-timing-note"));
+  if (cpu) legend.append(para(cpu.text, "bynk-timing-note bynk-timing-cpu"));
   if (r.comparison) {
     const d = r.comparison.totalDelta;
     legend.append(
@@ -151,7 +153,7 @@ function render(root: HTMLElement, next: TimingPayload): void {
   locations.clear();
   for (const [id, loc] of current.locations) locations.set(id, loc);
   renderPicker(next);
-  renderLegend(current);
+  renderLegend(current, next.cpuNote);
   if (actionsBar.parentElement !== root || viewport.element.parentElement !== root) {
     root.replaceChildren(pickerBar, actionsBar, viewport.element, legend);
     document.body.appendChild(viewport.minimapElement);
