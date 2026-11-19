@@ -48,8 +48,11 @@ export interface HandlerCell {
  *  returned as written. */
 export function handlerSource(source: string): { text: string; cell: HandlerCell } {
   const cell = analyseCell(source);
-  const last = cell.body[cell.body.length - 1];
-  if (!last) return { text: source, cell: {} };
+  // The `expect` lines (#209) after the call are checks on it, not the cell's
+  // last statement: the call is the last statement that isn't one.
+  const tail = cell.body[cell.body.length - 1];
+  const last = [...cell.body].reverse().find((s) => !/^expect\b/.test(s.text));
+  if (!last || !tail) return { text: source, cell: {} };
   const m = HTTP_CALL.exec(last.text.trimStart());
   if (!m) return { text: source, cell: {} };
   const lines = source.split("\n");
@@ -60,9 +63,10 @@ export function handlerSource(source: string): { text: string; cell: HandlerCell
     lines[last.start] = `let ${BOUND} <- ${lines[last.start]}`;
     rewritten = last.start;
   }
-  // Up to the end of the last statement: lines after it (comments) stay out of the way.
-  const head = lines.slice(0, last.end + 1).join("\n");
-  return { text: `${head}\n${observe(name)}`, cell: { response: name, rewritten, appendedFrom: last.end + 1 } };
+  // Up to the end of the last statement (the `expect`s after the call included):
+  // lines after it (comments) stay out of the way.
+  const head = lines.slice(0, tail.end + 1).join("\n");
+  return { text: `${head}\n${observe(name)}`, cell: { response: name, rewritten, appendedFrom: tail.end + 1 } };
 }
 
 /** A `match` that answers `{"variant": …, "payload": …}` as JSON text for each

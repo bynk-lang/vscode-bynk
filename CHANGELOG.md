@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **`expect` lines in Bynk notebook cells, with pass/fail shown inline** (#209). An expression or handler cell may contain `expect` lines, as a unit-tier `case` does (`expect r is Created(_)`, `expect trace(Mailer.send).length() == 1`). Running the cell shows each as passed or failed in an **Expectations** output (with JSON as an alternate), puts a ✓ or ✗ after the line, and reports a failure as an error on its own line with the values compared, as `bynk test` gives them. The value or response is still shown, and a cell with a failed `expect` fails its run. `bynk eval` (v0.639.1) stops at the first failed `expect` and returns no value, and reports its position in the synthetic file it spliced the snippet into, not in the cell; so the extension matches a failure to its `expect` by the text the message quotes, and runs the cell again with each failed `expect` blanked out until one completes (one more run per failure, within the cell's one time limit), which gives every outcome and the value. A handler cell's generated `match` over the response now follows the `expect` lines after the call. The output says when a cell took more than one run. Known limits: two `expect`s that contradict each other on the same value fail to compile (`bynk.codegen.tsc_failed`), and the same `expect` written twice may be marked on the wrong one. Earlier cells' `let`s carry forward; their `expect` lines don't.
+
 ### Changed
 
 - **Playground links say that Run only calls `service playground`.** The playground's Run now calls only the `on call` handler of a service named `playground`. **Copy Playground Link** and **Open in Playground** still send your code as it is, but now note when it has a service with an `on call` and none named `playground`; the README says the same.

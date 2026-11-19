@@ -312,8 +312,9 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   `bynk eval`, which compiles and runs it as a one-case suite for a unit of your
   project, under the test runtime, and shows the value of its last expression
   with its type, in Bynk's terms (`Ok(25)`, `Some(3)`, `Err({ field: "Percent", … })`).
-  A cell that doesn't check shows each error on its own line; a failed `expect`,
-  an unstubbed capability or a timeout shows as the cell's error. Nothing is
+  A cell that doesn't check shows each error on its own line; an unstubbed
+  capability or a timeout shows as the cell's error (a failed `expect` is shown as
+  below). Nothing is
   deployed and nothing reaches the network: a capability the cell calls needs a
   `stub` line in the cell, as in a suite.
   - **Re-run effects are named.** A `let x <- …` from an earlier cell runs again in
@@ -337,6 +338,32 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
     `trace(Cap.op)` records are not shown: a snippet can count them
     (`trace(Cap.op).length()`) but `bynk eval` cannot return the list (v0.639.1;
     bynk-lang/bynk#3699, #3700).
+  - **`expect` lines** in an expression or handler cell are checked as in a unit-tier
+    `case`. Running the cell shows each as passed (`✓`) or failed (`✗`) in an
+    **Expectations** output, a mark after the line in the cell, and, for a failure, an
+    error on that line with the values compared, as `bynk test` gives them
+    (`expected: a > 99999`, `actual:   1500 > 99999`). The value or response is shown
+    as before, and a cell with a failed `expect` fails its run. For example:
+
+    ```bynk
+    // @handler
+    stub Mailer.send(_) returns true
+    let r <- api.POST("/todos", Todo { title: "a", done: false }) by User(UserId.unsafe("bob"))
+    expect r is Created(_)
+    expect trace(Mailer.send).length() == 1
+    ```
+
+    `bynk eval` stops at the first failed `expect` and reports no value, so the extension
+    runs the cell again with each failed `expect` blanked out (one more run per
+    failure, within the cell's one time limit) to show every outcome and the value. The
+    value shown is the cell's last statement's: a cell that ends in an `expect` has none
+    (a handler cell still shows its response), so put the expression last to see it.
+    Earlier cells' `let`s carry forward, but their `expect` lines don't. A failure is
+    matched to its line by the text of the `expect`, so the same `expect` written twice
+    in a cell may be marked on the wrong one, and two `expect`s that contradict each
+    other on the same value (`expect a == 1`, then `expect a == 2`) don't compile
+    (`bynk.codegen.tsc_failed`, shown on the second). A cell that took more than one
+    run says so in its output. Refined-type cells have no `expect` lines.
   - **A cell runs only when you run it**, never on open, hover or save: it is
     your code, at the trust of `bynk test`. A notebook in an untrusted workspace
     won't run. A cell is stopped after `bynk.notebook.timeoutSeconds` (60).

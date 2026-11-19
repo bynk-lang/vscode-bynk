@@ -15,18 +15,26 @@ import {
   NOTEBOOK_TYPE,
   analyseCell,
   analyseRefined,
+  NOTHING_LEFT,
+  blankExpects,
   buildSnippet,
   cellKindOf,
   decodeEval,
   decodeRefined,
   evalArgs,
+  expectDiagnostics,
+  expectJson,
+  expectations,
   isUnitName,
   mergeRows,
   placeDiagnostics,
   refinedJson,
   refinedSource,
+  renderExpectations,
+  rerunNote,
   renderRefinedTable,
   renderValue,
+  runWithExpectations,
   setAside,
   snippetNotes,
   unitFor,
@@ -35,6 +43,7 @@ import {
   type CellDiagnostic,
   type CellInput,
   type EvalResult,
+  type ExpectOutcome,
 } from "./notebookCore";
 import { decodeResponse, handlerSource, noUnitSuite, renderResponse, responseJson, suiteNote, withCall } from "./notebookHandlerCore";
 import { registerNotebookSerializer } from "./notebookSerializer";
@@ -81,7 +90,10 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidCloseNotebookDocument((nb) => {
       ran.delete(nb.uri.toString());
-      for (const c of nb.getCells()) diagnostics.delete(c.document.uri);
+      for (const c of nb.getCells()) {
+        diagnostics.delete(c.document.uri);
+        marks.delete(c.document.uri.toString());
+      }
     }),
   );
 
@@ -139,6 +151,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
 
   async function runCell(nb: vscode.NotebookDocument, cell: vscode.NotebookCell, execution: vscode.NotebookCellExecution): Promise<void> {
     diagnostics.delete(cell.document.uri);
+    showMarks(cell, []);
     const fail = (message: string): void => {
       void execution.replaceOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error(new Error(message))]));
       execution.end(false, Date.now());
@@ -176,35 +189,53 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     if (directive.kind === "handler") return runHandler({ cell, execution, root, unit, cells, index, codeCells, forget: () => mine.delete(cell.document.uri.toString()) });
     const refined = analyseRefined(cell.document.getText());
     if (refined) return runRefined({ cell, execution, root, unit, cells, index, codeCells, refined, remember: () => mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit }), forget: () => mine.delete(cell.document.uri.toString()) });
-    const snippet = buildSnippet(cells, index, unit);
-    if (snippet.text.trim() === "") return fail("This cell has no code to evaluate.");
+    const source = cell.document.getText();
+    const snippet0 = buildSnippet(cells, index, unit);
+    if (snippet0.text.trim() === "") return fail("This cell has no code to evaluate.");
 
     const buffers = dirtyBuffers(root.fsPath);
-    const seconds = timeoutSeconds() ?? 60;
-    const args = evalArgs({ root: root.fsPath, unit, snippet: snippet.text, sourcesStdin: Object.keys(buffers).length > 0, timeoutSeconds: timeoutSeconds() });
-    const evaluated = await evaluate(args, root.fsPath, Object.keys(buffers).length > 0 ? JSON.stringify(buffers) : undefined, execution.token, seconds);
-    if (evaluated === "cancelled") {
+    const hasBuffers = Object.keys(buffers).length > 0;
+    // One limit for the cell, shared by the runs a failed `expect` takes (#209).
+    const limit = timeoutSeconds() ?? 60;
+    const startedAt = Date.now();
+    const expects = expectations(source);
+    const run = await runWithExpectations(expects, async (blank) => {
+      const blanked = blankExpects(source, blank);
+      const snippet = buildSnippet(cells.map((c, i) => (i === index ? { ...c, source: blanked } : c)), index, unit);
+      // A cell of only `expect`s that have all failed has nothing left to run.
+      if (analyseCell(blanked).body.length === 0) return { result: NOTHING_LEFT, snippet };
+      const seconds = Math.max(1, Math.floor(limit - (Date.now() - startedAt) / 1000));
+      const evaluated = await evaluate(evalArgs({ root: root.fsPath, unit, snippet: snippet.text, sourcesStdin: hasBuffers, timeoutSeconds: seconds }), root.fsPath, hasBuffers ? JSON.stringify(buffers) : undefined, execution.token, seconds);
+      return evaluated === "cancelled" ? evaluated : { result: evaluated, snippet };
+    });
+    if (run === "cancelled") {
       // The user stopped it: not a failure to show as an error.
       execution.end(undefined, Date.now());
       return;
     }
-    const result = evaluated;
+    const { result, snippet } = run.last;
+    const outcomes = run.outcomes;
 
     const placed = placeDiagnostics(result.diagnostics, snippet.origins);
-    showDiagnostics(codeCells[index], index, placed);
+    showDiagnostics(codeCells[index], index, placed, outcomes);
     const items: vscode.NotebookCellOutputItem[] = [];
     const notes: string[] = [];
     notes.push(...snippetNotes(snippet, (i) => `cell ${codeCells[i].index + 1}`));
     // Problems that can't sit on this cell's lines are listed here instead.
     const elsewhere = placed.filter((d) => d.cell === undefined || d.cell !== index);
     for (const d of elsewhere) notes.push(describe(d, codeCells, index));
+    const again = rerunNote(run.runs);
+    if (again) notes.push(again);
 
     let ok = false;
     switch (result.kind) {
       case "value":
         ok = true;
-        items.push(vscode.NotebookCellOutputItem.text(`${renderValue(result.value)}\n: ${result.type}`, "text/plain"));
-        items.push(vscode.NotebookCellOutputItem.json({ value: result.value, type: result.type }, "application/json"));
+        // A cell that ends in an `expect` has no value: `()` is not shown beside its expectations.
+        if (!(expects.length > 0 && result.value === null)) {
+          items.push(vscode.NotebookCellOutputItem.text(`${renderValue(result.value)}\n: ${result.type}`, "text/plain"));
+          items.push(vscode.NotebookCellOutputItem.json({ value: result.value, type: result.type }, "application/json"));
+        }
         break;
       case "diagnostics":
         items.push(vscode.NotebookCellOutputItem.text(placed.length > 0 ? "The cell doesn't check." : "bynk eval gave no value.", "text/plain"));
@@ -213,11 +244,15 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
         items.push(vscode.NotebookCellOutputItem.error(Object.assign(new Error(result.message), { name: result.errorKind === "timeout" ? "Timed out" : result.errorKind === "setup" ? "Could not run" : "Runtime error" })));
         break;
     }
+    // A failed `expect` fails the cell's run, though the value it reached is shown.
+    const failed = outcomes.some((o) => o.status === "failed");
+    if (failed) ok = false;
     // The notes are an output of their own: one output holds one item per mime
     // type, so a second `text/plain` beside the value would be dropped.
-    const outputs = [new vscode.NotebookCellOutput(items)];
+    const outputs = [...(items.length > 0 ? [new vscode.NotebookCellOutput(items)] : []), ...expectOutputs(outcomes)];
     if (notes.length > 0) outputs.push(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain")]));
     await execution.replaceOutput(outputs);
+    showMarks(cell, outcomes);
     if (ok && placed.every((d) => d.severity !== "error")) mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit });
     else mine.delete(cell.document.uri.toString());
     execution.end(ok, Date.now());
@@ -241,8 +276,6 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
   async function runHandler(r: HandlerRun): Promise<void> {
     const { cell, execution, root, unit, index, codeCells } = r;
     const source = cell.document.getText();
-    const { text, cell: observed } = handlerSource(source);
-    const snippet = buildSnippet(r.cells.map((c, i) => (i === index ? { ...c, source: text } : c)), index, unit);
     // The cell's own body, not the snippet: stubs and earlier cells' `let`s fill it too.
     if (analyseCell(source).body.length === 0) {
       void execution.replaceOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error(new Error("This cell has no call to run: write the handler's call under `// @handler`, or use **Bynk: Insert Handler Call…**."))]));
@@ -251,33 +284,49 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     }
     const buffers = dirtyBuffers(root.fsPath);
     const hasBuffers = Object.keys(buffers).length > 0;
-    // One limit for the cell: a second call, without the suite, gets what is left of it.
+    // One limit for the cell, shared by every call it takes: the run without the
+    // suite, and the runs a failed `expect` takes (#209).
     const limit = timeoutSeconds() ?? 60;
     const startedAt = Date.now();
+    // Whether the unit's suite is used is learnt on the first call and kept.
     let usedSuite = true;
-    let evaluated: EvalResult | "cancelled" | undefined;
-    for (const suite of [unit, undefined]) {
-      const seconds = Math.max(1, Math.floor(limit - (Date.now() - startedAt) / 1000));
-      evaluated = await evaluate(evalArgs({ root: root.fsPath, unit, suite, snippet: snippet.text, sourcesStdin: hasBuffers, timeoutSeconds: seconds }), root.fsPath, hasBuffers ? JSON.stringify(buffers) : undefined, execution.token, seconds);
-      if (evaluated === "cancelled") {
-        execution.end(undefined, Date.now());
-        return;
+    let noSuite = false;
+    const expects = expectations(source);
+    const run = await runWithExpectations(expects, async (blank) => {
+      const { text, cell: observed } = handlerSource(blankExpects(source, blank));
+      const snippet = buildSnippet(r.cells.map((c, i) => (i === index ? { ...c, source: text } : c)), index, unit);
+      // A cell of only `expect`s that have all failed has nothing left to run.
+      if (analyseCell(text).body.length === 0) return { result: NOTHING_LEFT, snippet, observed };
+      let evaluated: EvalResult | "cancelled" | undefined;
+      for (const suite of noSuite ? [undefined] : [unit, undefined]) {
+        const seconds = Math.max(1, Math.floor(limit - (Date.now() - startedAt) / 1000));
+        evaluated = await evaluate(evalArgs({ root: root.fsPath, unit, suite, snippet: snippet.text, sourcesStdin: hasBuffers, timeoutSeconds: seconds }), root.fsPath, hasBuffers ? JSON.stringify(buffers) : undefined, execution.token, seconds);
+        if (evaluated === "cancelled") return evaluated;
+        usedSuite = suite !== undefined;
+        // A unit with no unit-tier suite (none, or only another tier) is run without one.
+        if (!(suite !== undefined && evaluated.kind === "error" && evaluated.errorKind === "setup" && noUnitSuite(evaluated.message))) break;
+        noSuite = true;
       }
-      usedSuite = suite !== undefined;
-      // A unit with no unit-tier suite (none, or only another tier) is run without one.
-      if (!(suite !== undefined && evaluated.kind === "error" && evaluated.errorKind === "setup" && noUnitSuite(evaluated.message))) break;
+      return { result: evaluated as EvalResult, snippet, observed };
+    });
+    if (run === "cancelled") {
+      execution.end(undefined, Date.now());
+      return;
     }
-    const result = evaluated as EvalResult;
+    const { result, snippet, observed } = run.last;
+    const outcomes = run.outcomes;
 
     const placed = placeDiagnostics(result.diagnostics, snippet.origins);
     // A bare call was bound on its own line: a column there is shifted by the binding.
     const shifted = placed.map((d) => (d.cell === index && d.at !== undefined && d.at === observed.rewritten ? { ...d, col: 1 } : d));
     // A problem in the `match` the extension appended is not on a line the user wrote.
     const inAppended = (d: CellDiagnostic): boolean => observed.appendedFrom !== undefined && d.cell === index && d.at !== undefined && d.at >= observed.appendedFrom;
-    showDiagnostics(codeCells[index], index, shifted.filter((d) => !inAppended(d)));
+    showDiagnostics(codeCells[index], index, shifted.filter((d) => !inAppended(d)), outcomes);
     const notes: string[] = snippetNotes(snippet, (i) => `cell ${codeCells[i].index + 1}`);
     for (const d of shifted.filter((x) => x.cell === undefined || x.cell !== index)) notes.push(describe(d, codeCells, index));
     for (const d of shifted.filter(inAppended)) notes.push(`The extension's \`match\` over the response didn't check (${d.code || d.severity}): ${d.message} End the cell with a \`match\` of your own to show the response.`);
+    const again = rerunNote(run.runs);
+    if (again) notes.push(again);
     const hasStubs = snippet.stubs.length > 0 || analyseCell(source).header.some((h) => h.text.trimStart().startsWith("stub"));
     if (result.kind !== "diagnostics") notes.push(suiteNote(unit, usedSuite, hasStubs));
 
@@ -293,7 +342,8 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
           items = [vscode.NotebookCellOutputItem.text(ok ? renderResponse(response) : `${renderResponse(response)}: it is a raw or streamed body. End the cell with a \`match\` of your own to read it.`, "text/plain"), vscode.NotebookCellOutputItem.json(responseJson(response), "application/json")];
         } else {
           ok = true;
-          items = [vscode.NotebookCellOutputItem.text(`${renderValue(result.value)}\n: ${result.type}`, "text/plain"), vscode.NotebookCellOutputItem.json({ value: result.value, type: result.type }, "application/json")];
+          // A cell that ends in an `expect`, not a call, has no value: `()` is not shown beside its expectations.
+          if (!(expects.length > 0 && result.value === null)) items = [vscode.NotebookCellOutputItem.text(`${renderValue(result.value)}\n: ${result.type}`, "text/plain"), vscode.NotebookCellOutputItem.json({ value: result.value, type: result.type }, "application/json")];
         }
         break;
       }
@@ -304,9 +354,12 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
         items = [vscode.NotebookCellOutputItem.error(Object.assign(new Error(result.message), { name: result.errorKind === "timeout" ? "Timed out" : result.errorKind === "setup" ? "Could not run" : "Runtime error" }))];
         break;
     }
-    const outputs = [new vscode.NotebookCellOutput(items)];
+    // A failed `expect` fails the cell's run, though the response it reached is shown.
+    if (outcomes.some((o) => o.status === "failed")) ok = false;
+    const outputs = [...(items.length > 0 ? [new vscode.NotebookCellOutput(items)] : []), ...expectOutputs(outcomes)];
     if (notes.length > 0) outputs.push(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain")]));
     await execution.replaceOutput(outputs);
+    showMarks(cell, outcomes);
     // A handler cell binds nothing a later cell may use: its `let`s would send the
     // call again, in a cell that runs without the suite (and its stubs). It counts
     // as not run, so `buildSnippet` leaves it out.
@@ -413,22 +466,61 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
   /** Diagnostics go on the cell being run only. A problem in a line an earlier
    *  cell wrote is listed in this cell's output instead: a diagnostic set on the
    *  earlier cell would stay there after the problem is fixed, until that cell
-   *  was itself run again. */
-  function showDiagnostics(cell: vscode.NotebookCell, index: number, placed: readonly CellDiagnostic[]): void {
+   *  was itself run again. A failed `expect` (#209) is a problem on its own line. */
+  function showDiagnostics(cell: vscode.NotebookCell, index: number, placed: readonly CellDiagnostic[], outcomes: readonly ExpectOutcome[] = []): void {
     const doc = cell.document;
     const list: vscode.Diagnostic[] = [];
-    for (const d of placed) {
+    for (const d of [...placed, ...expectDiagnostics(outcomes, index)]) {
       if (d.cell !== index || d.at === undefined) continue;
       const line = Math.min(d.at, doc.lineCount - 1);
       const col = Math.max(0, d.col - 1);
       const range = new vscode.Range(line, Math.min(col, doc.lineAt(line).text.length), line, doc.lineAt(line).text.length);
       const diag = new vscode.Diagnostic(range, d.message, d.severity === "error" ? vscode.DiagnosticSeverity.Error : d.severity === "warning" ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Information);
-      diag.source = "bynk eval";
+      diag.source = d.code === "expect" ? "bynk expect" : "bynk eval";
       if (d.code) diag.code = d.code;
       list.push(diag);
     }
     if (list.length > 0) diagnostics.set(doc.uri, list);
   }
+
+  /** The expectations of a run as outputs: a text table and its JSON, in one
+   *  output (one item per mime type). None when the cell has none that ran. */
+  function expectOutputs(outcomes: readonly ExpectOutcome[]): vscode.NotebookCellOutput[] {
+    const text = renderExpectations(outcomes);
+    if (text === "") return [];
+    return [new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(text, "text/plain"), vscode.NotebookCellOutputItem.json(expectJson(outcomes), "application/json")])];
+  }
+
+  // A mark on the line of each expectation that ran: a tick or a cross after the
+  // text. Editors of a cell come and go as the notebook scrolls, so the marks are
+  // kept by cell and put on again when its editor appears; an edit to the cell
+  // clears them, since they no longer describe it.
+  const passMark = vscode.window.createTextEditorDecorationType({ after: { contentText: "  ✓", color: new vscode.ThemeColor("testing.iconPassed") } });
+  const failMark = vscode.window.createTextEditorDecorationType({ after: { contentText: "  ✗", color: new vscode.ThemeColor("testing.iconFailed") } });
+  context.subscriptions.push(passMark, failMark);
+  const marks = new Map<string, ExpectOutcome[]>();
+  const paint = (editor: vscode.TextEditor): void => {
+    const found = marks.get(editor.document.uri.toString()) ?? [];
+    const at = (status: string): vscode.Range[] =>
+      found
+        .filter((o) => o.status === status && o.expectation.line < editor.document.lineCount)
+        .map((o) => editor.document.lineAt(o.expectation.line).range);
+    editor.setDecorations(passMark, at("passed"));
+    editor.setDecorations(failMark, at("failed"));
+  };
+  function showMarks(cell: vscode.NotebookCell, outcomes: readonly ExpectOutcome[]): void {
+    const key = cell.document.uri.toString();
+    marks.set(key, outcomes.filter((o) => o.status !== "not-run") as ExpectOutcome[]);
+    for (const e of vscode.window.visibleTextEditors) if (e.document.uri.toString() === key) paint(e);
+  }
+  context.subscriptions.push(
+    vscode.window.onDidChangeVisibleTextEditors((editors) => editors.forEach(paint)),
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      const key = e.document.uri.toString();
+      if (e.contentChanges.length === 0 || !marks.delete(key)) return;
+      for (const ed of vscode.window.visibleTextEditors) if (ed.document.uri.toString() === key) paint(ed);
+    }),
+  );
 
   function describe(d: CellDiagnostic, codeCells: readonly vscode.NotebookCell[], index: number): string {
     const where = d.file !== undefined ? `${d.file}:${d.line}:${d.col}` : d.cell !== undefined && d.cell !== index ? `cell ${(codeCells[d.cell]?.index ?? d.cell) + 1}, line ${(d.at ?? 0) + 1}` : `line ${d.line}`;
