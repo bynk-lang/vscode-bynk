@@ -32,6 +32,7 @@ import { registerDependencies } from "./dependencies";
 import { registerDeploy } from "./deploy";
 import { registerDevServer } from "./devServer";
 import { registerDoctor } from "./doctor";
+import { registerEdgeCases } from "./edgeCases";
 import { registerEmittedOutput } from "./emittedOutput";
 import { registerEnvironments } from "./environmentsView";
 import { registerExplainView } from "./explainView";
@@ -87,6 +88,8 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context, approvals }) => registerDevServer(context, approvals),
   // #2095: "Bynk: Doctor", offered by failures elsewhere, never run on activation.
   ({ context }) => registerDoctor(context),
+  // #229: "Generate Edge Cases…", boundary values for a route's refined inputs, as a notebook.
+  ({ context, viewRefresh }) => registerEdgeCases(context, viewRefresh),
   // #2471: "Show Compiled Output", highlighted both ways through the source map.
   ({ context, viewRefresh }) => registerEmittedOutput(context, viewRefresh),
   // #150: the Environments view: deployed, drift and migrations per environment.

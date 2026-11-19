@@ -145,6 +145,10 @@ interface LitEnv {
   captures: readonly string[];
   /** Turn a quoted string with `{{…}}` in it into an interpolation. */
   interpolate(text: string): Lit;
+  /** A value known to satisfy a refined type (#229), by the type's name: what
+   *  `sampleOf` writes for it in place of its base type's placeholder, which a
+   *  predicate may refuse. */
+  valid?: ReadonlyMap<string, string | number>;
 }
 
 const quote = (s: string): string => JSON.stringify(s);
@@ -703,6 +707,8 @@ function sampleOf(ref: WcRef, env: LitEnv, depth = 0): Sample {
           return { why: `a ${ref.base} has no literal here` };
       }
     case "Named": {
+      const known = env.valid?.get(ref.name);
+      if (known !== undefined) return { value: known };
       const t = env.types.find((x) => x.name === ref.name);
       if (!t) return { why: `the type ${ref.name} is not in the contract` };
       if (t.body.kind === "Scalar") return sampleOf({ kind: "Base", base: t.body.base, json: t.body.json, guards: [], expected: { kind: "Json", json: t.body.json } }, env, depth + 1);
@@ -730,6 +736,21 @@ function sampleOf(ref: WcRef, env: LitEnv, depth = 0): Sample {
   }
 }
 
+/** How a written call departs from the plain sample (#229). */
+export interface CallVariation {
+  /** A value that satisfies each refined type, by name, in place of the placeholder. */
+  valid?: ReadonlyMap<string, string | number>;
+  /** Replace the value at `path` (record field names) inside parameter `param`. */
+  set?: { param: string; path: readonly string[]; value: string | number };
+}
+
+export function setAt(value: unknown, path: readonly string[], replacement: unknown): unknown {
+  if (path.length === 0) return replacement;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const o = value as Record<string, unknown>;
+  return { ...o, [path[0]]: setAt(o[path[0]], path.slice(1), replacement) };
+}
+
 export interface WrittenCall {
   /** `api.POST("/todos", Todo { … }) by Visitor`, on one line. */
   text: string;
@@ -739,15 +760,21 @@ export interface WrittenCall {
 
 type WireModel = PromoteRoute["model"];
 
+/** A JSON sample of wire type `ref`, with `valid` values for refined types (#229): the raw body of a scenario step. */
+export function sampleJson(model: Pick<WireModel, "types" | "instantiations">, ref: WcRef, valid?: ReadonlyMap<string, string | number>): { value: unknown } | { why: string } {
+  return sampleOf(ref, { types: model.types, instantiations: model.instantiations, captures: [], interpolate: () => ({ why: "no captures here" }), valid });
+}
+
 /** A sample argument for each of a handler's parameters, as source; the ones
  *  that could not be sampled are written as `_` with a comment, and listed. */
-function sampleArgs(model: WireModel, params: readonly { name: string; shape: WcRef }[], skip: (name: string) => boolean = () => false): { args: string[]; holes: string[] } {
-  const litEnv: LitEnv = { types: model.types, instantiations: model.instantiations, captures: [], interpolate: () => ({ why: "no captures here" }) };
+function sampleArgs(model: WireModel, params: readonly { name: string; shape: WcRef }[], skip: (name: string) => boolean = () => false, vary?: CallVariation): { args: string[]; holes: string[] } {
+  const litEnv: LitEnv = { types: model.types, instantiations: model.instantiations, captures: [], interpolate: () => ({ why: "no captures here" }), valid: vary?.valid };
   const holes: string[] = [];
   const args: string[] = [];
   for (const p of params) {
     if (skip(p.name)) continue;
-    const s = sampleOf(p.shape, litEnv);
+    let s = sampleOf(p.shape, litEnv);
+    if (vary?.set && vary.set.param === p.name && !("why" in s)) s = { value: setAt(s.value, vary.set.path, vary.set.value) };
     const l = "why" in s ? s : literal(s.value, p.shape, litEnv);
     if ("why" in l) {
       holes.push(`\`${p.name}\`: ${l.why}`);
@@ -765,7 +792,7 @@ const paramsOf = (env: WireModel["envelope"]): { name: string; shape: WcRef }[] 
  *  handler's parameters and `by` as its actor clause (none when undefined).
  *  `undefined` when the route cannot be called from a case: no service named,
  *  or a raw body. */
-export function writeCall(route: PromoteRoute, by: string | undefined): WrittenCall | undefined {
+export function writeCall(route: PromoteRoute, by: string | undefined, vary?: CallVariation): WrittenCall | undefined {
   if (!route.service) return undefined;
   const env = route.model.envelope;
   if (env.kind === "Raw") return undefined;
@@ -777,7 +804,7 @@ export function writeCall(route: PromoteRoute, by: string | undefined): WrittenC
       args.push("RequestHeaders.of([])");
       continue;
     }
-    const got = sampleArgs(route.model, [p]);
+    const got = sampleArgs(route.model, [p], undefined, vary);
     args.push(...got.args);
     holes.push(...got.holes);
   }

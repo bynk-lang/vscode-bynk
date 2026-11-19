@@ -605,6 +605,11 @@
         "icon": "$(send)"
       },
       {
+        "command": "bynk.generateEdgeCases",
+        "title": "Generate Edge Cases…",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.notebook.new",
         "title": "New Notebook",
         "category": "Bynk",
@@ -1121,6 +1126,10 @@
         },
         {
           "command": "bynk.sendRequest",
+          "when": "editorLangId == bynk && !isWeb"
+        },
+        {
+          "command": "bynk.generateEdgeCases",
           "when": "editorLangId == bynk && !isWeb"
         },
         {
@@ -1973,6 +1982,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show a `Send request` CodeLens above each `from http` handler. It opens **Bynk: Send Request**, which sends the handler a request on the dev server."
+        },
+        "bynk.edgeCases.codeLens": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show an `Edge cases` CodeLens above each `from http` handler. It opens **Bynk: Generate Edge Cases…**, which writes a notebook of boundary values for the route's refined inputs."
         },
         "bynk.scenario.codeLens": {
           "type": "boolean",
