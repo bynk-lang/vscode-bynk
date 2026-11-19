@@ -4,7 +4,7 @@
 
 import * as assert from "assert";
 
-import { blankExpects, buildSnippet, rerunNote, decodeExpectFailure, expectDiagnostics, expectJson, expectations, matchFailure, renderExpectations, runWithExpectations, type EvalResult } from "../../src/notebookCore";
+import { NOTHING_LEFT, analyseCell, blankExpects, buildSnippet, rerunNote, decodeExpectFailure, expectDiagnostics, expectJson, expectations, matchFailure, renderExpectations, runWithExpectations, type EvalResult } from "../../src/notebookCore";
 import { handlerSource } from "../../src/notebookHandlerCore";
 
 const CELL = ["let a = discount(2000, 25)", "expect a == 1500", "expect a > 99999", "expect a", "  >= 3", "a"].join("\n");
@@ -72,6 +72,12 @@ describe("expect lines: reading a failure (#209)", () => {
     assert.strictEqual(matchFailure({ header: "expect a > 99999", detail: "" }, es, -1), es[1]);
     assert.strictEqual(matchFailure({ header: "expect a\n  >= 3", detail: "" }, es, -1), es[2]);
     assert.strictEqual(matchFailure({ header: "expect nothing like it", detail: "" }, es, -1), undefined);
+  });
+  it("matches an expect that has a comment, which the message does not quote", () => {
+    const es = expectations('expect a > 1 // floor\nexpect b == "//x" // why\nexpect c ==  // mid\n  3');
+    assert.strictEqual(matchFailure({ header: "expect a > 1", detail: "" }, es, -1), es[0]);
+    assert.strictEqual(matchFailure({ header: 'expect b == "//x"', detail: "" }, es, -1), es[1]);
+    assert.strictEqual(matchFailure({ header: "expect c ==\n  3", detail: "" }, es, -1), es[2]);
   });
   it("matches the first one after the previous failure when the text is repeated", () => {
     const es = expectations("expect f() == 1\nexpect f() == 1\nexpect f() == 1");
@@ -148,6 +154,23 @@ describe("expect lines: running until every one has an outcome (#209)", () => {
     const run = await runWithExpectations(es, async () => ({ result: failure("expect something else") }));
     assert.ok(run !== "cancelled");
     assert.deepStrictEqual(run.outcomes.map((o) => o.status), ["not-run", "not-run", "not-run"]);
+  });
+  it("has nothing left to run when every expect of an expects-only cell has failed", async () => {
+    const src = "expect total == 1\nexpect total == 2 // two";
+    const es = expectations(src);
+    const sent: string[] = [];
+    const run = await runWithExpectations(es, async (blank) => {
+      const text = blankExpects(src, blank);
+      if (analyseCell(text).body.length === 0) return { result: NOTHING_LEFT };
+      sent.push(text);
+      const first = es.find((e) => !blank.includes(e)) as (typeof es)[number];
+      return { result: failure(first.text.split(" //")[0], `  expected: ${first.text}`) };
+    });
+    assert.ok(run !== "cancelled");
+    assert.strictEqual(sent.length, 2, "the empty cell is not sent");
+    assert.deepStrictEqual(run.outcomes.map((o) => o.status), ["failed", "failed"]);
+    assert.strictEqual(run.last.result, NOTHING_LEFT);
+    assert.strictEqual(run.runs, 3);
   });
   it("stops when cancelled", async () => {
     assert.strictEqual(await runWithExpectations(expectations(CELL), async () => "cancelled"), "cancelled");

@@ -693,12 +693,16 @@ export function decodeExpectFailure(message: string): ExpectFailure | undefined 
   return { header, detail: rest.map((l) => l.trim()).join("\n") };
 }
 
+/** The text of a statement with the `//` comment on each of its lines removed. */
+const withoutComments = (text: string): string => text.split("\n").map((l) => splitComment(l).code).join("\n");
+
 /** The live `expect` a failure is about: the first one after the line the
  *  previous failure was on (an `expect` before it already passed in that run)
  *  whose text is the one the message quotes. */
 export function matchFailure(failure: ExpectFailure, live: readonly Expectation[], after: number): Expectation | undefined {
-  const want = squash(failure.header);
-  return live.find((e) => e.line > after && squash(e.text) === want);
+  // The message quotes the `expect` without its comments, which the statement keeps.
+  const want = squash(withoutComments(failure.header));
+  return live.find((e) => e.line > after && squash(withoutComments(e.text)) === want);
 }
 
 export type ExpectStatus = "passed" | "failed" | "not-run";
@@ -750,6 +754,11 @@ export async function runWithExpectations<R extends { result: EvalResult }>(
 export function rerunNote(runs: number): string | undefined {
   return runs > 1 ? `Ran ${runs} times: \`bynk eval\` stops at the first failed \`expect\`, so the cell was run again with each failed one left out, to check the expects after it and reach the value.` : undefined;
 }
+
+/** What a run of a cell whose body is empty comes to once its failed `expect`s
+ *  are blanked: nothing is left to run, so it is a completed run with no value
+ *  and every `expect` still live counts as passed. */
+export const NOTHING_LEFT: EvalResult = { kind: "value", value: null, type: "()", diagnostics: [] };
 
 /** One line for an expectation: where it is and what it says. */
 const expectLabel = (o: ExpectOutcome): string => {

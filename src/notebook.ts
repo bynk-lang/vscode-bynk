@@ -15,6 +15,7 @@ import {
   NOTEBOOK_TYPE,
   analyseCell,
   analyseRefined,
+  NOTHING_LEFT,
   blankExpects,
   buildSnippet,
   cellKindOf,
@@ -199,7 +200,10 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const startedAt = Date.now();
     const expects = expectations(source);
     const run = await runWithExpectations(expects, async (blank) => {
-      const snippet = buildSnippet(cells.map((c, i) => (i === index ? { ...c, source: blankExpects(source, blank) } : c)), index, unit);
+      const blanked = blankExpects(source, blank);
+      const snippet = buildSnippet(cells.map((c, i) => (i === index ? { ...c, source: blanked } : c)), index, unit);
+      // A cell of only `expect`s that have all failed has nothing left to run.
+      if (analyseCell(blanked).body.length === 0) return { result: NOTHING_LEFT, snippet };
       const seconds = Math.max(1, Math.floor(limit - (Date.now() - startedAt) / 1000));
       const evaluated = await evaluate(evalArgs({ root: root.fsPath, unit, snippet: snippet.text, sourcesStdin: hasBuffers, timeoutSeconds: seconds }), root.fsPath, hasBuffers ? JSON.stringify(buffers) : undefined, execution.token, seconds);
       return evaluated === "cancelled" ? evaluated : { result: evaluated, snippet };
@@ -291,6 +295,8 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const run = await runWithExpectations(expects, async (blank) => {
       const { text, cell: observed } = handlerSource(blankExpects(source, blank));
       const snippet = buildSnippet(r.cells.map((c, i) => (i === index ? { ...c, source: text } : c)), index, unit);
+      // A cell of only `expect`s that have all failed has nothing left to run.
+      if (analyseCell(text).body.length === 0) return { result: NOTHING_LEFT, snippet, observed };
       let evaluated: EvalResult | "cancelled" | undefined;
       for (const suite of noSuite ? [undefined] : [unit, undefined]) {
         const seconds = Math.max(1, Math.floor(limit - (Date.now() - startedAt) / 1000));
