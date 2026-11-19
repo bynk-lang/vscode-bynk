@@ -262,7 +262,7 @@ describe("deploy readiness core (#221)", () => {
       const gate = gateFor(r);
       assert.ok(gate.kind === "confirm" && gate.warnings[0].startsWith("Breaking contract changes"));
       assert.ok(renderReadinessHtml(r).includes("check warn prominent"));
-      assert.ok(!renderReadinessHtml(evaluateReadiness(input())).includes("prominent""));
+      assert.ok(!renderReadinessHtml(evaluateReadiness(input())).includes("check pass prominent"));
     });
     it("asks for a confirmation naming the warnings, and blocks only on failures", () => {
       const warned = evaluateReadiness(input({ tests: { kind: "none" } }));
