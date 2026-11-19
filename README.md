@@ -204,7 +204,7 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   secret *names* are read, never a value. Answers are kept per environment and
   source state, and the open panel refreshes on save. (`bynk deploy --dry-run`
   records its schema in `bynk.schema.lock` even when it only plans; the editor
-  puts the file back as it found it.)
+  puts an existing file back byte for byte.)
 - **Environments** — the sidebar's **Environments** view has one node per
   environment in `bynk.deploy.lock`: each context's deployed service contract
   hashes, which contexts differ from the working tree (compatible or breaking),

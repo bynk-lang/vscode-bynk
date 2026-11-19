@@ -11,7 +11,7 @@
 // as a path. One thing `bynk` v0.639.1 does on a dry run is write: it records the
 // build's schema in `bynk.schema.lock` (even when it then refuses the deploy),
 // and its generated build output under `.bynk/` (disposable, and ignored by the
-// `.gitignore` bynk writes there). `runPlanReadOnly` puts the lock back as it was,
+// `.gitignore` bynk writes there). `runPlanReadOnly` puts a lock that existed back byte for byte,
 // so a preview never leaves a committed file changed.
 
 import * as vscode from "vscode";
@@ -62,7 +62,7 @@ export async function runPlanReadOnly(
   try {
     before = await vscode.workspace.fs.readFile(lock);
   } catch {
-    before = undefined; // none yet: a lock the run creates is removed again
+    before = undefined; // none yet: there is nothing to put back
   }
   try {
     return await runBynk(args, root.fsPath, token);
@@ -72,9 +72,9 @@ export async function runPlanReadOnly(
         (b) => b,
         () => undefined,
       );
-      if (before === undefined && after !== undefined) {
-        await vscode.workspace.fs.delete(lock);
-      } else if (before !== undefined && (after === undefined || !sameBytes(before, after))) {
+      // Byte for byte, and only a file that existed before: a lock the run
+      // creates is the driver's, and is left alone.
+      if (before !== undefined && (after === undefined || !sameBytes(before, after))) {
         await vscode.workspace.fs.writeFile(lock, before);
       }
     } catch {

@@ -113,7 +113,7 @@ describe("Bynk deploy readiness (#221)", () => {
     } finally {
       delete process.env.BYNK_FAKE_DEPLOY_LOCK;
     }
-    assert.strictEqual(fs.readFileSync(path.join(dir, "bynk.schema.lock"), "utf8"), LOCK_TEXT);
+    assert.strictEqual(fs.readFileSync(path.join(dir, "bynk.schema.lock"), "utf8"), LOCK_TEXT, "restored byte for byte");
   });
 
   it("fails, and says so, when the dry run refuses a context moving Worker script", async function () {

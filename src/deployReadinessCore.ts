@@ -58,6 +58,9 @@ export interface ReadinessCheck {
   summary: string;
   /** Specifics, one per line (a service, a class, a secret name). */
   details: string[];
+  /** The most consequential warnings (a breaking contract against what is live):
+   *  shown first in a confirmation and set apart in the panel. */
+  prominent?: boolean;
   /** The view that fixes it; absent when there is nothing to fix. */
   fix?: { target: FixTarget; label: string };
 }
@@ -186,14 +189,17 @@ function contractChecks(input: ReadinessInput): ReadinessCheck[] {
     const unknown = rows.filter((s) => s.status === "changed" && !s.compat);
     const removed = rows.filter((s) => s.status === "removed");
     const details = [
-      ...breaking.map((s) => `${s.context}.${s.service}: breaking${s.compat?.reasons[0] ? ` (${s.compat.reasons[0]})` : ""}`),
+      ...breaking.flatMap((s) => [
+        `${s.context}.${s.service}: BREAKING for callers of what is live`,
+        ...(s.compat?.reasons ?? []).filter((r) => r.startsWith("breaking")).map((r) => `  ${r}`),
+      ]),
       ...removed.map((s) => `${s.context}.${s.service}: removed, callers of the live contract lose it`),
       ...unknown.map((s) => `${s.context}.${s.service}: changed, compatibility not recorded`),
     ];
     const status: CheckStatus = breaking.length + removed.length > 0 ? "warn" : unknown.length > 0 ? "warn" : "pass";
     const summary =
       breaking.length + removed.length > 0
-        ? `${plural(breaking.length + removed.length, "service contract")} would break callers of what is live`
+        ? `${plural(breaking.length + removed.length, "service contract")} would break callers still running against what is live (the callers' Workers are not redeployed with it unless they are in this deploy)`
         : unknown.length > 0
           ? `${plural(unknown.length, "service contract")} changed, with no compatibility verdict`
           : rows.some((s) => s.status === "changed")
@@ -205,6 +211,7 @@ function contractChecks(input: ReadinessInput): ReadinessCheck[] {
       status,
       summary,
       details,
+      ...(breaking.length + removed.length > 0 ? { prominent: true } : {}),
       ...(status === "pass" ? {} : { fix: { target: "contractDiff", label: "Show Contract Diff" } }),
     });
   }
@@ -489,7 +496,7 @@ export type Gate =
 export function gateFor(report: ReadinessReport): Gate {
   const failures = report.checks.filter((c) => c.status === "fail");
   if (failures.length > 0) return { kind: "block", failures: failures.map((c) => `${c.title}: ${c.summary}`) };
-  const warnings = report.checks.filter((c) => c.status === "warn");
+  const warnings = report.checks.filter((c) => c.status === "warn").sort((a, b) => Number(!!b.prominent) - Number(!!a.prominent));
   if (warnings.length > 0) return { kind: "confirm", warnings: warnings.map((c) => `${c.title}: ${c.summary}`) };
   return { kind: "allow" };
 }
@@ -584,7 +591,7 @@ export function renderReadinessHtml(report: ReadinessReport, opts: ReadinessView
   out.push(`<ul class="checks">`);
   for (const c of report.checks) {
     out.push(
-      `<li class="check ${c.status}" data-check="${e(c.id)}"><span class="mark" aria-hidden="true">${STATUS_ICON[c.status]}</span>` +
+      `<li class="check ${c.status}${c.prominent ? " prominent" : ""}" data-check="${e(c.id)}"><span class="mark" aria-hidden="true">${STATUS_ICON[c.status]}</span>` +
         `<div class="body"><div class="head"><strong>${e(c.title)}</strong> <span class="status">${STATUS_LABEL[c.status]}</span></div>` +
         `<div class="summary">${e(c.summary)}</div>` +
         (c.details.length > 0 ? `<ul class="details">${c.details.map((d) => `<li>${e(d)}</li>`).join("")}</ul>` : "") +
@@ -614,6 +621,8 @@ export const READINESS_CSS = `
   li.check.warn .mark { color: var(--vscode-editorWarning-foreground); }
   li.check.fail .mark { color: var(--vscode-errorForeground); }
   li.check.unavailable { opacity: 0.7; }
+  li.check.prominent { border-left: 4px solid var(--vscode-errorForeground); padding-left: 8px; background: var(--vscode-inputValidation-warningBackground, transparent); }
+  li.check.prominent .summary { font-weight: bold; }
   .status { font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; margin-left: 6px; }
   ul.details { margin: 4px 0; padding-left: 18px; font-size: 0.92em; }
   footer.actions { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }

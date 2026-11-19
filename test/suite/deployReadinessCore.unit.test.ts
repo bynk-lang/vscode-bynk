@@ -78,7 +78,11 @@ describe("deploy readiness core (#221)", () => {
       ];
       const c = check(evaluateReadiness(input({ contracts: model({ services: rows }) })), "contracts");
       assert.strictEqual(c.status, "warn");
-      assert.deepStrictEqual(c.details, ["shop.payment.authorise: breaking (breaking response.at: the caller requires a field)"]);
+      assert.deepStrictEqual(c.details, [
+        "shop.payment.authorise: BREAKING for callers of what is live",
+        "  breaking response.at: the caller requires a field",
+      ]);
+      assert.strictEqual(c.prominent, true);
       assert.strictEqual(c.fix?.target, "contractDiff");
     });
     it("passes a compatible change, and warns on a changed hash with no verdict or a removed service", () => {
@@ -252,6 +256,14 @@ describe("deploy readiness core (#221)", () => {
   });
 
   describe("the gate", () => {
+    it("puts a breaking contract first in the confirmation, and sets it apart in the panel", () => {
+      const rows = [service({ compat: { verdict: "breaking", reasons: ["breaking response.at: x"] } })];
+      const r = evaluateReadiness(input({ tests: { kind: "none" }, contracts: model({ services: rows }) }));
+      const gate = gateFor(r);
+      assert.ok(gate.kind === "confirm" && gate.warnings[0].startsWith("Breaking contract changes"));
+      assert.ok(renderReadinessHtml(r).includes("check warn prominent"));
+      assert.ok(!renderReadinessHtml(evaluateReadiness(input())).includes("prominent""));
+    });
     it("asks for a confirmation naming the warnings, and blocks only on failures", () => {
       const warned = evaluateReadiness(input({ tests: { kind: "none" } }));
       const gate = gateFor(warned);
