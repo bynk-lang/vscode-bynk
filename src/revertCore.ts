@@ -221,7 +221,8 @@ export interface Confirmation {
 /** The modal that follows a clean dry run: the environment, the Worker(s), and
  *  what runs. */
 export function confirmation(target: RevertTarget, plan: RevertPlan, groups: readonly WorkerGroup[]): Confirmation {
-  const env = plan.environment || target.environment;
+  // The target's environment, not the document's: it is what the real run is given.
+  const env = target.environment;
   const names = plan.workers.map((w) => w.worker);
   const lines = workerLines(plan, groups);
   const grouped = plan.workers.some((w) => groups.some((g) => g.key === w.worker));

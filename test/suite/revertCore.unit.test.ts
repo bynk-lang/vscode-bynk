@@ -103,6 +103,11 @@ describe("confirmation (#222)", () => {
     assert.strictEqual(confirmation({ environment: "staging" }, staging, groups).typed, undefined);
     assert.strictEqual(confirmation({ environment: "production" }, { ...plan, environment: "production" }, []).typed, "production");
   });
+  it("names the target's environment, whatever the document says", () => {
+    const c = confirmation({ environment: "staging" }, plan, []); // the fixture's plan says "default"
+    assert.match(c.title, /in "staging"\?/);
+    assert.strictEqual(c.typed, undefined);
+  });
   it("does not describe a plain Worker as a group", () => {
     const c = confirmation({ environment: "staging" }, { ...plan, environment: "staging" }, []);
     assert.ok(!/Worker group/.test(c.detail));

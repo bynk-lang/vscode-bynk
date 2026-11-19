@@ -340,7 +340,11 @@ if (args[0] === "--version") {
       process.stdout.write(fixture("revert-refused.json"));
       process.exit(1);
     }
-    process.stdout.write(fixture("revert-plan.json"));
+    // The real driver echoes the environment it was asked about.
+    const plan = JSON.parse(fixture("revert-plan.json"));
+    const at = args.indexOf("--env");
+    if (at >= 0) plan.environment = args[at + 1];
+    process.stdout.write(JSON.stringify(plan, null, 2) + "\n");
     process.exit(0);
   }
   process.stdout.write("fake bynk revert: reverted (no Cloudflare in tests)\n");
