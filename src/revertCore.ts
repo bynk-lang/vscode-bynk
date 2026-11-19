@@ -130,7 +130,9 @@ export function parseRevertPlan(text: string): RevertPlan {
   };
 }
 
-/** What the dry run came to. A plan with `ok` false (or a worker not ok, or any
+/** What the dry run came to. The `verdict` values are undocumented at v0.639.1
+ *  (bynk-lang/bynk#3797), so only `"refused"` is recognised, and readiness also
+ *  needs `ok` and exit 0. A plan with `ok` false (or a worker not ok, or any
  *  check refused) is `refused`: every unknown is a refusal. */
 export type RevertOutcome =
   | { kind: "ready"; plan: RevertPlan }
@@ -140,7 +142,9 @@ export type RevertOutcome =
   | { kind: "cancelled" };
 
 /** Whether `bynk` said it has no Cloudflare credentials (the message names the
- *  variables). Only the CLI's own words are read: never the environment. */
+ *  variables). Only the CLI's own words are read: never the environment. The
+ *  CLI gives no JSON and no code for this case at v0.639.1, so the text is all
+ *  there is to match (bynk-lang/bynk#3797). */
 export function mentionsMissingCredentials(text: string): boolean {
   return /CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID/.test(text);
 }
