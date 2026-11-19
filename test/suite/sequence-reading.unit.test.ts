@@ -12,7 +12,7 @@ import type { SequenceDiagram } from "../../src/diagram/sequence/ir";
 import { layoutSequence, type PlacedFragment, type PlacedMessage } from "../../src/diagram/sequence/layout";
 import { DEFAULT_FOLD_DEPTH, elementAt, foldedSet, fragmentDepths, hiddenBy, rangesOf } from "../../src/diagram/sequence/render";
 import { clampZoom, fitZoom, minimapRect, scrollForMinimapPoint, wantsMinimap, ZOOM_MAX, ZOOM_MIN } from "../../src/diagram/viewport";
-import { fileStem, isCopyText, isHighlight, isPageError, isSaveFile } from "../../src/sequenceMessages";
+import { fileStem, isCopyText, isHighlight, isPageError, isSaveFile, isShowTiming } from "../../src/sequenceMessages";
 import type { SequenceModel } from "../../src/webview/types";
 
 const R = (line: number, character = 0, endLine = line, endChar = character + 4) => ({
@@ -212,5 +212,20 @@ describe("sequence page messages (host checks)", () => {
     assert.strictEqual(fileStem("GET /check/:client"), "GET-check-client");
     assert.strictEqual(fileStem("../../etc/passwd"), "etc-passwd");
     assert.strictEqual(fileStem("///"), "sequence");
+  });
+});
+
+describe("showTiming message (#218)", () => {
+  it("accepts a request id, with or without one to compare, and nothing else", () => {
+    assert.ok(isShowTiming({ type: "showTiming", id: "r1" }));
+    assert.ok(isShowTiming({ type: "showTiming", id: "r1", compareId: "r2" }));
+    assert.ok(!isShowTiming({ type: "showTiming" }));
+    assert.ok(!isShowTiming({ type: "showTiming", id: "" }));
+    assert.ok(!isShowTiming({ type: "showTiming", id: 1 }));
+    assert.ok(!isShowTiming({ type: "showTiming", id: "r1", compareId: 2 }));
+    assert.ok(!isShowTiming({ type: "showTiming", id: "r1", compareId: "" }));
+    assert.ok(!isShowTiming({ type: "showTiming", id: "x".repeat(300) }));
+    assert.ok(!isShowTiming({ type: "reveal", id: "r1" }));
+    assert.ok(!isShowTiming(null));
   });
 });

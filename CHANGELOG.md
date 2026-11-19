@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+### Added
+
+- **Request traces: a timing diagram of one request** (#218). **Bynk: Show Request Timing**, from the trace picker on the sequence diagram (a **Show Request Timing** button), as a command (the newest request), and as a choice on the message **Show Last Request Trace** shows when the newest request has no handler to open, draws one request as a UML timing diagram with the diagram engine: a lifeline per participant (the handler, each capability, each called Worker or agent), a shared time axis in ms from the request's start, and a bar per step. A `call` step whose callee was traced too (the `request`/`parent` join, bynk v0.632.2) expands into the callee's own steps, nested under it. The **longest chain** is outlined: the longest step at each level, followed into the callee (with durations only every step runs in turn, so this is where most of the time went, not a critical path; a start time per step would allow a real one). A failing step is red and a pending one amber and dashed, as on the sequence overlay; hover shows the step and its duration, and click or Enter opens the call site. Pick another request of the route in the page, or compare with one: the two are stacked on one scale, with each step's change against the first (steps are aligned with the same `compareTraces` as the sequence view's comparison). **Copy as Mermaid** writes a `gantt` chart (times rounded to whole milliseconds), and the view has the engine's zoom, pan, minimap and SVG/PNG export. **Durations only:** a `request` event's step carries `ms` and no start offset (bynk v0.639.1, `bynk/src/trace.rs`), so overlap and gaps cannot be known; steps are laid end to end in the order they ran, and the legend, the exported SVG and the gantt text say so; a start time per step is proposed in bynk-lang/bynk#3787. Traces stay in memory and are never logged.
+
 ## [0.639.4] - 2026-11-19
 
 Built against `bynk` v0.639.1. Bynk notebooks become a way to write tests: `expect` lines, promoting cells and notebooks to test suites, and calls for every handler kind. A matching `bynk-lsp` is no longer reported as older than the extension.

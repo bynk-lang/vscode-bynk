@@ -575,6 +575,12 @@
         "icon": "$(debug-line-by-line)"
       },
       {
+        "command": "bynk.showRequestTiming",
+        "title": "Show Request Timing",
+        "category": "Bynk",
+        "icon": "$(graph-line)"
+      },
+      {
         "command": "bynk.showDocumentation",
         "title": "Show Documentation",
         "category": "Bynk",
@@ -1084,6 +1090,10 @@
         },
         {
           "command": "bynk.showRequestTrace",
+          "when": "!isWeb"
+        },
+        {
+          "command": "bynk.showRequestTiming",
           "when": "!isWeb"
         },
         {

@@ -167,7 +167,9 @@ if (args[0] === "--version") {
       setTimeout(() => {
         emit({
           event: "request", context: "other", id: "c1", parent: "r1", route: "POST /authorise", status: 200,
-          duration_ms: 2.5, steps: [], truncated: false, fault: null,
+          duration_ms: 2.5,
+          steps: [{ kind: "capability", target: "Db.query", span: null, ms: 1.5, outcome: "ok" }],
+          truncated: false, fault: null,
         });
         emit({
           event: "request", context: name, id: "r1", parent: null, route: "GET /a", status: 500, duration_ms: 12.5,
@@ -178,6 +180,21 @@ if (args[0] === "--version") {
           truncated: false,
           fault: { message: "Error: boom", frames: [`at http_GET (${file}:${line}:${col})`, "at index.js:1:2"] },
         });
+        // `BYNK_FAKE_TRACE_SECOND=1` (#218): a second request of the same
+        // route, quicker and clean, for the timing diagram's comparison.
+        // Later, so it is strictly the newest: the events above share a millisecond.
+        if (process.env.BYNK_FAKE_TRACE_SECOND === "1") {
+          setTimeout(() => {
+            emit({
+              event: "request", context: name, id: "r2", parent: null, route: "GET /a", status: 200, duration_ms: 3.5,
+              steps: [
+                { kind: "call", target: "other.authorise", span, ms: 2.4, outcome: "ok" },
+                { kind: "agent", target: "Ledger.tally", span: null, ms: 0.4, outcome: "ok" },
+              ],
+              truncated: false, fault: null,
+            });
+          }, 100);
+        }
       }, 500);
     }
 

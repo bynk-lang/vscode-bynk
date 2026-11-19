@@ -213,6 +213,16 @@ function renderTraceBar(): void {
     cmp.append(other);
     traceBar.append(cmp);
   }
+  // #218: where the time went, as a timing diagram of the chosen request (and
+  // the one being compared with, when there is one).
+  if (chosen) {
+    const timing = toolbarButton("Show Request Timing", "Open a timing diagram of this request: where its time went", "bynk-show-timing", () => {
+      const c = selectedTrace();
+      if (!c) return;
+      post({ type: "showTiming", id: c.id, ...(compareId ? { compareId } : {}) });
+    });
+    traceBar.append(timing);
+  }
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
