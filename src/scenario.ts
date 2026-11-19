@@ -544,8 +544,11 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
   // A step that resolves to a route offers the command for it; one that does
   // not (no such handler, several contexts, the server not answering) offers
   // nothing. It is a code action, not a lens, so a scenario gains no line.
+  const edgeCasesKind = vscode.CodeActionKind.Empty.append("bynk").append("edgeCases");
   const edgeCases: vscode.CodeActionProvider = {
-    async provideCodeActions(doc, range) {
+    async provideCodeActions(doc, range, context) {
+      // A request for other kinds (`source.*`, on save) can never take this action.
+      if (context.only && !context.only.intersects(edgeCasesKind)) return [];
       const root = await rootOf(doc);
       if (!root) return [];
       const scenario = parseScenario(doc.getText());
@@ -555,7 +558,7 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
       if (!set.complete) return [];
       const ref = stepRoute(set.routes, step, doc.uri.toString());
       if (!ref) return [];
-      const action = new vscode.CodeAction(`Generate edge cases for ${ref.method} ${ref.path}`, vscode.CodeActionKind.Empty.append("bynk").append("edgeCases"));
+      const action = new vscode.CodeAction(`Generate edge cases for ${ref.method} ${ref.path}`, edgeCasesKind);
       action.command = { title: "Generate edge cases", command: "bynk.generateEdgeCases", arguments: [ref] };
       return [action];
     },
@@ -773,7 +776,7 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
     startupDecorations,
     { dispose: () => pending.forEach((t) => clearTimeout(t)) },
     vscode.languages.registerCodeLensProvider({ language: SCENARIO_LANGUAGE }, lenses),
-    vscode.languages.registerCodeActionsProvider({ language: SCENARIO_LANGUAGE }, edgeCases),
+    vscode.languages.registerCodeActionsProvider({ language: SCENARIO_LANGUAGE }, edgeCases, { providedCodeActionKinds: [edgeCasesKind] }),
     vscode.workspace.onDidOpenTextDocument((d) => schedule(d, 0)),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId !== SCENARIO_LANGUAGE) return;
