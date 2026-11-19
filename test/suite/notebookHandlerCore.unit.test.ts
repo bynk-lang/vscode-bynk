@@ -68,10 +68,10 @@ describe("handler cells: observing the response (#191)", () => {
     assert.ok(!text.includes("// done"));
   });
 
-  it("runs the cell as written when its last statement is not a call to an HTTP surface", () => {
+  it("runs the cell as written when its last statement is not a call to a handler's address", () => {
     for (const src of [
       '// @handler\nlet r <- api.GET("/x") by Visitor\nmatch r { Ok(s) => s, _ => "" }',
-      '// @handler\nlet r <- sched.schedule("nightly")',
+      '// @handler\nlet r <- sched.run("nightly")',
       '// @handler\nlet Created(t) <- api.POST("/todos", 1) else { expect false }',
       "// @handler\nstub A.b(_) returns 1",
     ]) {

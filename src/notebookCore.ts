@@ -843,7 +843,7 @@ function flatten(v: unknown): string {
   if (isVariant(o)) {
     const fs = fields(o, true);
     if (fs.length === 0) return o.kind;
-    if (fs.length === 1 && (fs[0][0] === "value" || fs[0][0] === "error")) return `${o.kind}(${flatten(fs[0][1])})`;
+    if (fs.length === 1 && (fs[0][0] === "value" || fs[0][0] === "error")) return `${o.kind}(${fs[0][1] === null ? "()" : flatten(fs[0][1])})`; // a unit payload: `Ok(())`
     return `${o.kind} { ${fs.map(([k, x]) => `${key(k)}: ${flatten(x)}`).join(", ")} }`;
   }
   const fs = fields(o, false);

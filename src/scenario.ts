@@ -42,6 +42,7 @@ import {
   stepsNeededFor,
   validateStep,
   type EarlierStep,
+  type HandlerInfo,
   type Problem,
   type Resolved,
   type RouteInfo,
@@ -69,6 +70,8 @@ const EXCLUDE = "**/{node_modules,.bynk,.git}/**";
  *  started, a request failed), so "no such route" would be a guess. */
 export interface RouteSet {
   routes: RouteInfo[];
+  /** The handlers that are not HTTP routes (#213): on call, cron, queue, event, websocket. */
+  handlers: HandlerInfo[];
   complete: boolean;
 }
 
@@ -109,50 +112,69 @@ class RouteIndex implements vscode.Disposable {
 
   private async build(root: vscode.Uri): Promise<RouteSet> {
     const client = await this.hub.whenClient(5_000);
-    if (!client) return { routes: [], complete: false };
+    if (!client) return { routes: [], handlers: [], complete: false };
     const files = await vscode.workspace.findFiles(new vscode.RelativePattern(root, "**/*.bynk"), EXCLUDE);
     let complete = true;
     const routes: RouteInfo[] = [];
+    const handlers: HandlerInfo[] = [];
     for (const file of files) {
       try {
         const got = await this.fileRoutes(client, file);
         routes.push(...got.routes);
+        handlers.push(...got.handlers);
         if (!got.complete) complete = false;
       } catch {
         complete = false;
       }
     }
-    return { routes, complete };
+    return { routes, handlers, complete };
   }
 
   /** A file's routes, and whether the server could answer for all of it. */
-  private async fileRoutes(client: LanguageClient, file: vscode.Uri): Promise<{ routes: RouteInfo[]; complete: boolean }> {
+  private async fileRoutes(client: LanguageClient, file: vscode.Uri): Promise<{ routes: RouteInfo[]; handlers: HandlerInfo[]; complete: boolean }> {
     const doc = await vscode.workspace.openTextDocument(file);
     const symbols = await this.hub.documentSymbols(doc);
     // A Bynk file always declares something: no symbols means the server
     // could not answer yet, not that the file serves nothing.
-    if (symbols.length === 0 && doc.getText().trim() !== "") return { routes: [], complete: false };
-    const handlers = handlerSymbols(symbols).filter((h) => isHttpHandler(doc, h.symbol.range));
+    if (symbols.length === 0 && doc.getText().trim() !== "") return { routes: [], handlers: [], complete: false };
+    const text = doc.getText();
     const out: RouteInfo[] = [];
+    const others: HandlerInfo[] = [];
     let complete = true;
-    for (const h of handlers) {
+    const identities: Record<string, string> = {};
+    for (const a of text.matchAll(/\bactor\s+([A-Z]\w*)\s*\{[^}]*?\bidentity\s*=\s*([A-Z]\w*)/g)) identities[a[1]] = a[2];
+    for (const h of handlerSymbols(symbols)) {
+      const http = isHttpHandler(doc, h.symbol.range);
       const position = h.symbol.selectionRange.start;
       const wc = await requestWireContract(client, { uri: doc.uri.toString(), position: { line: position.line, character: position.character } });
       const kind = wc?.model.kind;
-      // An HTTP handler (by its header) with no wire contract yet: the server
-      // has not analysed the project. Say so rather than drop the route.
-      if (!wc) complete = false;
-      if (wc && kind?.kind === "Http") {
-        const r = h.symbol.range;
-        const header = doc.getText(new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character)).split("{", 1)[0];
-        // `by u: User`, `by Visitor`: the actors the handler admits.
-        const actors = [...header.matchAll(/\bby\s+(?:[a-z_]\w*\s*:\s*)?([A-Z]\w*)/g)].map((m) => m[1]);
-        const identities: Record<string, string> = {};
-        for (const a of doc.getText().matchAll(/\bactor\s+([A-Z]\w*)\s*\{[^}]*?\bidentity\s*=\s*([A-Z]\w*)/g)) identities[a[1]] = a[2];
-        out.push({ unit: wc.model.unit, method: kind.method, path: kind.path, model: wc.model, service: wc.model.service, responses: wc.model.responses, actors, identities });
+      if (!wc) {
+        // An HTTP handler (by its header) with no wire contract yet: the server
+        // has not analysed the project. Say so rather than drop the route. A
+        // handler of another kind with none is left out without a word: an
+        // agent's `on call` has no wire contract, ever, and is no handler a
+        // cell can call (`complete` is the scenarios' too, so it is not made
+        // false by a handler they do not use).
+        if (http) complete = false;
+        continue;
       }
+      const r = h.symbol.range;
+      const header = doc.getText(new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character)).split("{", 1)[0];
+      // `by u: User`, `by Visitor`: the actors the handler admits.
+      const actors = [...header.matchAll(/\bby\s+(?:[a-z_]\w*\s*:\s*)?([A-Z]\w*)/g)].map((m) => m[1]);
+      if (kind?.kind === "Http") {
+        out.push({ unit: wc.model.unit, method: kind.method, path: kind.path, model: wc.model, service: wc.model.service, responses: wc.model.responses, actors, identities });
+        continue;
+      }
+      if (!kind || !wc.model.service) continue;
+      // A `from websocket` service's `message` is a `Message` to the server, but is driven by `svc.message(tc, frame)`.
+      const websocket = kind.kind === "Open" || kind.kind === "Close" || new RegExp(`\\bservice\\s+${h.owner}\\s+from\\s+websocket\\b`).test(text);
+      const kinds = { Call: "call", Cron: "cron", Message: "queue", Event: "event" } as const;
+      const mapped = websocket ? "websocket" : kind.kind in kinds ? kinds[kind.kind as keyof typeof kinds] : undefined;
+      if (!mapped) continue;
+      others.push({ unit: wc.model.unit, service: wc.model.service, kind: mapped, expr: kind.kind === "Cron" ? kind.expr : undefined, model: wc.model, actors, identities });
     }
-    return { routes: out, complete };
+    return { routes: out, handlers: others, complete };
   }
 
   dispose(): void {
@@ -191,7 +213,7 @@ async function readTarget(root: vscode.Uri, name: string): Promise<TestTarget | 
  *  handler cell picks its call from them, #191). */
 let routeProvider: ((root: vscode.Uri) => Promise<RouteSet>) | undefined;
 export function projectRoutes(root: vscode.Uri): Promise<RouteSet> {
-  return routeProvider ? routeProvider(root) : Promise.resolve({ routes: [], complete: false });
+  return routeProvider ? routeProvider(root) : Promise.resolve({ routes: [], handlers: [], complete: false });
 }
 
 export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefresh): void {

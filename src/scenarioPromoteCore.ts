@@ -30,6 +30,7 @@ import {
   type Step,
   type Expectation,
   type PathSeg,
+  type HandlerInfo,
   type RouteInfo,
 } from "./scenarioCore";
 import type { WcRef } from "./webview/wireContractTypes";
@@ -736,24 +737,16 @@ export interface WrittenCall {
   holes: string[];
 }
 
-/** The call a case writes for `route`, with a sample argument for each of the
- *  handler's parameters and `by` as its actor clause (none when undefined).
- *  `undefined` when the route cannot be called from a case: no service named,
- *  or a raw body. */
-export function writeCall(route: PromoteRoute, by: string | undefined): WrittenCall | undefined {
-  if (!route.service) return undefined;
-  const env = route.model.envelope;
-  if (env.kind === "Raw") return undefined;
-  const params = env.kind === "Keyed" ? env.params : env.kind === "Bare" ? [{ name: env.param, shape: env.shape }] : [];
-  const litEnv: LitEnv = { types: route.model.types, instantiations: route.model.instantiations, captures: [], interpolate: () => ({ why: "no captures here" }) };
+type WireModel = PromoteRoute["model"];
+
+/** A sample argument for each of a handler's parameters, as source; the ones
+ *  that could not be sampled are written as `_` with a comment, and listed. */
+function sampleArgs(model: WireModel, params: readonly { name: string; shape: WcRef }[], skip: (name: string) => boolean = () => false): { args: string[]; holes: string[] } {
+  const litEnv: LitEnv = { types: model.types, instantiations: model.instantiations, captures: [], interpolate: () => ({ why: "no captures here" }) };
   const holes: string[] = [];
-  const pattern = new Set(route.path.split("/").filter((s) => s.startsWith(":")).map((s) => s.slice(1)));
-  const args: string[] = [quote(route.path)];
+  const args: string[] = [];
   for (const p of params) {
-    if (p.name === "headers" && !pattern.has("headers")) {
-      args.push("RequestHeaders.of([])");
-      continue;
-    }
+    if (skip(p.name)) continue;
     const s = sampleOf(p.shape, litEnv);
     const l = "why" in s ? s : literal(s.value, p.shape, litEnv);
     if ("why" in l) {
@@ -763,7 +756,66 @@ export function writeCall(route: PromoteRoute, by: string | undefined): WrittenC
       args.push(l.text);
     }
   }
+  return { args, holes };
+}
+
+const paramsOf = (env: WireModel["envelope"]): { name: string; shape: WcRef }[] => (env.kind === "Keyed" ? env.params : env.kind === "Bare" ? [{ name: env.param, shape: env.shape }] : []);
+
+/** The call a case writes for `route`, with a sample argument for each of the
+ *  handler's parameters and `by` as its actor clause (none when undefined).
+ *  `undefined` when the route cannot be called from a case: no service named,
+ *  or a raw body. */
+export function writeCall(route: PromoteRoute, by: string | undefined): WrittenCall | undefined {
+  if (!route.service) return undefined;
+  const env = route.model.envelope;
+  if (env.kind === "Raw") return undefined;
+  const pattern = new Set(route.path.split("/").filter((s) => s.startsWith(":")).map((s) => s.slice(1)));
+  const args: string[] = [quote(route.path)];
+  const holes: string[] = [];
+  for (const p of paramsOf(env)) {
+    if (p.name === "headers" && !pattern.has("headers")) {
+      args.push("RequestHeaders.of([])");
+      continue;
+    }
+    const got = sampleArgs(route.model, [p]);
+    args.push(...got.args);
+    holes.push(...got.holes);
+  }
   return { text: `${route.service}.${route.method}(${args.join(", ")})${by ? ` by ${by}` : ""}`, holes };
+}
+
+/** The unit-tier call for a handler that is not an HTTP route (#213), at the
+ *  address its kind has (`testing.md`): `svc.call(args)`, `svc.schedule("<expr>"
+ *  [, at])`, `svc.message(msg)`, `svc.event(e)`. An event is delivered with the
+ *  default envelope: the handler's `env` parameter is left to the case's runner
+ *  (`svc.event(e, env)` would need an `EventEnvelope` the cell may not have in
+ *  scope). `undefined` for a WebSocket handler, a raw body or an envelope with
+ *  no sample to write. */
+export function writeHandlerCall(h: HandlerInfo, by: string | undefined): WrittenCall | undefined {
+  const env = h.model.envelope;
+  if (h.kind === "websocket" || env.kind === "Raw") return undefined;
+  let params = paramsOf(env);
+  let verb: string;
+  const lead: string[] = [];
+  switch (h.kind) {
+    case "call":
+      verb = "call";
+      break;
+    case "cron":
+      if (h.expr === undefined) return undefined;
+      verb = "schedule";
+      lead.push(quote(h.expr));
+      break;
+    case "queue":
+      verb = "message";
+      break;
+    case "event":
+      verb = "event";
+      params = params.slice(0, 1);
+      break;
+  }
+  const got = sampleArgs(h.model, params);
+  return { text: `${h.service}.${verb}(${[...lead, ...got.args].join(", ")})${by ? ` by ${by}` : ""}`, holes: got.holes };
 }
 
 /** The `by` clause text for an actor a route admits: `Visitor`, `User("sample")`

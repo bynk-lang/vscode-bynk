@@ -45,13 +45,14 @@ import {
   type EvalResult,
   type ExpectOutcome,
 } from "./notebookCore";
-import { decodeResponse, handlerSource, noUnitSuite, renderResponse, responseJson, suiteNote, withCall } from "./notebookHandlerCore";
+import { NO_VALUE, decodeResponse, handlerSource, noUnitSuite, noWireShape, renderNoValue, renderResponse, responseJson, suiteNote, withCall } from "./notebookHandlerCore";
 import { registerNotebookPromote } from "./notebookPromote";
 import type { CellOutput } from "./notebookPromoteCore";
 import { registerNotebookSerializer } from "./notebookSerializer";
 import { activeProjectRoot, projectRootFor } from "./projectRoots";
 import { projectRoutes } from "./scenario";
-import { actorClause, writeCall } from "./scenarioPromoteCore";
+import { actorClause, writeCall, writeHandlerCall } from "./scenarioPromoteCore";
+import { actorsFor, callChoices, websocketNote, type CallChoice } from "./notebookCallCore";
 import { unitMatches } from "./scenarioCore";
 
 const CONTROLLER_ID = "bynk-notebook-controller";
@@ -317,7 +318,10 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
         if (!(suite !== undefined && evaluated.kind === "error" && evaluated.errorKind === "setup" && noUnitSuite(evaluated.message))) break;
         noSuite = true;
       }
-      return { result: evaluated as EvalResult, snippet, observed };
+      // A call whose value has no wire shape (a `QueueResult`) still ran: that is a completed run with nothing to show.
+      const done = evaluated as EvalResult;
+      const unshowable = observed.value !== undefined && done.kind === "error" && done.errorKind === "runtime" ? noWireShape(done.message) : undefined;
+      return { result: unshowable !== undefined ? ({ kind: "value", value: NO_VALUE, type: unshowable, diagnostics: done.diagnostics } as EvalResult) : done, snippet, observed };
     });
     if (run === "cancelled") {
       execution.end(undefined, Date.now());
@@ -350,6 +354,9 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
         } else if (response) {
           ok = response.variant !== null;
           items = [vscode.NotebookCellOutputItem.text(ok ? renderResponse(response) : `${renderResponse(response)}: it is a raw or streamed body. End the cell with a \`match\` of your own to read it.`, "text/plain"), vscode.NotebookCellOutputItem.json(responseJson(response), "application/json")];
+        } else if (result.value === NO_VALUE) {
+          ok = true;
+          items = [vscode.NotebookCellOutputItem.text(renderNoValue(result.type), "text/plain")];
         } else {
           ok = true;
           // A cell that ends in an `expect`, not a call, has no value: `()` is not shown beside its expectations.
@@ -372,7 +379,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     showMarks(cell, outcomes);
     if (ok && result.kind === "value") {
       const response = observed.response ? decodeResponse(result.value) : undefined;
-      const output: CellOutput = response ? { kind: "response", response } : { kind: "value", value: result.value, type: result.type };
+      const output: CellOutput = response ? { kind: "response", response } : result.value === NO_VALUE ? { kind: "none", type: result.type } : { kind: "value", value: result.value, type: result.type };
       lastShown.set(cell.document.uri.toString(), { source, unit, output });
     }
     // A handler cell binds nothing a later cell may use: its `let`s would send the
@@ -604,27 +611,40 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
       }
       const unit = await resolveUnit(nb, cell, root);
       if (!unit) return;
-      const { routes, complete } = await projectRoutes(root);
-      const here = routes.filter((r) => unitMatches(r.unit, unit) && r.service);
-      if (here.length === 0) {
-        void vscode.window.showErrorMessage(complete ? `Bynk Notebook: \`${unit}\` serves no HTTP route to call. A handler cell calls an HTTP handler of the cell's unit.` : "Bynk Notebook: the language server hasn't described the project's routes yet. Wait for it to start and try again.");
+      const { routes, handlers, complete } = await projectRoutes(root);
+      const { choices, websocket } = callChoices(routes, handlers, (u) => unitMatches(u, unit));
+      if (choices.length === 0) {
+        void vscode.window.showErrorMessage(
+          complete
+            ? `Bynk Notebook: \`${unit}\` has no handler a cell can call (an HTTP route, an \`on call\`, a cron, queue or event handler).${websocket.length > 0 ? ` ${websocketNote(websocket)}` : ""}`
+            : "Bynk Notebook: the language server hasn't described the project's handlers yet. Wait for it to start and try again.",
+        );
         return;
       }
-      const pick = await vscode.window.showQuickPick(
-        here.map((r) => ({ label: `${r.method} ${r.path}`, description: r.service, route: r })),
-        { title: `Bynk Notebook: the handler of \`${unit}\` to call`, ignoreFocusOut: true },
-      );
-      if (!pick) return;
-      const route = pick.route;
-      const admits = route.actors ?? [];
+      const items: (vscode.QuickPickItem & { choice?: CallChoice })[] = [];
+      let group = "";
+      for (const c of choices) {
+        if (c.group !== group) {
+          group = c.group;
+          items.push({ label: group, kind: vscode.QuickPickItemKind.Separator });
+        }
+        items.push({ label: c.label, description: c.description, choice: c });
+      }
+      if (websocket.length > 0) items.push({ label: "WebSocket", kind: vscode.QuickPickItemKind.Separator }, { label: `${websocket.join(", ")}: not offered yet`, detail: websocketNote(websocket) });
+      const pick = await vscode.window.showQuickPick(items, { title: `Bynk Notebook: the handler of \`${unit}\` to call`, ignoreFocusOut: true });
+      if (!pick?.choice) return;
+      const { route, handler } = pick.choice.target;
+      const admits = actorsFor(pick.choice.target);
+      const identities = (route ?? handler)?.identities;
       let actor: string | undefined;
       if (admits.length > 0) {
         actor = admits.includes("Visitor") ? "Visitor" : admits.length === 1 ? admits[0] : await vscode.window.showQuickPick(admits, { title: "Run the call as which actor?", ignoreFocusOut: true });
         if (!actor) return;
       }
-      const call = writeCall(route, actor ? actorClause(actor, route.identities?.[actor]) : undefined);
+      const by = actor ? actorClause(actor, identities?.[actor]) : undefined;
+      const call = route ? writeCall(route, by) : handler ? writeHandlerCall(handler, by) : undefined;
       if (!call) {
-        void vscode.window.showErrorMessage(`Bynk Notebook: ${route.method} ${route.path} can't be written as a call (it takes a raw body, or the server named no service).`);
+        void vscode.window.showErrorMessage(`Bynk Notebook: ${pick.choice.label} can't be written as a call (it takes a raw body, or the server named no service).`);
         return;
       }
       const edit = new vscode.WorkspaceEdit();
