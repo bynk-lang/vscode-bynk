@@ -168,6 +168,7 @@ export interface Offer {
 }
 
 const hasControl = (s: string): boolean => /[\u0000-\u0008\u000b-\u001f\u007f]/.test(s);
+const squash = (s: string): string => s.replace(/\s+/g, " ").trim();
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const BASE_TYPES = new Set(["String", "Int", "Float", "Bool"]);
 const MAX_FIELDS = 12;
@@ -491,17 +492,38 @@ export function renderCase(plan: CasePlan, name: string, accepted: ReadonlySet<s
 // ---------------------------------------------------------------------------
 // A suite: new, or a case added to an existing one
 
+/** The `consumes` of every plan, each clause once. */
+export function mergeConsumes(plans: readonly Pick<CasePlan, "consumes">[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of plans) {
+    for (const c of p.consumes) {
+      const key = squash(c);
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(c);
+      }
+    }
+  }
+  return out;
+}
+
+/** The file name (under `tests/`) for the `attempt`th try at a new suite for
+ *  `unit`: `<unit>.bynk`, then `<unit>.unit.bynk`, `<unit>.unit2.bynk`, … for when
+ *  the earlier names are taken by some other suite. */
+export function suiteFileName(unit: string, attempt: number): string {
+  return attempt <= 0 ? `${unit}.bynk` : `${unit}.unit${attempt === 1 ? "" : attempt}.bynk`;
+}
+
 /** A new suite for `unit`. */
 export function newSuite(unit: string, doc: string | undefined, source: string, consumes: readonly string[], cases: readonly string[]): string {
-  const head = [`// Promoted from ${source} by Bynk: Promote to Test Case.`, "// A one-way copy: edits here are not carried back to the notebook, and the notebook", "// is not run by `bynk test`."];
+  const head = [`// Promoted from ${source} by Bynk: Promote Cell to Test Case / Promote Notebook to Suite.`, "// A one-way copy: edits here are not carried back to the notebook, and the notebook", "// is not run by `bynk test`."];
   const lines = [...head, ...(doc ? docComment(doc, "") : []), `suite ${unit} {`];
   for (const c of consumes) lines.push(...indented(c.split("\n"), "\t"));
   if (consumes.length > 0) lines.push("");
   lines.push(cases.join("\n\n"), "}", "");
   return lines.join("\n");
 }
-
-const squash = (s: string): string => s.replace(/\s+/g, " ").trim();
 
 export interface SuiteEdit {
   /** Offset in the original text. */
@@ -593,7 +615,8 @@ export function insertCases(text: string, unit: string, consumes: readonly strin
   const suite = findSuite(text, unit);
   if (!suite) return { ok: false, reason: `no suite for ${unit} in the file` };
   if (suite.tier !== "unit") return { ok: false, reason: `the suite for ${unit} here is of the ${suite.tier} tier, not unit` };
-  const existing = new Set([...text.matchAll(/^\s*consumes\b[^\n]*(?:\n[ \t]+[^\n]*)*/gm)].map((m) => squash(m[0])));
+  // The clause itself: `consumes a.b`, or with a braced list, which may span lines.
+  const existing = new Set([...text.matchAll(/^[ \t]*consumes\b[^\n{]*(?:\{[^}]*\})?/gm)].map((m) => squash(m[0])));
   const lacking = consumes.filter((c) => !existing.has(squash(c)));
   const edits: SuiteEdit[] = [];
   const names = caseNames(text);

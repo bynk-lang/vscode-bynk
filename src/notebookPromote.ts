@@ -10,18 +10,19 @@ import * as path from "node:path";
 
 import * as vscode from "vscode";
 
-import { dirtyBuffers } from "./dirtyBuffers";
 import { NOTEBOOK_TYPE, isUnitName } from "./notebookCore";
 import {
   caseNames,
   findSuite,
   insertCases,
+  mergeConsumes,
   newSuite,
   planCase,
   planSuite,
   renderCase,
   resolveUnits,
   suiteHeading,
+  suiteFileName,
   summarise,
   uniqueName,
   unitsOf,
@@ -49,16 +50,20 @@ async function findUnitSuite(root: vscode.Uri, unit: string): Promise<{ uri: vsc
   const preferred = path.join(root.fsPath, "tests", `${unit}.bynk`);
   files.sort((a, b) => Number(b.fsPath === preferred) - Number(a.fsPath === preferred) || (a.fsPath < b.fsPath ? -1 : 1));
   for (const uri of files) {
-    let doc: vscode.TextDocument;
-    try {
-      doc = await vscode.workspace.openTextDocument(uri);
-    } catch {
-      continue;
+    // An open buffer is the text to use (it may have unsaved edits); any other file is read, not opened.
+    const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
+    let text: string;
+    if (open) text = open.getText();
+    else {
+      try {
+        text = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+      } catch {
+        continue;
+      }
     }
-    const text = doc.getText();
     if (!/^suite\s/m.test(text)) continue;
     const found = findSuite(text, unit);
-    if (found && found.tier === "unit") return { uri, text, dirty: doc.isDirty };
+    if (found && found.tier === "unit") return { uri, text, dirty: open?.isDirty ?? false };
   }
   return undefined;
 }
@@ -74,10 +79,8 @@ async function newSuitePath(root: vscode.Uri, unit: string): Promise<vscode.Uri>
       return false;
     }
   };
-  const first = vscode.Uri.joinPath(root, "tests", `${unit}.bynk`);
-  if (!(await exists(first))) return first;
-  for (let n = 1; ; n++) {
-    const next = vscode.Uri.joinPath(root, "tests", `${unit}.unit${n === 1 ? "" : n}.bynk`);
+  for (let n = 0; ; n++) {
+    const next = vscode.Uri.joinPath(root, "tests", suiteFileName(unit, n));
     if (!(await exists(next))) return next;
   }
 }
@@ -161,17 +164,7 @@ export function registerNotebookPromote(context: vscode.ExtensionContext, deps: 
     }
 
     const cases = plans.map((p, i) => renderCase(p, names[i], accepted[i]));
-    const consumes: string[] = [];
-    const seen = new Set<string>();
-    for (const p of plans) {
-      for (const c of p.consumes) {
-        const k = c.replace(/\s+/g, " ").trim();
-        if (!seen.has(k)) {
-          seen.add(k);
-          consumes.push(c);
-        }
-      }
-    }
+    const consumes = mergeConsumes(plans);
     if (existing) {
       const r = insertCases(existing.text, unit, consumes, cases);
       if (!r.ok) return `can't add to ${vscode.workspace.asRelativePath(existing.uri, false)}: ${r.reason}.`;
@@ -214,12 +207,21 @@ export function registerNotebookPromote(context: vscode.ExtensionContext, deps: 
     const label = cellIndex !== undefined ? `cell ${cellIndex + 1}` : "the notebook";
     const notebookName = vscode.workspace.asRelativePath(nb.uri, false);
     const jobs: Job[] = [];
+    const left: string[] = [];
     for (const unit of units) {
       const job = await prepare(cells, unit, cellIndex, root, notebookName);
       if (job === undefined) return undefined;
-      if (typeof job === "string") return fail(job);
+      if (typeof job === "string") {
+        // One unit with nothing to write doesn't stop the others; it is listed in the summary.
+        if (cellIndex === undefined && units.length > 1) {
+          left.push(`No suite for \`${unit}\`: ${job}`);
+          continue;
+        }
+        return fail(job);
+      }
       jobs.push(job);
     }
+    if (jobs.length === 0) return fail(left.join(" "));
     if (new Set(jobs.map((j) => j.target.fsPath)).size < jobs.length) return fail("two of the units' suites are in one file, which can't be edited in one go; promote them one at a time.");
 
     // The compiler checks every suite, together, before anything is written; nothing is written otherwise.
@@ -245,7 +247,8 @@ export function registerNotebookPromote(context: vscode.ExtensionContext, deps: 
     const where = (j: Job): string => vscode.workspace.asRelativePath(j.target, false);
     const detail = jobs
       .map((j) => `${j.existing ? "Extends" : "Creates"} ${where(j)}:\n${summarise(j.plans, j.names, j.accepted, j.warnings)}`)
-      .join("\n\n");
+      .join("\n\n")
+      .concat(left.length > 0 ? `\n\n${left.join("\n")}` : "");
     const pick = await vscode.window.showInformationMessage(
       jobs.length === 1 ? `${jobs[0].existing ? "Add to" : "Create"} ${where(jobs[0])}?` : `Write ${jobs.length} suites?`,
       { modal: true, detail: `${detail}\n\nA one-way copy: the notebook is not kept in sync with it, and \`bynk test\` does not run the notebook.` },

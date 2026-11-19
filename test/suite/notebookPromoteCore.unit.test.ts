@@ -9,6 +9,7 @@ import {
   docComment,
   findSuite,
   insertCases,
+  mergeConsumes,
   narrativeAbove,
   nearestHeading,
   newSuite,
@@ -16,6 +17,7 @@ import {
   planSuite,
   renderCase,
   suggestName,
+  suiteFileName,
   suiteHeading,
   uniqueName,
   unitsOf,
@@ -293,6 +295,25 @@ describe("promote: adding to a suite (#210)", () => {
     if (!r.ok) return;
     assert.strictEqual((r.text.match(/consumes bynk \{ Claim \}/g) ?? []).length, 1);
     assert.ok(r.text.includes("\tconsumes bynk.cloudflare { D1 }\n\tconsumes bynk { Claim }"), r.text);
+  });
+  it("recognises each `consumes` it already has: two in a row, one before a case, a list over several lines", () => {
+    const two = 'suite a.b {\n\tconsumes bynk { Claim }\n\tconsumes bynk.cloudflare { D1 }\n\tcase "x" {\n\t\texpect true\n\t}\n}\n';
+    const r = insertCases(two, "a.b", ["consumes bynk { Claim }", "consumes bynk.cloudflare { D1 }"], ['\tcase "y" {\n\t\texpect true\n\t}']);
+    assert.ok(r.ok);
+    if (r.ok) assert.strictEqual((r.text.match(/consumes/g) ?? []).length, 2, r.text);
+    const direct = 'suite a.b {\n\tconsumes bynk { Claim }\n\tcase "x" {\n\t\texpect true\n\t}\n}\n';
+    const d = insertCases(direct, "a.b", ["consumes bynk { Claim }"], ['\tcase "y" {\n\t\texpect true\n\t}']);
+    assert.ok(d.ok);
+    if (d.ok) assert.strictEqual((d.text.match(/consumes/g) ?? []).length, 1, d.text);
+    const wide = 'suite a.b {\n\tconsumes bynk {\n\t\tClaim,\n\t\tOther\n\t}\n\tcase "x" {\n\t\texpect true\n\t}\n}\n';
+    const w = insertCases(wide, "a.b", ["consumes bynk { Claim, Other }", "consumes bynk.cloudflare { D1 }"], ['\tcase "y" {\n\t\texpect true\n\t}']);
+    assert.ok(w.ok);
+    if (w.ok) assert.strictEqual((w.text.match(/consumes bynk \{/g) ?? []).length, 1, w.text);
+  });
+  it("merges the plans' `consumes` once each, and names a new suite's file", () => {
+    const p = (c: string[]): { consumes: string[] } => ({ consumes: c });
+    assert.deepStrictEqual(mergeConsumes([p(["consumes a { X }"]), p(["consumes  a  { X }", "consumes b"])]), ["consumes a { X }", "consumes b"]);
+    assert.deepStrictEqual([0, 1, 2, 3].map((n) => suiteFileName("shop.money", n)), ["shop.money.bynk", "shop.money.unit.bynk", "shop.money.unit2.bynk", "shop.money.unit3.bynk"]);
   });
   it("keeps the suite's own indentation", () => {
     const spaced = "suite a.b {\n  case \"x\" {\n    expect true\n  }\n}\n";
