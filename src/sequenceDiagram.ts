@@ -19,7 +19,7 @@ import type { LanguageClient } from "vscode-languageclient/node";
 
 import { commandTarget, LivePanel, type ViewTarget } from "./livePanel";
 import { diagramMessages } from "./diagramHost";
-import { isOpenSequence } from "./sequenceMessages";
+import { isOpenSequence, isShowTiming } from "./sequenceMessages";
 import { modelCoverage } from "./modelCoverage";
 import type { ViewRefresh } from "./viewRefresh";
 import { allTraceViews, bumpTraceIntent, latestTraceTarget, onDidChangeRequestTraces, traceIntent, tracesFor } from "./requestTraces";
@@ -51,6 +51,11 @@ export function registerSequenceDiagram(
     request: requestSequence,
     onMessage: (message) => {
       if (shared.handle(message)) return;
+      // #218: the trace picker's Show Request Timing.
+      if (isShowTiming(message)) {
+        void vscode.commands.executeCommand("bynk.showRequestTiming", message.id, message.compareId);
+        return;
+      }
       if (isOpenSequence(message) && allowedPageUri(message.uri)) {
         // A `ref` link: show the callee's handler in the editor (so a
         // cursor-following view agrees), then its diagram (so a pinned one
@@ -95,8 +100,11 @@ export function registerSequenceDiagram(
       }
       if (target.kind === "no-location") {
         void vscode.window.showInformationMessage(
-          `Bynk: the newest request (${target.route}) made no calls with a source location, so there is no handler to open. Open its sequence diagram yourself and the trace will show there.`,
-        );
+          `Bynk: the newest request (${target.route}) made no calls with a source location, so there is no handler to open. Open its sequence diagram yourself and the trace will show there, or see where its time went.`,
+          "Show Request Timing",
+        ).then((pick) => {
+          if (pick) void vscode.commands.executeCommand("bynk.showRequestTiming");
+        });
         return;
       }
       bumpTraceIntent();

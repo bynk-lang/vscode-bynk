@@ -481,6 +481,9 @@ export interface CompareRow {
   delta?: number;
   outcomeA?: StepOutcome;
   outcomeB?: StepOutcome;
+  /** The step's index in each trace, for a view that draws the steps (#218). */
+  indexA?: number;
+  indexB?: number;
 }
 
 /** Align two traces' steps by kind and target, the n-th occurrence of each
@@ -493,16 +496,19 @@ export function compareTraces(a: TraceView, b: TraceView): CompareRow[] {
     return `${base}\u0000${n}`;
   };
   const seenA = new Map<string, number>();
-  const bByKey = new Map<string, StepView>();
+  const bByKey = new Map<string, { step: StepView; index: number }>();
   const seenB = new Map<string, number>();
-  for (const s of b.steps) bByKey.set(key(s, seenB), s);
+  b.steps.forEach((s, index) => bByKey.set(key(s, seenB), { step: s, index }));
   const rows: CompareRow[] = [];
   const used = new Set<string>();
-  for (const s of a.steps) {
+  a.steps.forEach((s, indexA) => {
     const k = key(s, seenA);
-    const other = bByKey.get(k);
-    if (other) used.add(k);
+    const hit = bByKey.get(k);
+    const other = hit?.step;
+    if (hit) used.add(k);
     rows.push({
+      indexA,
+      indexB: hit?.index,
       kind: s.kind,
       target: s.target,
       a: s.ms,
@@ -511,9 +517,9 @@ export function compareTraces(a: TraceView, b: TraceView): CompareRow[] {
       outcomeA: s.outcome,
       outcomeB: other?.outcome,
     });
-  }
-  for (const [k, s] of bByKey) {
-    if (!used.has(k)) rows.push({ kind: s.kind, target: s.target, b: s.ms, outcomeB: s.outcome });
+  });
+  for (const [k, { step: s, index }] of bByKey) {
+    if (!used.has(k)) rows.push({ kind: s.kind, target: s.target, b: s.ms, outcomeB: s.outcome, indexB: index });
   }
   return rows;
 }

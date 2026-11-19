@@ -286,6 +286,15 @@ describe("compareTraces and formatMs", () => {
     ]);
   });
 
+  it("reports each row's step index in both traces, for the timing diagram (#218)", () => {
+    const a = view([step(3, { target: "x", ms: 2 }), step(7, { target: "y", ms: 1 })]);
+    const b = view([step(10, { target: "z", ms: 9 }), step(3, { target: "x", ms: 3 })]);
+    assert.deepStrictEqual(
+      compareTraces(a, b).map((r) => [r.target, r.indexA, r.indexB]),
+      [["x", 0, 1], ["y", 1, undefined], ["z", undefined, 0]],
+    );
+  });
+
   it("formats times", () => {
     assert.strictEqual(formatMs(3.14), "3.1 ms");
     assert.strictEqual(formatMs(12.4), "12 ms");

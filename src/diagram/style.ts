@@ -140,6 +140,32 @@ export const DIAGRAM_CSS = `
 .bynk-diagram .bynk-fold-glyph { fill: var(--vscode-editor-foreground); }
 .bynk-diagram .bynk-frag--folded .bynk-frag-box { stroke-dasharray: 2 3; }
 
+/* #218: the request timing diagram. Failing is red and pending amber, as on the
+   sequence overlay; the critical path is outlined; words are on the accessible
+   names, so colour is never the only signal. */
+.bynk-diagram .bynk-taxis-rule, .bynk-diagram .bynk-ttick { stroke: var(--vscode-descriptionForeground); }
+.bynk-diagram .bynk-taxis-title, .bynk-diagram .bynk-ttick-label, .bynk-diagram .bynk-tfooter { font-size: 11px; fill: var(--vscode-descriptionForeground); }
+.bynk-diagram .bynk-tfooter { font-style: italic; }
+.bynk-diagram .bynk-tgrid-line { stroke: var(--vscode-panel-border, var(--vscode-descriptionForeground)); stroke-opacity: 0.5; stroke-dasharray: 2 4; }
+.bynk-diagram .bynk-theading { font-size: 12px; font-weight: 600; }
+.bynk-diagram .bynk-theading--fault { fill: var(--vscode-errorForeground, #f14c4c); }
+.bynk-diagram .bynk-trow-line { stroke-opacity: 0.5; }
+.bynk-diagram .bynk-trow-detail { font-size: 10px; }
+.bynk-diagram .bynk-thit { fill: transparent; }
+.bynk-diagram .bynk-tbar-box { fill: var(--vscode-charts-blue, var(--vscode-textLink-foreground)); fill-opacity: 0.55; stroke: var(--vscode-charts-blue, var(--vscode-textLink-foreground)); stroke-width: 1; }
+.bynk-diagram .bynk-tbar--request .bynk-tbar-box { fill: var(--vscode-editor-inactiveSelectionBackground); fill-opacity: 1; stroke: var(--vscode-editor-foreground); stroke-opacity: 0.7; }
+.bynk-diagram .bynk-tbar--call .bynk-tbar-box { fill: var(--vscode-charts-purple, var(--vscode-textLink-foreground)); stroke: var(--vscode-charts-purple, var(--vscode-textLink-foreground)); }
+.bynk-diagram .bynk-tbar--agent .bynk-tbar-box { fill: var(--vscode-charts-green, var(--vscode-testing-iconPassed, #388a34)); stroke: var(--vscode-charts-green, var(--vscode-testing-iconPassed, #388a34)); }
+.bynk-diagram .bynk-tbar--fault .bynk-tbar-box { fill: var(--vscode-errorForeground, #f14c4c); fill-opacity: 0.75; stroke: var(--vscode-errorForeground, #f14c4c); }
+.bynk-diagram .bynk-tbar--pending .bynk-tbar-box { fill: var(--vscode-editorWarning-foreground, #cca700); fill-opacity: 0.6; stroke: var(--vscode-editorWarning-foreground, #cca700); stroke-dasharray: 4 2; }
+.bynk-diagram .bynk-tbar--critical .bynk-tbar-box { stroke: var(--vscode-editor-foreground); stroke-width: 2.5; }
+.bynk-diagram .bynk-tbar--only .bynk-tbar-box { stroke-dasharray: 3 2; fill-opacity: 0.3; }
+.bynk-diagram .bynk-tbar-label { font-size: 11px; }
+.bynk-diagram .bynk-tbar-label--inside { fill: var(--vscode-editor-foreground); }
+.bynk-diagram .bynk-tdelta { font-size: 11px; font-weight: 600; }
+.bynk-diagram .bynk-tdelta--slower { fill: var(--vscode-editorWarning-foreground, #cca700); }
+.bynk-diagram .bynk-tdelta--faster { fill: var(--vscode-testing-iconPassed, #73c991); }
+
 body.vscode-high-contrast .bynk-diagram .bynk-head-box,
 body.vscode-high-contrast .bynk-diagram .bynk-note-box,
 body.vscode-high-contrast .bynk-diagram .bynk-frag-box { stroke: var(--vscode-contrastBorder); }
@@ -171,6 +197,8 @@ const INTERACTIVE_CSS = `
 .bynk-diagram [data-bynk-focusable]:focus-visible > text,
 .bynk-diagram text[data-bynk-focusable]:focus-visible { fill: var(--vscode-textLink-activeForeground, var(--vscode-focusBorder)); text-decoration: underline; }
 
+.bynk-diagram [data-bynk-focusable]:hover .bynk-tbar-box,
+.bynk-diagram [data-bynk-focusable]:focus-visible .bynk-tbar-box { stroke: var(--vscode-focusBorder); stroke-width: 2.5; }
 .bynk-diagram .bynk-trace-miss { opacity: 0.3; }
 .bynk-diagram .bynk-trace-hit .bynk-msg-line { stroke: var(--vscode-charts-green, var(--vscode-testing-iconPassed, #388a34)); stroke-width: 2.5; }
 .bynk-diagram .bynk-trace-pending .bynk-msg-line { stroke: var(--vscode-editorWarning-foreground, #cca700); stroke-width: 2.5; stroke-dasharray: 5 3; }
@@ -207,6 +235,15 @@ table.bynk-trace-steps { border-collapse: collapse; }
 .bynk-trace-pending { color: var(--vscode-editorWarning-foreground, #cca700); }
 .bynk-trace-note { color: var(--vscode-descriptionForeground); }
 .bynk-trace-slower { color: var(--vscode-editorWarning-foreground, #cca700); }
+.bynk-timing-legend { margin-top: 10px; font-size: 0.9em; }
+.bynk-timing-legend p { margin: 4px 0; }
+.bynk-timing-note { color: var(--vscode-descriptionForeground); }
+.bynk-timing-bar label { display: inline-flex; align-items: center; gap: 4px; }
+.bynk-timing-bar select { max-width: 32em; }
+.bynk-key { margin-right: 10px; }
+.bynk-key-fault { color: var(--vscode-errorForeground, #f14c4c); }
+.bynk-key-pending { color: var(--vscode-editorWarning-foreground, #cca700); }
+.bynk-key-critical { font-weight: 700; }
 .bynk-viewport { position: relative; overflow: auto; height: 70vh; outline: none; cursor: default; }
 .bynk-viewport.bynk-viewport--inline { height: auto; }
 .bynk-viewport.bynk-panning { cursor: grabbing; user-select: none; }

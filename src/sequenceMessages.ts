@@ -44,6 +44,14 @@ export interface OpenComponentMessage {
   range?: RevealRange;
 }
 
+/** #218: open the request timing diagram of a trace, from the sequence page's
+ *  trace picker. `compareId`, when given, is stacked under it. */
+export interface ShowTimingMessage {
+  type: "showTiming";
+  id: string;
+  compareId?: string;
+}
+
 /** Something the page could not do, to show the user. */
 export interface PageErrorMessage {
   type: "error";
@@ -69,6 +77,14 @@ function isRange(v: unknown): v is RevealRange {
 export function isCopyText(message: unknown): message is CopyTextMessage {
   const m = message as { type?: unknown; text?: unknown } | null | undefined;
   return m?.type === "copyText" && typeof m.text === "string" && m.text.length <= MAX_COPY;
+}
+
+const MAX_ID = 256;
+
+export function isShowTiming(message: unknown): message is ShowTimingMessage {
+  const m = message as { type?: unknown; id?: unknown; compareId?: unknown } | null | undefined;
+  if (m?.type !== "showTiming" || typeof m.id !== "string" || m.id === "" || m.id.length > MAX_ID) return false;
+  return m.compareId === undefined || (typeof m.compareId === "string" && m.compareId !== "" && m.compareId.length <= MAX_ID);
 }
 
 export function isHighlight(message: unknown): message is HighlightMessage {

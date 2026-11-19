@@ -186,6 +186,107 @@ describe("Bynk dev server (#2094)", () => {
     }
   });
 
+  // #218: the request timing diagram, from the same stand-in's events.
+  it("shows a request's timing: nested callee, critical path, outcomes, comparison (#218)", async function () {
+    if (process.platform === "win32") this.skip();
+    this.timeout(45_000);
+    interface Bar {
+      id: string;
+      row: string;
+      label: string;
+      kind: string;
+      start: number;
+      end: number;
+      ms: number;
+      outcome: string;
+      critical: boolean;
+      at: { uri: string; range: { start: { line: number; character: number } } } | null;
+    }
+    interface Snapshot {
+      requestId: string;
+      route: string;
+      choices: string[];
+      timeline: { rows: Array<{ label: string; kind: string; depth: number }>; bars: Bar[]; end: number; critical: string[]; unjoined: number };
+      comparison?: { b: { bars: Bar[] }; deltas: Record<string, number>; totalDelta: number; onlyA: string[]; onlyB: string[]; end: number };
+    }
+    const need = <T>(v: T | undefined, what = "a value"): T => {
+      assert.ok(v !== undefined, `expected ${what}`);
+      return v;
+    };
+    const timing = (...args: string[]) => vscode.commands.executeCommand<Snapshot | undefined>("bynk.showRequestTiming", ...args);
+    process.env.BYNK_FAKE_DEV = "traces";
+    process.env.BYNK_FAKE_TRACE_SECOND = "1";
+    try {
+      const started = nextTask(vscode.tasks.onDidStartTask);
+      await vscode.commands.executeCommand("bynk.startDevServer");
+      await started;
+      await waitFor(
+        () => vscode.commands.executeCommand<Array<{ id: string }>>("bynk._requestTraces").then((t) => t ?? []),
+        (t) => t.some((x) => x.id === "r2"),
+        "both requests to arrive",
+      );
+
+      // No argument: the newest request.
+      const newest = await timing();
+      assert.strictEqual(newest?.requestId, "r2");
+
+      const one = need(await timing("r1"));
+      assert.strictEqual(one.route, "GET /a");
+      assert.deepStrictEqual(
+        one.timeline.rows.map((r) => [r.label, r.kind, r.depth]),
+        [
+          ["GET /a", "request", 0],
+          ["other", "call", 1],
+          ["POST /authorise", "request", 2],
+          ["Db", "capability", 3],
+          ["Ledger", "agent", 1],
+        ],
+        "the callee joined by request/parent is nested under its call, with its own step",
+      );
+      const bar = (label: string): Bar => need(one.timeline.bars.find((b) => b.label === label), label);
+      // Durations only: end to end, in order.
+      assert.deepStrictEqual([bar("other.authorise").start, bar("other.authorise").end], [0, 3.1]);
+      assert.deepStrictEqual([bar("Ledger.tally").start, bar("Ledger.tally").end], [3.1, 4.3]);
+      assert.deepStrictEqual([bar("Db.query").start, bar("Db.query").end], [0, 1.5], "the callee's step starts where its call does");
+      assert.strictEqual(bar("Ledger.tally").outcome, "fault");
+      assert.ok(bar("other.authorise").at?.uri.endsWith("/src/shop.bynk"), "a bar opens its call site");
+      assert.deepStrictEqual(bar("other.authorise").at?.range.start, { line: 4, character: 4 });
+      assert.strictEqual(bar("Ledger.tally").at, null);
+      assert.deepStrictEqual(
+        one.timeline.critical.map((id) => one.timeline.bars.find((b) => b.id === id)?.label),
+        ["GET /a", "other.authorise", "POST /authorise", "Db.query"],
+        "the longest chain: the heaviest step, then into its callee",
+      );
+      assert.strictEqual(one.timeline.end, 12.5);
+      assert.strictEqual(one.timeline.unjoined, 0);
+      assert.deepStrictEqual(one.choices.sort(), ["r1", "r2"], "the page can pick and compare traces of this route");
+
+      // The panel's own view of what it holds.
+      const held = need(await vscode.commands.executeCommand<Snapshot | undefined>("bynk._requestTiming"));
+      assert.strictEqual(held.requestId, "r1");
+
+      // Two traces of the route, stacked.
+      const both = need(await timing("r1", "r2"));
+      const cmp = need(both.comparison);
+      assert.strictEqual(cmp.totalDelta, -9, "r2 took 3.5 ms against r1's 12.5");
+      const tally = need(cmp.b.bars.find((b) => b.label === "Ledger.tally"));
+      assert.ok(Math.abs((cmp.deltas[tally.id] ?? 0) - -0.8) < 1e-9, "the delta is on B's own step");
+      assert.strictEqual(cmp.onlyA.length + cmp.onlyB.length, 0);
+
+      // A request that is not held says so; nothing is drawn.
+      assert.strictEqual(await timing("nope"), undefined);
+
+      const lines = await vscode.commands.executeCommand<string[]>("bynk.logLines");
+      assert.ok(!(lines ?? []).some((l) => l.includes("GET /a")), "a trace is never written to the logs");
+    } finally {
+      const ended = nextTask(vscode.tasks.onDidEndTask);
+      await vscode.commands.executeCommand("bynk.stopDevServer");
+      await ended;
+      delete process.env.BYNK_FAKE_DEV;
+      delete process.env.BYNK_FAKE_TRACE_SECOND;
+    }
+  });
+
   it("starts an older bynk without --trace-events, and says so once in the logs (#143)", async function () {
     if (process.platform === "win32") this.skip();
     this.timeout(60_000);

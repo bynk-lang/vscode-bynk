@@ -8,6 +8,7 @@
 import * as vscode from "vscode";
 
 import { isInside } from "./pathInside";
+import { collectNested, sameRouteShape, traceChoiceLabel, type TimingSource } from "./requestTimingCore";
 import {
   newestTraceTarget,
   type RequestTrace,
@@ -17,6 +18,7 @@ import {
   traceRelevant,
 } from "./requestTraceCore";
 import type { SequenceModel } from "./webview/types";
+import type { TimingChoice } from "./webview/timingTypes";
 
 const store = new TraceStore();
 const changed = new vscode.EventEmitter<void>();
@@ -79,4 +81,34 @@ export function traceIntent(): number {
 /** Every stored trace, newest first (a test seam). */
 export function allTraceViews(): TraceView[] {
   return store.all().map(view);
+}
+
+// -- #218: what the request timing diagram is given. --
+
+/** A stored trace and the callees it joins, as the timing page draws them;
+ *  `undefined` for an id the store no longer holds. */
+export function timingSource(id: string): TimingSource | undefined {
+  const trace = store.byId(id);
+  return trace ? collectNested(view(trace), (callee) => {
+    const t = store.byId(callee);
+    return t ? view(t) : undefined;
+  }) : undefined;
+}
+
+/** The id of the newest stored trace, for **Show Request Timing** with none chosen. */
+export function newestTraceId(): string | undefined {
+  return store.all()[0]?.id;
+}
+
+/** The traces of `id`'s route (and Worker), newest first: what it can be
+ *  compared with, and what the page's picker lists. Includes `id` itself. */
+export function timingChoices(id: string): TimingChoice[] {
+  const trace = store.byId(id);
+  if (!trace) return [];
+  const mine = view(trace);
+  return store
+    .all()
+    .map(view)
+    .filter((t) => sameRouteShape(mine, t))
+    .map((t) => ({ id: t.id, label: traceChoiceLabel(t, new Date(t.receivedAt).toLocaleTimeString()) }));
 }

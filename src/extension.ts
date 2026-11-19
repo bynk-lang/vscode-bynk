@@ -39,6 +39,7 @@ import { newDriverSupport } from "./testStream";
 import { registerTestCodeLens } from "./testCodeLens";
 import { registerApproveRequirements } from "./approveRequirements";
 import { provideCodeLenses } from "./codelens";
+import { registerRequestTiming } from "./requestTiming";
 import { registerSequenceDiagram } from "./sequenceDiagram";
 import { registerDocumentationView } from "./documentationView";
 import { capabilityPathClientFeature } from "./capabilityPath";
@@ -136,6 +137,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The four live model views (#846 sequence diagram, #847 documentation,
   // #851 architecture map, #855 wire contract), each a `LivePanel`: refresh
   // on edit, follow the cursor where handler-scoped, restore after a reload.
+  // #218: the request timing diagram, a plain panel over the trace store.
+  registerRequestTiming(context);
   const liveViews: Record<string, LivePanel<unknown>> = {
     bynkSequenceDiagram: registerSequenceDiagram(context, viewRefresh) as LivePanel<unknown>,
     bynkDocumentation: registerDocumentationView(context, viewRefresh) as LivePanel<unknown>,
