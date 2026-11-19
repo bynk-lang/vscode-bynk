@@ -160,6 +160,10 @@ function render(root: HTMLElement, payload: SrPayload | null): void {
   saveBtn.id = "sr-save";
   saveBtn.title = "Append this request to a scenario file (.bynk-http)";
   saveBtn.addEventListener("click", saveNow);
+  const edge = el("button", { className: "sr-secondary", text: "Generate edge cases" });
+  edge.id = "sr-edge-cases";
+  edge.title = "Write a notebook of boundary values for this route's refined inputs (Bynk: Generate Edge Cases…)";
+  edge.addEventListener("click", () => shown && api.postMessage({ type: "edgeCases", key: shown.payload.key }));
   const cancel = el("button", { className: "sr-secondary", text: "Cancel" });
   cancel.id = "sr-cancel";
   cancel.addEventListener("click", () => {
@@ -167,7 +171,7 @@ function render(root: HTMLElement, payload: SrPayload | null): void {
   });
   const url = el("span", { className: "sr-url" });
   url.id = "sr-url";
-  formEl.append(el("div", { className: "sr-actions" }, send, saveBtn, cancel, url));
+  formEl.append(el("div", { className: "sr-actions" }, send, saveBtn, edge, cancel, url));
 
   const target = el("div");
   target.id = "sr-target";

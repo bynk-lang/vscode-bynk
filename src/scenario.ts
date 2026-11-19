@@ -33,6 +33,7 @@ import {
   type TestTarget,
 } from "./scenarioTargetsCore";
 import { projectRootFor } from "./projectRoots";
+import { stepRoute } from "./edgeCasesCore";
 import { RouteCache } from "./routeCache";
 import {
   appendStep,
@@ -538,6 +539,31 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
     },
   };
 
+  // --- Edge cases (#233) ---------------------------------------------------
+
+  // A step that resolves to a route offers the command for it; one that does
+  // not (no such handler, several contexts, the server not answering) offers
+  // nothing. It is a code action, not a lens, so a scenario gains no line.
+  const edgeCasesKind = vscode.CodeActionKind.Empty.append("bynk").append("edgeCases");
+  const edgeCases: vscode.CodeActionProvider = {
+    async provideCodeActions(doc, range, context) {
+      // A request for other kinds (`source.*`, on save) can never take this action.
+      if (context.only && !context.only.intersects(edgeCasesKind)) return [];
+      const root = await rootOf(doc);
+      if (!root) return [];
+      const scenario = parseScenario(doc.getText());
+      const step = scenario.steps.find((s) => s.requestLine >= 0 && range.start.line >= s.line && range.start.line <= s.endLine);
+      if (!step) return [];
+      const set = await index.routes(root);
+      if (!set.complete) return [];
+      const ref = stepRoute(set.routes, step, doc.uri.toString());
+      if (!ref) return [];
+      const action = new vscode.CodeAction(`Generate edge cases for ${ref.method} ${ref.path}`, edgeCasesKind);
+      action.command = { title: "Generate edge cases", command: "bynk.generateEdgeCases", arguments: [ref] };
+      return [action];
+    },
+  };
+
   // --- Save ----------------------------------------------------------------
 
   interface SaveArgs extends SaveSpec {
@@ -750,6 +776,7 @@ export function registerScenario(context: vscode.ExtensionContext, hub: ViewRefr
     startupDecorations,
     { dispose: () => pending.forEach((t) => clearTimeout(t)) },
     vscode.languages.registerCodeLensProvider({ language: SCENARIO_LANGUAGE }, lenses),
+    vscode.languages.registerCodeActionsProvider({ language: SCENARIO_LANGUAGE }, edgeCases, { providedCodeActionKinds: [edgeCasesKind] }),
     vscode.workspace.onDidOpenTextDocument((d) => schedule(d, 0)),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId !== SCENARIO_LANGUAGE) return;

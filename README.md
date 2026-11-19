@@ -426,7 +426,10 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
       case does, and promoting it carries the call and its `expect`s (no assertion is
       offered from the output of a call that is not an HTTP handler's).
   - **Edge cases for a route** — **Bynk: Generate Edge Cases…** (palette, with the cursor on
-    an HTTP handler, or the opt-in `Edge cases` CodeLens, `bynk.edgeCases.codeLens`) writes
+    an HTTP handler, the opt-in `Edge cases` CodeLens, `bynk.edgeCases.codeLens`, the
+    **Generate edge cases** button in **Send Request** for the route it shows, or the
+    **Generate edge cases for `METHOD /path`** code action on a `.bynk-http` scenario step
+    that resolves to a route) writes
     a notebook of boundary values for the route's refined inputs to `edge-cases/` in the
     project, and opens it. Each refined field of the request (a body's record fields, a
     path or query parameter) gets values from its type's predicates: at and just past each
@@ -688,7 +691,7 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Component View** | One context opened up as a UML component diagram: its services, agents and providers as parts, with their operations (and each agent's key and state); a provided port for each service and a required port for each capability or consumed service it needs; and, in grey, who calls in and what satisfies its requirements. Follows the cursor's context. An operation's ↗ opens its sequence diagram. |
 | **Bynk: Show Wire Contract** | The JSON wire shape of the service handler at the cursor. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Send Request** | Send the HTTP handler at the cursor a request on the dev server: path parameters, headers and a JSON body pre-filled from its type, then the response. Follows the cursor into other handlers unless pinned. |
-| **Bynk: Generate Edge Cases…** | With the cursor on an HTTP handler, write a notebook of boundary values for the route's refined inputs, with the accept or refuse of each asked of the compiler. See Notebooks. |
+| **Bynk: Generate Edge Cases…** | With the cursor on an HTTP handler (or from Send Request, or a scenario step's code action), write a notebook of boundary values for the route's refined inputs, with the accept or refuse of each asked of the compiler. See Notebooks. |
 | **Bynk: Run Scenario** | Run the `.bynk-http` scenario in the active editor on the dev server, with the results inline. Also a `Run scenario` / `Run step` CodeLens in the file. |
 | **Bynk: Promote Scenario to Test Suite** | Write the scenario as a `system`-tier test suite under `tests/`, listing what a suite cannot express, after the compiler has checked it. Also a `Promote to test suite` CodeLens. |
 | **Bynk: Run Scenario Against…** | Run the scenario against `dev` or a `[test.targets]` target from `bynk.toml`, confirming a deployed target first, refusing one marked `production = true`, and asking for the name of a production-named target before a write. Also a `Run against…` CodeLens. |

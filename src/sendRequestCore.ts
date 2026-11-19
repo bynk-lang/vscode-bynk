@@ -327,6 +327,7 @@ export type SrPageMessage =
   /** #149: append the form, as typed, to a scenario file; `status` is the
    *  latest response's, to expect. */
   | { type: "saveScenario"; key: string; input: SendInput; status?: number }
+  | { type: "edgeCases"; key: string }
   | { type: "startDev" }
   /** #143: open the handler's sequence diagram, with the request's trace laid over it. */
   | { type: "showTrace"; key: string };

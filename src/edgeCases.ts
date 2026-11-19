@@ -9,7 +9,7 @@ import * as vscode from "vscode";
 
 import { BynkNotFoundError, runBynk } from "./cli";
 import { dirtyBuffers } from "./dirtyBuffers";
-import { buildNotebook, buildScenario, candidatesFor, candidateValue, edgeCaseCells, notebookFileName, numberedName, probesFor, scenarioFileName, refinedFields, successLine, typesOf, validSample, type RefinedField, type TypeVerdicts, type Verdict } from "./edgeCasesCore";
+import { buildNotebook, findRoute, isEdgeCaseRoute, type EdgeCaseRoute, buildScenario, candidatesFor, candidateValue, edgeCaseCells, notebookFileName, numberedName, probesFor, scenarioFileName, refinedFields, successLine, typesOf, validSample, type RefinedField, type TypeVerdicts, type Verdict } from "./edgeCasesCore";
 import { commandTarget } from "./livePanel";
 import { decodeEval, decodeRefined, evalArgs, refinedSource, serializeNotebook, type RefinedCell } from "./notebookCore";
 import { projectRootFor } from "./projectRoots";
@@ -73,18 +73,29 @@ export function registerEdgeCases(context: vscode.ExtensionContext, hub: ViewRef
 
 async function generate(hub: ViewRefresh, uriArg: unknown, positionArg: unknown): Promise<vscode.Uri | undefined> {
   if (!vscode.workspace.isTrusted) return fail("trust this workspace first: the values are run with `bynk eval`, which compiles and runs your project's code.");
+  // Send Request and a scenario step pass the route they resolved; the palette and
+  // the lens pass the handler's file and the cursor, which is resolved to one here.
+  // From there there is one path.
+  if (isEdgeCaseRoute(uriArg)) return generateFor(hub, uriArg);
   const target = commandTarget(uriArg, positionArg, true);
   if (!target?.position) return fail("place the cursor on an HTTP handler.");
   const client = await hub.whenClient(5_000);
   if (!client) return fail("the language server isn't running yet.");
   const wc = await requestWireContract(client, target);
   if (!wc || wc.model.kind.kind !== "Http") return fail("place the cursor on an HTTP handler (`on GET(\"/x\")`, …): edge cases are generated for a route's inputs.");
-  const { unit } = wc.model;
   const { method, path } = wc.model.kind;
-  const root = await projectRootFor(vscode.Uri.parse(target.uri));
+  return generateFor(hub, { uri: target.uri, unit: wc.model.unit, method, path, service: wc.model.service });
+}
+
+/** Generate for one route, named by a reference. */
+async function generateFor(hub: ViewRefresh, ref: EdgeCaseRoute): Promise<vscode.Uri | undefined> {
+  const client = await hub.whenClient(5_000);
+  if (!client) return fail("the language server isn't running yet.");
+  const { unit, method, path } = ref;
+  const root = await projectRootFor(vscode.Uri.parse(ref.uri));
   if (!root) return fail("this file is not in a Bynk project (no `bynk.toml` above it).");
   const { routes, complete } = await projectRoutes(root);
-  const route = routes.find((r) => r.unit === unit && r.method === method && r.path === path && r.service === wc.model.service);
+  const route = findRoute(routes, ref);
   if (!route) return fail(complete ? `the language server has no route for \`${method} ${path}\`.` : "the language server hasn't described the project's handlers yet. Wait for it to start and try again.");
   const label = `${method} ${path}`;
 

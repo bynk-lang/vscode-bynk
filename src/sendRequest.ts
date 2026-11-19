@@ -32,6 +32,7 @@ import {
   type SrPayload,
   type SrResult,
 } from "./sendRequestCore";
+import { sendRequestRoute } from "./edgeCasesCore";
 import type { ViewRefresh } from "./viewRefresh";
 import { workerGroupsFor } from "./workerGroupsStore";
 import { registerHandlerLens } from "./viewsCodeLens";
@@ -123,6 +124,12 @@ export function registerSendRequest(context: vscode.ExtensionContext, hub: ViewR
               });
             }
             break;
+          case "edgeCases": {
+            // The route is the one the host is showing, never what the page names.
+            const route = sendRequestRoute(shown, m.key);
+            if (route) void vscode.commands.executeCommand("bynk.generateEdgeCases", route);
+            break;
+          }
           case "startDev":
             void vscode.commands.executeCommand("bynk.startDevServer");
             break;
