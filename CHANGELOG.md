@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+## [0.639.4] - 2026-11-19
+
+Built against `bynk` v0.639.1. Bynk notebooks become a way to write tests: `expect` lines, promoting cells and notebooks to test suites, and calls for every handler kind. A matching `bynk-lsp` is no longer reported as older than the extension.
+
 ### Added
 
 - **Insert Handler Call… for every handler kind** (#213). The picker lists every handler of the cell's unit, grouped by kind (HTTP routes, `on call`, cron, queue, events), not only HTTP routes, and writes the call at the address a unit-tier case uses: `svc.call(args)`, `svc.schedule("<expr>")` with the handler's exact schedule (and the scheduled time when it takes `at`), `svc.message(msg)` and `svc.event(e)` (the default envelope, so an `env` parameter needs nothing). Arguments are typed placeholders from the wire contract, with a `by` clause where the handler runs as an actor that carries an identity. A cell shows the value of the call as an expression cell does: a `call` its handler's type, a `schedule` `Ok(())` or `Err("…")`, an `event` `()`. The `HttpResult` `match` stays HTTP-only. A `QueueResult` has no wire shape in `bynk eval`, so a queue cell says the call ran and there is no value to show (bynk v0.639.1; bynk-lang/bynk#3700). Promoting a cell offers checks that follow the result type: `expect r is Ok(_)` or `Err(_)` for a schedule, a record's fields or a scalar's equality for an `on call`, and `r is Ack` or `r is Retry(_)` for a message, neither ticked since the verdict is not shown. A call that rebinds a name an earlier cell bound no longer drags that cell's call into the case. A unit payload now shows as `Ok(())`, not `Ok(null)`. WebSocket handlers (`open`, `message` and `close` on a test connection) are not offered yet: the picker lists their service and says so, and the call can be written in the cell by hand.
