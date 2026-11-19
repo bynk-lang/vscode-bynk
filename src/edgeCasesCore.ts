@@ -20,8 +20,52 @@
 import type { RefinedClause, RefinedModel } from "./webview/refinedTypes";
 import type { WcRef, WcType } from "./webview/wireContractTypes";
 import { HTTP_VARIANTS, sampleJson, setAt, type PromoteRoute } from "./scenarioPromoteCore";
-import { formatStep } from "./scenarioCore";
+import { formatStep, resolveRoute, type RouteInfo, type Step } from "./scenarioCore";
 import type { Notebook, NbCell } from "./notebookCore";
+import type { WcHttpMethod } from "./webview/wireContractTypes";
+import type { SrPayload } from "./sendRequestCore";
+
+// ---------------------------------------------------------------------------
+// Which route (#233): one reference, whichever entry point names it
+
+/** A route the command is asked for. `uri` is a file of the route's project (the
+ *  handler's, or the scenario's): only the project root is taken from it. The
+ *  route itself is looked up in the language server's listing of the project's
+ *  handlers, so a reference that names nothing listed generates nothing. */
+export interface EdgeCaseRoute {
+  uri: string;
+  unit: string;
+  method: WcHttpMethod;
+  path: string;
+  service?: string;
+}
+
+const METHODS: readonly string[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+
+/** Whether a command argument is a route reference (rather than a file URI). */
+export function isEdgeCaseRoute(v: unknown): v is EdgeCaseRoute {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return typeof r.uri === "string" && typeof r.unit === "string" && typeof r.path === "string" && typeof r.method === "string" && METHODS.includes(r.method) && (r.service === undefined || typeof r.service === "string");
+}
+
+/** The listed route a reference names, exactly: the same unit, method, path and service. */
+export function findRoute(routes: readonly RouteInfo[], ref: EdgeCaseRoute): RouteInfo | undefined {
+  return routes.find((r) => r.unit === ref.unit && r.method === ref.method && r.path === ref.path && r.service === ref.service);
+}
+
+/** The route a scenario step is for, as a reference; none when it doesn't resolve. */
+export function stepRoute(routes: readonly RouteInfo[], step: Pick<Step, "method" | "path" | "context">, uri: string): EdgeCaseRoute | undefined {
+  const r = resolveRoute(routes, step);
+  return "route" in r ? { uri, unit: r.route.unit, method: r.route.method, path: r.route.path, service: r.route.service } : undefined;
+}
+
+/** The route the Send Request panel is showing, as the host holds it (never what the
+ *  page says): the page names it by `key`, which must be the shown route's. */
+export function sendRequestRoute(shown: Pick<SrPayload, "key" | "uri" | "unit" | "service" | "form"> | null, key: unknown): EdgeCaseRoute | undefined {
+  if (!shown || typeof key !== "string" || shown.key !== key) return undefined;
+  return { uri: shown.uri, unit: shown.unit, method: shown.form.method, path: shown.form.path, service: shown.service };
+}
 
 // ---------------------------------------------------------------------------
 // Candidates from predicates

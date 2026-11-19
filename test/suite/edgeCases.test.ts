@@ -178,4 +178,42 @@ describe("Generate Edge Cases… (#229)", () => {
     );
     assert.ok(!fs.existsSync(path.join(dir, "edge-cases", "edge-cases-GET-ping.bynknb")));
   });
+
+  // #233: a scenario step that resolves to a route offers the command for it; the same
+  // command, with that route, writes the same notebook.
+  it("offers Generate edge cases on a scenario step that resolves to a route, and runs the command for it", async function () {
+    this.timeout(600_000);
+    const scenario = path.join(dir, "scenarios", "step.bynk-http");
+    fs.mkdirSync(path.dirname(scenario), { recursive: true });
+    fs.writeFileSync(scenario, '@context shop\n\n### create\nPOST /discounts\nContent-Type: application/json\n\n{"name":"a","pct":1}\n\n### gone\nGET /nowhere\n');
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(scenario));
+    await vscode.window.showTextDocument(doc);
+    const lineOf = (needle: string): number => doc.getText().split("\n").findIndex((l) => l.startsWith(needle));
+    const actionsAt = async (line: number): Promise<vscode.CodeAction[]> => {
+      const got = await vscode.commands.executeCommand<vscode.CodeAction[]>("vscode.executeCodeActionProvider", doc.uri, new vscode.Range(line, 0, line, 0));
+      return (got ?? []).filter((a) => a.command?.command === "bynk.generateEdgeCases");
+    };
+
+    // The server may not have described the project yet: ask until it has.
+    const offered = await waitFor(() => actionsAt(lineOf("POST /discounts")), (a) => a.length > 0, "the action on the step", 240_000);
+    assert.strictEqual(offered.length, 1);
+    assert.strictEqual(offered[0].title, "Generate edge cases for POST /discounts");
+
+    // A step that resolves to no handler gets nothing, nor do lines outside a step.
+    assert.deepStrictEqual(await actionsAt(lineOf("GET /nowhere")), []);
+    assert.deepStrictEqual(await actionsAt(0), []);
+
+    const args = offered[0].command?.arguments ?? [];
+    const written = await vscode.commands.executeCommand<vscode.Uri | undefined>("bynk.generateEdgeCases", ...args);
+    assert.ok(written, refusals.join("; "));
+    assert.match(written.fsPath, /edge-cases-POST-discounts(-\d+)?\.bynknb$/);
+    const nb = JSON.parse(fs.readFileSync(written.fsPath, "utf8")) as { unit: string; cells: { kind: string; source: string[] }[] };
+    assert.strictEqual(nb.unit, "shop");
+    assert.ok(nb.cells.some((c) => c.kind === "code" && c.source.join("\n").includes("expect Percent.of(101) is Err(_)")));
+
+    // A reference that names no listed route generates nothing, however it was made.
+    const none = await vscode.commands.executeCommand<vscode.Uri | undefined>("bynk.generateEdgeCases", { ...(args[0] as object), path: "/not-a-route" });
+    assert.strictEqual(none, undefined);
+    assert.ok(refusals.some((m) => /no route for `POST \/not-a-route`/.test(m)), refusals.join("; "));
+  });
 });

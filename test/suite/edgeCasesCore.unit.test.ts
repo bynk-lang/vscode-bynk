@@ -4,7 +4,7 @@
 
 import * as assert from "assert";
 
-import { buildNotebook, buildScenario, candidateValue, candidatesFor, numberedName, probesFor, notebookFileName, scenarioFileName, refinedFields, successLine, validSample, type BuildInput, type TypeVerdicts, type Verdict } from "../../src/edgeCasesCore";
+import { findRoute, isEdgeCaseRoute, sendRequestRoute, stepRoute, buildNotebook, buildScenario, candidateValue, candidatesFor, numberedName, probesFor, notebookFileName, scenarioFileName, refinedFields, successLine, validSample, type BuildInput, type TypeVerdicts, type Verdict } from "../../src/edgeCasesCore";
 import { parseScenario } from "../../src/scenarioCore";
 import { actorClause, writeCall, type PromoteRoute } from "../../src/scenarioPromoteCore";
 import type { Predicate, RefinedClause } from "../../src/webview/refinedTypes";
@@ -290,5 +290,49 @@ describe("edge cases: values, probes and file numbers (#229)", () => {
     assert.deepStrictEqual(probesFor({ base: "Int", examples: ["7", "x"] }, []).map((p) => p.text), ["7"]);
     assert.deepStrictEqual(probesFor({ base: "Float", examples: ["1.5"] }, []), []);
     assert.strictEqual(probesFor({ base: "Int", examples: ["1", "2", "3"] }, [], 2).length, 2);
+  });
+});
+
+describe("edge cases: which route an entry point names (#233)", () => {
+  const routes = [route(), route({ method: "GET", path: "/items/:id" }), route({ unit: "other", path: "/discounts" })];
+  const ref = { uri: "file:///p/src/shop.bynk", unit: "shop", method: "POST" as const, path: "/discounts", service: "api" };
+
+  it("takes a route reference for a command argument, and a file URI or a position for none", () => {
+    assert.ok(isEdgeCaseRoute(ref));
+    assert.ok(isEdgeCaseRoute({ ...ref, service: undefined }));
+    assert.ok(!isEdgeCaseRoute("file:///p/src/shop.bynk"));
+    assert.ok(!isEdgeCaseRoute({ line: 1, character: 2 }));
+    assert.ok(!isEdgeCaseRoute({ ...ref, method: "TRACE" }));
+    assert.ok(!isEdgeCaseRoute({ ...ref, service: 3 }));
+    assert.ok(!isEdgeCaseRoute(null));
+  });
+
+  it("finds exactly the listed route a reference names, and none that isn't listed", () => {
+    assert.strictEqual(findRoute(routes, ref), routes[0]);
+    assert.strictEqual(findRoute(routes, { ...ref, unit: "other" }), routes[2]);
+    assert.strictEqual(findRoute(routes, { ...ref, path: "/nope" }), undefined);
+    assert.strictEqual(findRoute(routes, { ...ref, service: "web" }), undefined);
+  });
+
+  it("resolves a scenario step to its route, with the step's own context", () => {
+    const uri = "file:///p/scenarios/s.bynk-http";
+    assert.deepStrictEqual(stepRoute(routes, { method: "GET", path: "/items/{{id}}", context: undefined }, uri), { uri, unit: "shop", method: "GET", path: "/items/:id", service: "api" });
+    // Two contexts serve `POST /discounts`: the step must name one, else it resolves to nothing.
+    assert.strictEqual(stepRoute(routes, { method: "POST", path: "/discounts", context: undefined }, uri), undefined);
+    assert.strictEqual(stepRoute(routes, { method: "POST", path: "/discounts", context: "other" }, uri)?.unit, "other");
+  });
+
+  it("gives a step that resolves to no handler nothing", () => {
+    assert.strictEqual(stepRoute(routes, { method: "DELETE", path: "/gone", context: undefined }, "file:///x"), undefined);
+    assert.strictEqual(stepRoute([], { method: "GET", path: "/items/1", context: undefined }, "file:///x"), undefined);
+  });
+
+  it("names the route Send Request is showing, by the host's copy, and only for its key", () => {
+    const shown = { key: "shop POST /discounts", uri: "file:///p/src/shop.bynk", unit: "shop", service: "api", form: { method: "POST" as const, path: "/discounts" } } as Parameters<typeof sendRequestRoute>[0];
+    assert.deepStrictEqual(sendRequestRoute(shown, "shop POST /discounts"), ref);
+    // A page naming another route, or a non-string, or the panel showing nothing: no route.
+    assert.strictEqual(sendRequestRoute(shown, "shop GET /elsewhere"), undefined);
+    assert.strictEqual(sendRequestRoute(shown, { unit: "evil" }), undefined);
+    assert.strictEqual(sendRequestRoute(null, "shop POST /discounts"), undefined);
   });
 });

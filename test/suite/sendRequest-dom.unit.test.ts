@@ -60,6 +60,14 @@ describe("Send Request page (jsdom)", () => {
     assert.strictEqual(saves[0].status, undefined);
   });
 
+  it("asks for edge cases for the shown route by its key alone, with or without a dev server (#233)", async () => {
+    await open(payload({ target: { kind: "stopped" } }));
+    assert.ok(!button("sr-edge-cases").disabled);
+    button("sr-edge-cases").click();
+    const asked = (dom.posted as { type: string }[]).filter((m) => m.type === "edgeCases");
+    assert.deepStrictEqual(asked, [{ type: "edgeCases", key: "shop PUT /items/:id" }]);
+  });
+
   it("offers to start the dev server, and won't send without one", async () => {
     await open(payload({ target: { kind: "stopped" } }));
     assert.ok(button("sr-send").disabled);
