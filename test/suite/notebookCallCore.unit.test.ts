@@ -216,4 +216,14 @@ describe("handler cells of other kinds: showing and carrying (#213)", () => {
     assert.deepStrictEqual(p.plan.usedCells, []);
     assert.ok(!p.plan.body.join("\n").includes("sweeper"));
   });
+  it("still carries a chain: a name a carried `let` reads is needed even if the promoted cell rebinds it", () => {
+    const cells: PromoteCell[] = [
+      { kind: "code", source: "let response = 1", unit: "jobs" },
+      { kind: "code", source: "let token = response + 1", unit: "jobs" },
+      { kind: "code", source: "// @handler\nlet response <- helper.call(token)", unit: "jobs" },
+    ];
+    const p = planCase(cells, 2, "jobs");
+    assert.ok(p.ok);
+    assert.deepStrictEqual(p.plan.usedCells, [0, 1]);
+  });
 });

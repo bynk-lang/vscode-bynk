@@ -360,14 +360,15 @@ const mentions = (text: string, name: string): boolean => new RegExp(`(?<![A-Za-
  *  bindings it uses, not every `let` of the notebook. */
 function narrowEarlier(earlier: { index: number; source: string }[], currentBody: string): Map<number, string> {
   const out = new Map<number, string>();
-  let needed = currentBody;
+  // What the carried `let`s read, apart from what the promoted cell itself reads.
+  let carried = "";
   const own = new Set(analyseCell(currentBody).body.flatMap((s) => bound(s.text)));
   for (const e of [...earlier].reverse()) {
     const cell = analyseCell(e.source);
-    // A name the cell being promoted binds itself is its own, not the earlier cell's (#213: every call cell binds `response`).
-    const kept = cell.body.filter((s) => LET.test(s.text.trimStart()) && bound(s.text).some((n) => mentions(needed, n) && !own.has(n)));
+    // A name the cell being promoted binds itself is its own, not the earlier cell's (#213: every call cell binds `response`); a name a carried `let` reads is still needed.
+    const kept = cell.body.filter((s) => LET.test(s.text.trimStart()) && bound(s.text).some((n) => (mentions(currentBody, n) && !own.has(n)) || mentions(carried, n)));
     if (kept.length === 0) continue;
-    needed += `\n${kept.map((s) => s.text).join("\n")}`;
+    carried += `\n${kept.map((s) => s.text).join("\n")}`;
     out.set(e.index, [...cell.header, ...kept].map((s) => s.text).join("\n"));
   }
   return out;

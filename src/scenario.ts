@@ -7,8 +7,9 @@
 // headers: the handlers come from the server's document symbols, and each
 // HTTP handler's route, context and body shape from `bynk/wireContract`, the
 // answer Send Request already uses. The only text this module reads itself is
-// each handler's header line, to ask the server about HTTP handlers only (as
-// the Send request lens does).
+// each handler's header line, to tell an HTTP handler from the rest (as the
+// Send request lens does) and to skip the handlers of an agent, which have no
+// wire contract: every other handler of a service is asked about (#213).
 
 import * as path from "node:path";
 
@@ -145,6 +146,9 @@ class RouteIndex implements vscode.Disposable {
     for (const a of text.matchAll(/\bactor\s+([A-Z]\w*)\s*\{[^}]*?\bidentity\s*=\s*([A-Z]\w*)/g)) identities[a[1]] = a[2];
     for (const h of handlerSymbols(symbols)) {
       const http = isHttpHandler(doc, h.symbol.range);
+      // An agent's `on call` never has a wire contract, and no cell can call it: not worth the round trip.
+      const inService = new RegExp(`\\bservice\\s+${h.owner}\\b`).test(text);
+      if (!http && !inService) continue;
       const position = h.symbol.selectionRange.start;
       const wc = await requestWireContract(client, { uri: doc.uri.toString(), position: { line: position.line, character: position.character } });
       const kind = wc?.model.kind;
@@ -152,8 +156,8 @@ class RouteIndex implements vscode.Disposable {
         // A handler with no wire contract yet: the server has not analysed the
         // project. Say so rather than drop it (a set built too early is kept
         // as complete until a file changes, #213). An agent's `on call` has
-        // none, ever, and is no handler a cell can call; it does not count.
-        if (http || new RegExp(`\\bservice\\s+${h.owner}\\b`).test(text)) complete = false;
+        // none, ever, but those were skipped above.
+        complete = false;
         continue;
       }
       const r = h.symbol.range;

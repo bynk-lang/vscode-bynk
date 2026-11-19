@@ -644,7 +644,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
       const by = actor ? actorClause(actor, identities?.[actor]) : undefined;
       const call = route ? writeCall(route, by) : handler ? writeHandlerCall(handler, by) : undefined;
       if (!call) {
-        void vscode.window.showErrorMessage(`Bynk Notebook: ${pick.choice.label} can't be written as a call (it takes a raw body, or the server named no service).`);
+        void vscode.window.showErrorMessage(`Bynk Notebook: ${pick.choice.label} can't be written as a call (${route || handler?.kind !== "cron" ? "it takes a raw body, or the server named no service" : "the server gave no schedule for it"}).`);
         return;
       }
       const edit = new vscode.WorkspaceEdit();
