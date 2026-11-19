@@ -2013,7 +2013,7 @@
         "bynk.platform.limitHints": {
           "type": "boolean",
           "default": true,
-          "description": "Show an Information diagnostic (source `bynk limits`) on a handler whose payload may pass a platform limit, such as a queue message holding `Bytes` or a `List`. It only says \"may\", and only where the language server's models show it."
+          "description": "Show an Information diagnostic (source `bynk limits`) on a handler whose payload may pass a platform limit, a queue handler whose message holds `Bytes`, a `List` or a `Map`. It only says \"may\", and only where the language server's models show it."
         },
         "bynk.viewsCodeLens": {
           "type": "boolean",

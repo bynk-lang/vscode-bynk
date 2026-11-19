@@ -78,6 +78,9 @@ describe("platform limit hints (#225)", () => {
     assert.strictEqual(d.severity, vscode.DiagnosticSeverity.Information);
     assert.match(d.message, /may be larger than a queue allows/);
     assert.match(d.message, /128 KB/);
+    const code = d.code as { value: string; target: vscode.Uri };
+    assert.strictEqual(code.value, "limits.queueMessage");
+    assert.match(code.target.toString(), /developers\.cloudflare\.com\/queues/);
     assert.ok(doc.lineAt(d.range.start.line).text.includes("on message") || doc.lineAt(d.range.start.line).text.includes("message"), "on the handler");
     assert.ok(d.range.start.line < doc.positionAt(doc.getText().indexOf("service pings")).line, "on the first service's handler");
 

@@ -137,6 +137,15 @@ export function registerRequestTiming(context: vscode.ExtensionContext): void {
         void panel.webview.postMessage(update);
       }, 200);
     }),
+    // #225: the CPU note follows the plan, so a change to it redraws the open page.
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!e.affectsConfiguration("bynk.platform") || !panel || !shown) return;
+      const fresh = payloadFor(shown.source.trace.id, shown.compare?.trace.id);
+      if (!fresh) return;
+      shown = fresh;
+      const update: TimingUpdate = { type: "timing", payload: fresh };
+      void panel.webview.postMessage(update);
+    }),
     // `id`, when given (from a message or a test), is a request id; the palette gives none.
     vscode.commands.registerCommand("bynk.showRequestTiming", (id?: unknown, compareId?: unknown) =>
       show(typeof id === "string" ? id : undefined, typeof compareId === "string" ? compareId : undefined),

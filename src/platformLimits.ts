@@ -10,6 +10,7 @@
 
 import * as vscode from "vscode";
 
+import { limitInfo } from "./platformLimitsCore";
 import { payloadHints } from "./payloadHintsCore";
 import { toPlan, type Plan } from "./platformLimitsCore";
 import { handlerSymbols } from "./refreshScheduler";
@@ -29,7 +30,7 @@ function hintsEnabled(): boolean {
 
 const DEBOUNCE_MS = 400;
 
-export function registerPlatformLimits(context: vscode.ExtensionContext, hub: ViewRefresh): void {
+export function registerPlatformLimits(context: vscode.ExtensionContext, hub: ViewRefresh, output: vscode.LogOutputChannel): void {
   const collection = vscode.languages.createDiagnosticCollection(LIMITS_SOURCE);
   /** The last document version and plan a document was analysed at. */
   const done = new Map<string, string>();
@@ -49,22 +50,32 @@ export function registerPlatformLimits(context: vscode.ExtensionContext, hub: Vi
     const client = await hub.whenClient(0);
     if (!client) return;
     const diagnostics: vscode.Diagnostic[] = [];
+    let symbols;
     try {
-      for (const h of handlerSymbols(await hub.documentSymbols(doc))) {
-        const start = h.symbol.selectionRange.start;
+      symbols = handlerSymbols(await hub.documentSymbols(doc));
+    } catch (err) {
+      output.warn(`bynk limits: no symbols for ${doc.uri.fsPath}: ${String(err)}`);
+      return;
+    }
+    // The server may not have analysed the project yet: no handlers is not an answer
+    // to keep, so it is not stamped; the next round (`onDidCommitRound`) asks again.
+    if (symbols.length === 0) return;
+    for (const h of symbols) {
+      const start = h.symbol.selectionRange.start;
+      try {
         const payload = await requestWireContract(client, { uri: key, position: { line: start.line, character: start.character } });
         if (!payload) continue;
         for (const hint of payloadHints(payload.model, plan)) {
           const range = new vscode.Range(start.line, start.character, h.symbol.selectionRange.end.line, h.symbol.selectionRange.end.character);
           const d = new vscode.Diagnostic(range, hint.message, vscode.DiagnosticSeverity.Information);
           d.source = LIMITS_SOURCE;
-          d.code = `limits.${hint.limit}`;
+          d.code = { value: `limits.${hint.limit}`, target: vscode.Uri.parse(limitInfo(hint.limit).source) };
           diagnostics.push(d);
         }
+      } catch (err) {
+        // One handler the server cannot answer for (an agent's, say) skips only that handler.
+        output.debug(`bynk limits: ${h.owner}.${h.symbol.name}: ${String(err)}`);
       }
-    } catch {
-      // The server cannot answer yet (or is restarting): leave what is shown, and ask again at the next change.
-      return;
     }
     // A newer edit has superseded this analysis.
     if (doc.version !== vscode.workspace.textDocuments.find((d) => d.uri.toString() === key)?.version) return;
@@ -96,7 +107,17 @@ export function registerPlatformLimits(context: vscode.ExtensionContext, hub: Vi
       collection.delete(doc.uri);
       done.delete(doc.uri.toString());
     }),
-    hub.onDidRefresh(() => all()),
+    // The model is answered from the server's last committed round, so what was
+    // analysed at a document version can change without it: a refresh, or a round
+    // committed later (another file's edit, or the first analysis), asks again.
+    hub.onDidRefresh(() => {
+      done.clear();
+      all();
+    }),
+    hub.onDidCommitRound(() => {
+      done.clear();
+      all();
+    }),
     hub.onDidStartClient(() => {
       done.clear();
       all();

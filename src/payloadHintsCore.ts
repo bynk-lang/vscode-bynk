@@ -6,9 +6,11 @@
 //
 //   - a `Message` handler is a queue consumer: its message is a queue message,
 //     which Cloudflare limits (`queueMessage`). A `Bytes`, a `List` or a `Map`
-//     in it has no bound in its type, so the message *may* pass the limit;
-//   - an HTTP handler that takes its body raw (`Raw` envelope) reads the request
-//     body, which Cloudflare limits (`requestBody`).
+//     in it has no bound in its type, so the message *may* pass the limit.
+//
+// An HTTP handler's request body is not flagged: the platform refuses an
+// oversized body before the Worker runs, whether the handler reads it raw or as
+// JSON, so a hint would sit on every upload endpoint with nothing to act on.
 //
 // Not flagged, because the models do not say where the value goes: a value
 // written to KV (the architecture model names a KV capability, not which value
@@ -18,7 +20,7 @@
 // A `Bytes` bounded by a `MaxLength`/`Length` predicate on a named type is not
 // flagged. When in doubt, no hint.
 
-import { formatLimit, limitInfo, planName, type LimitId, type Plan } from "./platformLimitsCore";
+import { formatLimit, planName, type LimitId, type Plan } from "./platformLimitsCore";
 import type { WcBody, WcModel, WcRef } from "./webview/wireContractTypes";
 
 export type UnboundedKind = "Bytes" | "List" | "Map";
@@ -174,22 +176,13 @@ export function payloadHints(model: WcModel, plan: Plan): PayloadHint[] {
     else if (env.kind === "Keyed") for (const p of env.params) walk(p.shape, p.name, idx, new Set(), found);
     else if (env.kind === "Raw") found.push({ path: "", kind: "Bytes", type: "Bytes" });
     if (found.length > 0) {
-      const info = limitInfo("queueMessage");
       hints.push({
         limit: "queueMessage",
         subject: env.kind === "Bare" ? env.param : "message",
         unbounded: found.slice(0, MAX_SHOWN),
-        message: `This message may be larger than a queue allows: it holds ${describe(found)}, which the type does not bound. Cloudflare Queues limit a message to ${formatLimit("queueMessage", plan)} (${planName(plan)}; ${info.source}).`,
+        message: `This message may be larger than a queue allows: it holds ${describe(found)}, which the type does not bound. Cloudflare Queues limit a message to ${formatLimit("queueMessage", plan)} on the ${planName(plan)}.`,
       });
     }
-  } else if (model.kind.kind === "Http" && env.kind === "Raw") {
-    const info = limitInfo("requestBody");
-    hints.push({
-      limit: "requestBody",
-      subject: "request body",
-      unbounded: [{ path: env.param, kind: "Bytes", type: "Bytes" }],
-      message: `This handler reads the request body raw, so it may be larger than the platform accepts: Cloudflare limits a request body to ${formatLimit("requestBody", plan)} (${info.source}).`,
-    });
   }
   return hints;
 }

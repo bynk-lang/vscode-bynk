@@ -5,7 +5,7 @@
 
 import * as assert from "assert";
 
-import { CPU_NOTE_RATIO, cpuNote } from "../../src/cpuNoteCore";
+import { CPU_NOTE_RATIO, cpuNote, ownMs } from "../../src/cpuNoteCore";
 import { MAX_SHOWN, payloadHints, unboundedIn } from "../../src/payloadHintsCore";
 import {
   DEFAULT_PLAN,
@@ -72,19 +72,27 @@ describe("CPU note (#225)", () => {
     { target: "Mailer.send", ms: 1 },
     { target: "Cache.get", ms: 0 },
     { target: "Db.write", ms: 6 },
-  ];
+  ]; // 20 ms in calls
 
-  it("says nothing for a request well under the limit", () => {
-    assert.strictEqual(cpuNote({ durationMs: 4.9, steps }, "free"), undefined);
-    assert.strictEqual(cpuNote({ durationMs: 5000, steps }, "paid"), undefined);
+  it("measures the time outside the traced calls", () => {
+    assert.strictEqual(ownMs({ durationMs: 26, steps }), 6);
+    assert.strictEqual(ownMs({ durationMs: 15, steps }), 15, "steps that add up to more overlapped: the whole time");
+    assert.strictEqual(ownMs({ durationMs: 8, steps: [] }), 8);
   });
 
-  it("notes a request from half the limit, naming the slowest steps and that the time is wall-clock", () => {
-    const note = cpuNote({ durationMs: 10 * CPU_NOTE_RATIO, steps }, "free");
+  it("says nothing for a request that waited on calls, however long it took", () => {
+    assert.strictEqual(cpuNote({ durationMs: 24, steps }, "free"), undefined, "4 ms of its own");
+    assert.strictEqual(cpuNote({ durationMs: 4.9, steps: [] }, "free"), undefined);
+    assert.strictEqual(cpuNote({ durationMs: 5000, steps: [] }, "paid"), undefined);
+  });
+
+  it("notes a request whose own time is half the limit, naming the slowest calls and that the time is wall-clock", () => {
+    const note = cpuNote({ durationMs: 20 + 10 * CPU_NOTE_RATIO, steps }, "free");
     assert.ok(note);
     assert.strictEqual(note.level, "near");
     assert.deepStrictEqual(note.slowest.map((s) => s.target), ["Ledger.post", "Db.write", "Db.query"]);
     assert.match(note.text, /wall-clock time in bynk dev/);
+    assert.match(note.text, /5\.0 ms was outside the traced calls/);
     assert.match(note.text, /CPU time, which is lower than wall-clock time/);
     assert.match(note.text, /not measured here/);
     assert.match(note.text, /10 ms CPU limit of the free plan/);
@@ -92,7 +100,7 @@ describe("CPU note (#225)", () => {
   });
 
   it("notes a request at or over the limit, and that CPU time may still be under it", () => {
-    const note = cpuNote({ durationMs: 12, steps }, "free");
+    const note = cpuNote({ durationMs: 32, steps }, "free");
     assert.ok(note);
     assert.strictEqual(note.level, "over");
     assert.match(note.text, /may well be under the limit/);
@@ -147,7 +155,7 @@ describe("payload hints (#225)", () => {
     assert.match(hints[0].message, /may be larger than a queue allows/);
     assert.match(hints[0].message, /`data`/);
     assert.match(hints[0].message, /128 KB/);
-    assert.match(hints[0].message, /developers\.cloudflare\.com\/queues/);
+    assert.match(hints[0].message, /free plan/);
   });
 
   it("flags a List or Map, through a nested record and an Option", () => {
@@ -201,12 +209,9 @@ describe("payload hints (#225)", () => {
     assert.strictEqual(payloadHints(raw, "free").length, 1);
   });
 
-  it("flags an HTTP handler that reads the body raw, and only that", () => {
+  it("does not flag an HTTP handler, raw body or not: the platform refuses an oversized body first", () => {
     const raw = model({ kind: "Http", method: "POST", path: "/upload" }, { kind: "Raw", param: "body", contentType: "application/octet-stream" });
-    const [hint] = payloadHints(raw, "paid");
-    assert.strictEqual(hint.limit, "requestBody");
-    assert.match(hint.message, /100 MB/);
-    assert.match(hint.message, /may be larger/);
+    assert.deepStrictEqual(payloadHints(raw, "paid"), []);
     const json = model({ kind: "Http", method: "POST", path: "/upload" }, { kind: "Bare", param: "b", shape: bytes });
     assert.deepStrictEqual(payloadHints(json, "free"), []);
   });

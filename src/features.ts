@@ -111,7 +111,7 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   // #16: "Bynk: Export OpenAPI", a wrapper over `bynk openapi`.
   ({ context }) => registerOpenapi(context),
   // #225: platform-limit hints (payload sizes) and the plan setting the CPU note reads.
-  ({ context, viewRefresh }) => registerPlatformLimits(context, viewRefresh),
+  ({ context, viewRefresh, output }) => registerPlatformLimits(context, viewRefresh, output),
   // #2480: share a selection or a single-file program as a playground link.
   ({ context }) => registerPlaygroundCommands(context),
   // #2470: the "Refined Type" explorer.
