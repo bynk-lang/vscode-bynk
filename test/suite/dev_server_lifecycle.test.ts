@@ -139,13 +139,19 @@ describe("Bynk dev server restart and cleanup (#44)", function () {
     await waitFor(devPids, (l) => l.length === 2, "the menu to restart `bynk dev`", 20_000);
     await waitFor(() => alive(first), (a) => !a, "the first `bynk dev` to exit", 20_000);
 
+    // Wait until the restarted session is serving (its context URL is listed), as
+    // for the first one. "Stop Dev Server" is offered as soon as the process is
+    // spawned; a SIGTERM before the stand-in has installed its handler ends it
+    // without the `{ signal }` entry the last assertion counts.
     const again = await waitFor(
       async () => {
         const menu = await openMenu();
-        return menu.items.some((i) => /Stop Dev Server/.test(i.label)) ? menu : undefined;
+        return menu.items.some((i) => i.url) && menu.items.some((i) => /Stop Dev Server/.test(i.label))
+          ? menu
+          : undefined;
       },
       present,
-      "the menu of the restarted session",
+      "the menu of the restarted session, serving",
       20_000,
     );
     choose(again, /Stop Dev Server/);
