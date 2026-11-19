@@ -42,14 +42,15 @@ describe("Bynk toolchain, deploy and tail commands (#44)", () => {
     assert.match(told[0], /nothing to install/);
   });
 
-  it("bynk.deploy previews with --dry-run, opens the plan, and never runs a deploy", async function () {
+  it("bynk.deploy checks readiness first, with one --dry-run, and never runs a deploy", async function () {
     if (process.platform === "win32") this.skip();
     this.timeout(30_000);
-    // The plan view's title names the plan's own environment (the pinned plan's).
+    // #221: the pinned plan has orphans and secrets to supply, so Deploy… opens the
+    // readiness panel before the plan. Its title names the environment asked for.
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
-    await waitFor(() => tabOpen("Bynk Deploy Plan: staging"), (open) => !open, "an earlier plan view to close", 10_000);
+    await waitFor(() => tabOpen("Bynk Deploy Readiness: staging"), (open) => !open, "an earlier readiness panel to close", 10_000);
     await vscode.commands.executeCommand("bynk.deploy", { environment: "staging", context: "" });
-    await waitFor(() => tabOpen("Bynk Deploy Plan: staging"), truthy, "the plan view", 15_000);
+    await waitFor(() => tabOpen("Bynk Deploy Readiness: staging"), truthy, "the readiness panel", 15_000);
     const deploys = runs("deploy");
     assert.strictEqual(deploys.length, 1);
     assert.deepStrictEqual(deploys[0].argv, ["deploy", "--dry-run", "--format", "json", "--env", "staging"]);

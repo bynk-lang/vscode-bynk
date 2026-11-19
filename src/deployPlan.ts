@@ -243,6 +243,9 @@ export interface PlanViewOptions {
   canDeploy: boolean;
   /** Warnings the dry run printed on stderr, shown above the plan. */
   warnings?: string;
+  /** #221: the readiness check's verdict, as a line above the plan with a way
+   *  into its panel. Absent when the plan was not preceded by the check. */
+  readiness?: { line: string; tone: "ready" | "warnings" | "blocked" };
 }
 
 const ORIGIN_NOTE: Record<string, string> = {
@@ -264,6 +267,12 @@ export function renderPlanHtml(plan: DeployPlan, opts: PlanViewOptions): string 
       (opts.target.secretsFile ? `, secrets from <code>${e(opts.target.secretsFile)}</code>` : "") +
       `</p></header>`,
   );
+  if (opts.readiness) {
+    out.push(
+      `<p class="readiness ${opts.readiness.tone}">${e(opts.readiness.line)} ` +
+        `<button class="link" data-action="readiness">Check Deploy Readiness</button></p>`,
+    );
+  }
   if (opts.warnings && opts.warnings.trim()) {
     out.push(`<section class="warnings"><h2>Warnings</h2><pre>${e(opts.warnings.trim())}</pre></section>`);
   }
@@ -344,4 +353,8 @@ export const PLAN_CSS = `
   button { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: none; padding: 4px 12px; cursor: pointer; }
   button.primary { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
   .note { opacity: 0.8; }
+  .readiness { border-left: 3px solid var(--vscode-testing-iconPassed, var(--vscode-charts-green)); padding-left: 8px; }
+  .readiness.warnings { border-left-color: var(--vscode-editorWarning-foreground); }
+  .readiness.blocked { border-left-color: var(--vscode-errorForeground); }
+  button.link { background: none; color: var(--vscode-textLink-foreground); padding: 0; text-decoration: underline; }
 `;

@@ -82,7 +82,7 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   // #2472: Add Dependency…, Fetch Dependencies, upgrade lenses, Publish….
   ({ context }) => registerDependencies(context),
   // #2101: plan-first deploy.
-  ({ context, approvals }) => registerDeploy(context, approvals),
+  ({ context, approvals, viewRefresh, client }) => registerDeploy(context, approvals, viewRefresh, client),
   // #2094: run and manage `bynk dev`.
   ({ context, approvals }) => registerDevServer(context, approvals),
   // #2095: "Bynk: Doctor", offered by failures elsewhere, never run on activation.

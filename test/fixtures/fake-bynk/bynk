@@ -301,6 +301,18 @@ if (args[0] === "--version") {
   }
   process.exit(0);
 } else if (args[0] === "deploy") {
+  // `BYNK_FAKE_DEPLOY_LOCK=1`: as the real driver does on a dry run (bynk v0.639.1),
+  // record the build's schema in `bynk.schema.lock`, even when it then refuses.
+  if (args.includes("--dry-run") && process.env.BYNK_FAKE_DEPLOY_LOCK) {
+    fs.writeFileSync("bynk.schema.lock", "version = 2\n\n[events]\n\n# rewritten by a dry run\n");
+  }
+  if (args.includes("--dry-run") && args.includes("json") && process.env.BYNK_FAKE_DEPLOY === "agent-move") {
+    // `bynk.deploy.agent_move_refused` (bynk v0.639.1, bynk#3562): the dry run's
+    // refusal when a context hosting agents would move Worker script. exit 1, the
+    // message on stderr (recorded from the real driver), and no plan on stdout.
+    process.stderr.write(fs.readFileSync(require("path").join(__dirname, "..", "deploy-plan-agent-move.stderr.txt"), "utf8"));
+    process.exit(1);
+  }
   if (args.includes("--dry-run") && args.includes("json")) {
     // The pinned plan the extension's unit tests read, as the dry run prints it.
     process.stdout.write(fs.readFileSync(require("path").join(__dirname, "..", "deploy-plan.json"), "utf8"));

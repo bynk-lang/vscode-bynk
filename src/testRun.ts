@@ -30,6 +30,7 @@ import { offersSkipUnsupported, targetDetail, DEV_TARGET } from "./testTargets";
 import { rememberSeeds, suiteFingerprint, type SeedState } from "./testSeedState";
 import type { RunEnv } from "./testEnv";
 import { runBynkcTest, runBynkcTestStream } from "./testDriver";
+import { recordTestRun } from "./testResults";
 import { applyDocument, coverageDetail, placeHandlers } from "./testReport";
 import {
   forEachCase,
@@ -193,6 +194,9 @@ export async function runInProject(
   const noted = new Set<string>();
   let crashShown = false;
   let coverageDoc: TestRun | undefined;
+  // #221: what the project's steps found, for the deploy readiness check.
+  const found = { passed: 0, failed: 0, skipped: 0 };
+  let finishedSteps = 0;
 
   for (const step of plan.steps) {
     if (token.isCancellationRequested) break;
@@ -324,6 +328,15 @@ export async function runInProject(
       }
     }
     coverageDoc = doc;
+    found.passed += doc.passed;
+    found.failed += doc.failed;
+    found.skipped += doc.skipped ?? 0;
+    finishedSteps++;
+  }
+
+  // #221: only a run of the whole project, to its end, says whether the project's tests pass.
+  if (!token.isCancellationRequested && !against && !plan.narrowed && finishedSteps === plan.steps.length) {
+    recordTestRun(root.toString(), { ...found, at: Date.now() });
   }
 
   // A requested item no result reached: say so, rather than leave it queued.
