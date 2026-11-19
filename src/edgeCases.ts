@@ -9,7 +9,7 @@ import * as vscode from "vscode";
 
 import { BynkNotFoundError, runBynk } from "./cli";
 import { dirtyBuffers } from "./dirtyBuffers";
-import { buildNotebook, buildScenario, candidatesFor, notebookFileName, scenarioFileName, refinedFields, successLine, typesOf, validSample, type EdgeCandidate, type RefinedField, type TypeVerdicts, type Verdict } from "./edgeCasesCore";
+import { buildNotebook, buildScenario, candidatesFor, candidateValue, edgeCaseCells, notebookFileName, numberedName, probesFor, scenarioFileName, refinedFields, successLine, typesOf, validSample, type RefinedField, type TypeVerdicts, type Verdict } from "./edgeCasesCore";
 import { commandTarget } from "./livePanel";
 import { decodeEval, decodeRefined, evalArgs, refinedSource, serializeNotebook, type RefinedCell } from "./notebookCore";
 import { projectRootFor } from "./projectRoots";
@@ -22,8 +22,6 @@ import { requestWireContract } from "./wireContract";
 import type { RefinedModel } from "./webview/refinedTypes";
 
 const GRACE_MS = 15_000;
-/** The explorer's examples tried beside the generated candidates, only to find a value the type accepts. */
-const PROBES = 5;
 
 function fail(message: string): undefined {
   void vscode.window.showErrorMessage(`Bynk Edge Cases: ${message}`);
@@ -62,7 +60,7 @@ export function registerEdgeCases(context: vscode.ExtensionContext, hub: ViewRef
     vscode.commands.registerCommand("bynk.generateEdgeCases", (uriArg?: unknown, positionArg?: unknown) => generate(hub, uriArg, positionArg)),
   );
   // Off by default: every HTTP handler already carries `Send request` and the
-  // server's own lenses. The command is in the palette and on the handler's menu.
+  // server's own lenses. The command is in the palette.
   registerHandlerLens(context, hub, {
     setting: "edgeCases.codeLens",
     enabledByDefault: false,
@@ -116,10 +114,7 @@ async function generate(hub: ViewRefresh, uriArg: unknown, positionArg: unknown)
       }
       const { candidates, leftOut: skipped } = candidatesFor(model);
       notes.push(...skipped.map((s) => `${type}: ${s}`));
-      const probes: EdgeCandidate[] = model.examples
-        .slice(0, PROBES)
-        .map((e) => ({ text: model.base === "String" ? JSON.stringify(e) : e, why: "", shown: e }))
-        .filter((p) => !candidates.some((c) => c.text === p.text) && !/[\u0000-\u001f]/.test(p.text.replace(/^"|"$/g, "")));
+      const probes = probesFor(model, candidates);
       const sent = [...candidates, ...probes];
       if (sent.length === 0) continue;
       const answered = await ask(root, unit, type, sent.map((c) => c.text), token);
@@ -139,28 +134,28 @@ async function generate(hub: ViewRefresh, uriArg: unknown, positionArg: unknown)
     // The route's own refusal: refused values sent raw, in a scenario beside the notebook.
     const scenario = buildScenario({ unit, route, fields, byType, valid, credentialed: actor !== undefined && actor !== "Visitor" });
     if (scenario) notes.push(...scenario.leftOut.map((l) => `scenario: ${l}`));
-    const scenarioName = scenario ? scenarioFileName(method, path) : undefined;
+    if (edgeCaseCells(fields, byType).length === 0) {
+      void vscode.window.showInformationMessage(`Bynk Edge Cases: no boundary value could be derived for \`${label}\`.${notes.length > 0 ? ` ${notes.join("; ")}` : ""}`);
+      return undefined;
+    }
+    // The scenario first, so the notebook names the file that was written (a
+    // taken name is numbered).
+    const scenarioUri = scenario ? await write(root, scenarioFileName(method, path), scenario.text) : undefined;
     const built = buildNotebook({
       unit,
       route: label,
       fields,
       byType,
       leftOut: notes,
-      scenario: scenarioName ? `edge-cases/${scenarioName}` : undefined,
+      scenario: scenarioUri ? vscode.workspace.asRelativePath(scenarioUri, false) : undefined,
       success: "why" in success ? success : { line: () => success.line },
       call: (field: RefinedField, text: string) => {
-        const value: string | number = text.startsWith('"') ? (JSON.parse(text) as string) : Number(text);
-        const written = writeCall(route, by, { valid, set: { param: field.param, path: field.path, value } });
+        const written = writeCall(route, by, { valid, set: { param: field.param, path: field.path, value: candidateValue(text) } });
         written?.holes.forEach((h) => holes.add(h));
         return written?.text;
       },
     });
-    if (built.cases === 0) {
-      void vscode.window.showInformationMessage(`Bynk Edge Cases: no boundary value could be derived for \`${label}\`.${notes.length > 0 ? ` ${notes.join("; ")}` : ""}`);
-      return undefined;
-    }
     const uri = await write(root, notebookFileName(method, path), serializeNotebook(built.notebook));
-    const scenarioUri = scenario && scenarioName ? await write(root, scenarioName, scenario.text) : undefined;
     const doc = await vscode.workspace.openNotebookDocument(uri);
     await vscode.window.showNotebookDocument(doc);
     void vscode.window.showInformationMessage(`Bynk Edge Cases: ${built.cases} cases for \`${label}\` (${built.accepted} accepted, ${built.refused} refused by the compiler). Run the cells, then Promote Notebook to Suite.${scenarioUri ? ` The refused values are also sent raw by ${vscode.workspace.asRelativePath(scenarioUri, false)}, which runs against bynk dev.` : ""}${holes.size > 0 ? ` Fill in: ${[...holes].join("; ")}` : ""}`);
@@ -181,7 +176,7 @@ async function write(root: vscode.Uri, name: string, text: string): Promise<vsco
   const dir = vscode.Uri.joinPath(root, "edge-cases");
   await vscode.workspace.fs.createDirectory(dir);
   for (let n = 1; ; n++) {
-    const file = vscode.Uri.joinPath(dir, n === 1 ? name : name.replace(/\.bynknb$/, `-${n}.bynknb`));
+    const file = vscode.Uri.joinPath(dir, numberedName(name, n));
     try {
       await vscode.workspace.fs.stat(file);
     } catch {

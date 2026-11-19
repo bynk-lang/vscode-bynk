@@ -4,7 +4,7 @@
 
 import * as assert from "assert";
 
-import { buildNotebook, buildScenario, candidatesFor, notebookFileName, scenarioFileName, refinedFields, successLine, validSample, type BuildInput, type TypeVerdicts, type Verdict } from "../../src/edgeCasesCore";
+import { buildNotebook, buildScenario, candidateValue, candidatesFor, numberedName, probesFor, notebookFileName, scenarioFileName, refinedFields, successLine, validSample, type BuildInput, type TypeVerdicts, type Verdict } from "../../src/edgeCasesCore";
 import { parseScenario } from "../../src/scenarioCore";
 import { actorClause, writeCall, type PromoteRoute } from "../../src/scenarioPromoteCore";
 import type { Predicate, RefinedClause } from "../../src/webview/refinedTypes";
@@ -270,5 +270,25 @@ describe("edge cases: the scenario for the route's own refusal (#229)", () => {
     const sc = buildScenario({ unit: "shop", route: r, fields: f, byType, valid, credentialed: false })!;
     assert.strictEqual(sc.steps, 4);
     assert.match(sc.leftOut[0], /query\.name.*only a path parameter or the one body/);
+  });
+});
+
+describe("edge cases: values, probes and file numbers (#229)", () => {
+  it("reads a candidate's text as the value it stands for", () => {
+    assert.strictEqual(candidateValue('"ab"'), "ab");
+    assert.strictEqual(candidateValue("-1"), -1);
+  });
+  it("numbers a taken file name before its extension, whichever it is", () => {
+    assert.strictEqual(numberedName("edge-cases-POST-x.bynknb", 1), "edge-cases-POST-x.bynknb");
+    assert.strictEqual(numberedName("edge-cases-POST-x.bynknb", 2), "edge-cases-POST-x-2.bynknb");
+    assert.strictEqual(numberedName("edge-cases-POST-x.bynk-http", 3), "edge-cases-POST-x-3.bynk-http");
+  });
+  it("offers examples as probes except a repeat of a candidate or one with a control character", () => {
+    const cands = candidatesFor(model("String", [clause("NonEmpty", { kind: "nonEmpty" })])).candidates;
+    const probes = probesFor({ base: "String", examples: ["a", "b", "c\u0001d", "e"] }, cands);
+    assert.deepStrictEqual(probes.map((p) => p.text), ['"b"', '"e"']);
+    assert.deepStrictEqual(probesFor({ base: "Int", examples: ["7", "x"] }, []).map((p) => p.text), ["7"]);
+    assert.deepStrictEqual(probesFor({ base: "Float", examples: ["1.5"] }, []), []);
+    assert.strictEqual(probesFor({ base: "Int", examples: ["1", "2", "3"] }, [], 2).length, 2);
   });
 });

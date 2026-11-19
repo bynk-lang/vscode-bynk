@@ -270,12 +270,33 @@ export interface TypeVerdicts {
   verdicts: Verdict[];
 }
 
+/** A candidate's source text as the value it stands for: a string's characters or a number. */
+export function candidateValue(text: string): string | number {
+  return text.startsWith('"') ? (JSON.parse(text) as string) : Number(text);
+}
+
+/** The explorer's examples tried beside the generated candidates, only to find a
+ *  value the type accepts when no candidate is one: they get no case. Those that
+ *  repeat a candidate, or that cannot be written as a literal, are left out. */
+export function probesFor(model: Pick<RefinedModel, "base" | "examples">, candidates: readonly EdgeCandidate[], limit = 5): EdgeCandidate[] {
+  const out: EdgeCandidate[] = [];
+  for (const e of model.examples.slice(0, limit)) {
+    const c = model.base === "String" ? stringCandidate(e, "an example") : model.base === "Int" ? intCandidate(Number(e), "an example") : undefined;
+    if (c && !candidates.some((x) => x.text === c.text)) out.push(c);
+  }
+  return out;
+}
+
+/** The numbered name of a file when `name` is taken: `a.bynknb`, `a-2.bynknb`, `a-3.bynknb`, … */
+export function numberedName(name: string, n: number): string {
+  return n <= 1 ? name : name.replace(/(\.[^.]+)$/, `-${n}$1`);
+}
+
 /** A value of the type the constructor accepted: what the other fields are held at. */
 export function validSample(verdicts: readonly Verdict[]): string | number | undefined {
   const ok = verdicts.find((x) => x.outcome === "accepted");
   if (!ok) return undefined;
-  const t = ok.candidate.text;
-  return t.startsWith('"') ? (JSON.parse(t) as string) : Number(t);
+  return candidateValue(ok.candidate.text);
 }
 
 export interface EdgeCaseCell {
@@ -405,7 +426,7 @@ export function buildScenario(input: ScenarioInput): { text: string; steps: numb
     }
     for (const { candidate, outcome } of input.byType.get(field.type)?.verdicts ?? []) {
       if (outcome !== "refused") continue;
-      const value: string | number = candidate.text.startsWith('"') ? (JSON.parse(candidate.text) as string) : Number(candidate.text);
+      const value = candidateValue(candidate.text);
       let path = route.path;
       let body: string | undefined;
       let missing = false;

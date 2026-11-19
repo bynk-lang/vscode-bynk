@@ -126,6 +126,12 @@ describe("Generate Edge Cases… (#229)", () => {
     assert.strictEqual(scenario.split("\n? status == 400").length - 1, 4, scenario);
     assert.ok(scenario.includes('{"name":"ab","pct":101,"note":') || scenario.includes('"pct":101'), scenario);
 
+    // Generating again numbers the files (the scenario's too) and the notebook names the scenario written.
+    const again = await vscode.commands.executeCommand<vscode.Uri | undefined>("bynk.generateEdgeCases", file.toString(), position);
+    assert.strictEqual(again?.fsPath, path.join(dir, "edge-cases", "edge-cases-POST-discounts-2.bynknb"));
+    assert.ok(fs.existsSync(path.join(dir, "edge-cases", "edge-cases-POST-discounts-2.bynk-http")));
+    assert.ok(fs.readFileSync(again.fsPath, "utf8").includes("edge-cases-POST-discounts-2.bynk-http"));
+
     // Run every cell in the notebook's own controller: each passes its `expect`.
     const notebook = await vscode.workspace.openNotebookDocument(written);
     await vscode.window.showNotebookDocument(notebook);
