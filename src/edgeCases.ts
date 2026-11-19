@@ -9,7 +9,7 @@ import * as vscode from "vscode";
 
 import { BynkNotFoundError, runBynk } from "./cli";
 import { dirtyBuffers } from "./dirtyBuffers";
-import { buildNotebook, candidatesFor, notebookFileName, refinedFields, successLine, typesOf, validSample, type EdgeCandidate, type RefinedField, type TypeVerdicts, type Verdict } from "./edgeCasesCore";
+import { buildNotebook, buildScenario, candidatesFor, notebookFileName, scenarioFileName, refinedFields, successLine, typesOf, validSample, type EdgeCandidate, type RefinedField, type TypeVerdicts, type Verdict } from "./edgeCasesCore";
 import { commandTarget } from "./livePanel";
 import { decodeEval, decodeRefined, evalArgs, refinedSource, serializeNotebook, type RefinedCell } from "./notebookCore";
 import { projectRootFor } from "./projectRoots";
@@ -136,12 +136,17 @@ async function generate(hub: ViewRefresh, uriArg: unknown, positionArg: unknown)
     }
     const success = successLine(route, "response");
     const holes = new Set<string>();
+    // The route's own refusal: refused values sent raw, in a scenario beside the notebook.
+    const scenario = buildScenario({ unit, route, fields, byType, valid, credentialed: actor !== undefined && actor !== "Visitor" });
+    if (scenario) notes.push(...scenario.leftOut.map((l) => `scenario: ${l}`));
+    const scenarioName = scenario ? scenarioFileName(method, path) : undefined;
     const built = buildNotebook({
       unit,
       route: label,
       fields,
       byType,
       leftOut: notes,
+      scenario: scenarioName ? `edge-cases/${scenarioName}` : undefined,
       success: "why" in success ? success : { line: () => success.line },
       call: (field: RefinedField, text: string) => {
         const value: string | number = text.startsWith('"') ? (JSON.parse(text) as string) : Number(text);
@@ -155,9 +160,10 @@ async function generate(hub: ViewRefresh, uriArg: unknown, positionArg: unknown)
       return undefined;
     }
     const uri = await write(root, notebookFileName(method, path), serializeNotebook(built.notebook));
+    const scenarioUri = scenario && scenarioName ? await write(root, scenarioName, scenario.text) : undefined;
     const doc = await vscode.workspace.openNotebookDocument(uri);
     await vscode.window.showNotebookDocument(doc);
-    void vscode.window.showInformationMessage(`Bynk Edge Cases: ${built.cases} cases for \`${label}\` (${built.accepted} accepted, ${built.refused} refused by the compiler). Run the cells, then Promote Notebook to Suite.${holes.size > 0 ? ` Fill in: ${[...holes].join("; ")}` : ""}`);
+    void vscode.window.showInformationMessage(`Bynk Edge Cases: ${built.cases} cases for \`${label}\` (${built.accepted} accepted, ${built.refused} refused by the compiler). Run the cells, then Promote Notebook to Suite.${scenarioUri ? ` The refused values are also sent raw by ${vscode.workspace.asRelativePath(scenarioUri, false)}, which runs against bynk dev.` : ""}${holes.size > 0 ? ` Fill in: ${[...holes].join("; ")}` : ""}`);
     return uri;
   });
 }

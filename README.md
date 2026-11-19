@@ -426,7 +426,13 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
       Err(_)`), not through the route: at the unit tier a value that breaks a refined type
       does not compile as a call's argument, and the raw `Wire(…)` input that reaches the
       route's own refusal is `system`-tier only, which `bynk eval` does not run (bynk
-      v0.639.1). The route's own refusal can be written by hand in a `system` suite.
+      v0.639.1). So that the route's own refusal is covered too, the refused values are
+      also written to `edge-cases/<route>.bynk-http`: a scenario step each, sending the
+      value raw in the JSON body (or path) with the other fields valid, and expecting
+      the boundary's `400` (the Book: a refinement violation is a `400`
+      `RefinementViolation` before the handler runs). It runs with **Run scenario**
+      against `bynk dev`; the generated steps have not been run by the extension's tests.
+      A credential for an actor is `{{env.AUTHORIZATION}}`, never written into the file.
     - **Left out, and said so in the notebook:** a `Float` bound (no exact "just past"),
       a bound beyond 2^53 or a length over 256, an opaque type, a refined type inside a
       list, an option or a sum, and any predicate the extension does not read.

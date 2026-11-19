@@ -744,7 +744,7 @@ export interface CallVariation {
   set?: { param: string; path: readonly string[]; value: string | number };
 }
 
-function setAt(value: unknown, path: readonly string[], replacement: unknown): unknown {
+export function setAt(value: unknown, path: readonly string[], replacement: unknown): unknown {
   if (path.length === 0) return replacement;
   if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
   const o = value as Record<string, unknown>;
@@ -759,6 +759,11 @@ export interface WrittenCall {
 }
 
 type WireModel = PromoteRoute["model"];
+
+/** A JSON sample of wire type `ref`, with `valid` values for refined types (#229): the raw body of a scenario step. */
+export function sampleJson(model: Pick<WireModel, "types" | "instantiations">, ref: WcRef, valid?: ReadonlyMap<string, string | number>): { value: unknown } | { why: string } {
+  return sampleOf(ref, { types: model.types, instantiations: model.instantiations, captures: [], interpolate: () => ({ why: "no captures here" }), valid });
+}
 
 /** A sample argument for each of a handler's parameters, as source; the ones
  *  that could not be sampled are written as `_` with a comment, and listed. */

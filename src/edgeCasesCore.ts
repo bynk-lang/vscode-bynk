@@ -19,7 +19,8 @@
 
 import type { RefinedClause, RefinedModel } from "./webview/refinedTypes";
 import type { WcRef, WcType } from "./webview/wireContractTypes";
-import { HTTP_VARIANTS, type PromoteRoute } from "./scenarioPromoteCore";
+import { HTTP_VARIANTS, sampleJson, setAt, type PromoteRoute } from "./scenarioPromoteCore";
+import { formatStep } from "./scenarioCore";
 import type { Notebook, NbCell } from "./notebookCore";
 
 // ---------------------------------------------------------------------------
@@ -300,6 +301,8 @@ export interface BuildInput {
   fields: readonly RefinedField[];
   byType: ReadonlyMap<string, TypeVerdicts>;
   leftOut: readonly string[];
+  /** The scenario written beside it for the refused values, if any. */
+  scenario?: string;
 }
 
 const BINDING = "response";
@@ -315,7 +318,7 @@ export function buildNotebook(input: BuildInput): { notebook: Notebook; cases: n
   const intro = [
     `# Edge cases: ${input.route}`,
     "",
-    "Boundary values for the route's refined fields, one case each, the other fields held at a valid value so a failure names one field. Whether a value is accepted was asked of the compiler (`Type.of(…)`), not read from the predicate. A refused value cannot be passed to a typed call, so its refusal is asserted on the constructor; the route's own refusal (`Wire(…)`) is for a `system` suite.",
+    `Boundary values for the route's refined fields, one case each, the other fields held at a valid value so a failure names one field. Whether a value is accepted was asked of the compiler (\`Type.of(…)\`), not read from the predicate. A refused value cannot be passed to a typed call, so its refusal is asserted on the constructor; the route's own refusal (\`Wire(…)\`) is for a \`system\` suite${input.scenario ? `, and is sent raw by \`${input.scenario}\` against \`bynk dev\`` : ""}.`,
   ];
   if ("why" in input.success) intro.push("", `The handler's answer is not asserted: ${input.success.why}.`);
   if (input.leftOut.length > 0) intro.push("", "Left out:", ...input.leftOut.map((l) => `- ${l}`));
@@ -348,4 +351,93 @@ export function notebookFileName(method: string, path: string): string {
     .map((s) => s.replace(/^:/, "by-").replace(/[^A-Za-z0-9_-]/g, "-"))
     .join("-");
   return `edge-cases-${method}${slug ? `-${slug}` : ""}.bynknb`;
+}
+
+// ---------------------------------------------------------------------------
+// The scenario: the route's own refusal
+
+/** The status a refined violation gets at the HTTP boundary: a `400`
+ *  `RefinementViolation` before the handler runs (the Bynk Book, http.md and
+ *  encoding.md, v0.639.1). Documented, not observed here: the scenario is the
+ *  one place the route's own refusal can be written, and it runs against
+ *  `bynk dev`. */
+export const BOUNDARY_STATUS = 400;
+
+export interface ScenarioInput {
+  unit: string;
+  route: Pick<PromoteRoute, "method" | "path" | "model">;
+  fields: readonly RefinedField[];
+  byType: ReadonlyMap<string, TypeVerdicts>;
+  valid: ReadonlyMap<string, string | number>;
+  /** The actor the route needs a credential for: its header is the `AUTHORIZATION` variable. `undefined` for a Visitor. */
+  credentialed: boolean;
+}
+
+const NO_BODY = new Set(["headers", "query", "cookies"]);
+
+/** A `.bynk-http` scenario with a step for each REFUSED value, sending it raw
+ *  (JSON bypasses the type) and expecting the boundary's `400`. Accepted values
+ *  are the notebook's. `undefined` when no step can be written; what was left
+ *  out is listed. */
+export function buildScenario(input: ScenarioInput): { text: string; steps: number; leftOut: string[] } | undefined {
+  const { route } = input;
+  const env = route.model.envelope;
+  const params = env.kind === "Keyed" ? env.params : env.kind === "Bare" ? [{ name: env.param, shape: env.shape }] : [];
+  if (env.kind === "Raw") return undefined;
+  const pattern = new Set(route.path.split("/").filter((s) => s.startsWith(":")).map((s) => s.slice(1)));
+  const bodyParams = params.filter((p) => !pattern.has(p.name) && !NO_BODY.has(p.name));
+  const bodyParam = bodyParams.length === 1 && route.method !== "GET" ? bodyParams[0] : undefined;
+  const leftOut: string[] = [];
+  const steps: string[] = [];
+  const names = new Set<string>();
+  // Every path parameter at a valid value, and the body at a sample.
+  const pathValue = (name: string): string | undefined => {
+    const p = params.find((x) => x.name === name);
+    if (!p) return undefined;
+    const s = sampleJson(route.model, p.shape, input.valid);
+    return "value" in s && (typeof s.value === "string" || typeof s.value === "number") ? String(s.value) : undefined;
+  };
+  for (const field of input.fields) {
+    const inPath = pattern.has(field.param);
+    if (!inPath && field.param !== bodyParam?.name) {
+      leftOut.push(`\`${field.label}\`: only a path parameter or the one body is sent raw`);
+      continue;
+    }
+    for (const { candidate, outcome } of input.byType.get(field.type)?.verdicts ?? []) {
+      if (outcome !== "refused") continue;
+      const value: string | number = candidate.text.startsWith('"') ? (JSON.parse(candidate.text) as string) : Number(candidate.text);
+      let path = route.path;
+      let body: string | undefined;
+      let missing = false;
+      for (const name of pattern) {
+        const v = name === field.param ? String(value) : pathValue(name);
+        if (v === undefined || v === "") missing = true;
+        else path = path.replace(`:${name}`, encodeURIComponent(v));
+      }
+      if (missing) {
+        leftOut.push(`\`${field.label}\` = ${candidate.shown}: it cannot be a path segment`);
+        continue;
+      }
+      if (bodyParam) {
+        const sample = sampleJson(route.model, bodyParam.shape, input.valid);
+        if ("why" in sample) {
+          leftOut.push(`\`${field.label}\`: ${sample.why}`);
+          continue;
+        }
+        body = JSON.stringify(field.param === bodyParam.name ? setAt(sample.value, field.path, value) : sample.value);
+      }
+      let name = `${field.label.replace(/[^A-Za-z0-9_]/g, "_")}_refused`;
+      for (let n = 2; names.has(name); n++) name = `${field.label.replace(/[^A-Za-z0-9_]/g, "_")}_refused_${n}`;
+      names.add(name);
+      const headers = [body !== undefined ? "Content-Type: application/json" : "", input.credentialed ? "Authorization: Bearer token" : ""].filter((h) => h !== "").join("\n");
+      steps.push(formatStep({ unit: input.unit, method: route.method, path, headers, body, status: BOUNDARY_STATUS }, name, input.unit).text);
+    }
+  }
+  if (steps.length === 0) return undefined;
+  return { text: `@context ${input.unit}\n\n${steps.join("\n")}`, steps: steps.length, leftOut };
+}
+
+/** A file name for the scenario: `edge-cases-POST-discounts.bynk-http`. */
+export function scenarioFileName(method: string, path: string): string {
+  return notebookFileName(method, path).replace(/\.bynknb$/, ".bynk-http");
 }

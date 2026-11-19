@@ -4,7 +4,8 @@
 
 import * as assert from "assert";
 
-import { buildNotebook, candidatesFor, notebookFileName, refinedFields, successLine, validSample, type BuildInput, type TypeVerdicts, type Verdict } from "../../src/edgeCasesCore";
+import { buildNotebook, buildScenario, candidatesFor, notebookFileName, scenarioFileName, refinedFields, successLine, validSample, type BuildInput, type TypeVerdicts, type Verdict } from "../../src/edgeCasesCore";
+import { parseScenario } from "../../src/scenarioCore";
 import { actorClause, writeCall, type PromoteRoute } from "../../src/scenarioPromoteCore";
 import type { Predicate, RefinedClause } from "../../src/webview/refinedTypes";
 import type { WcEnvelope, WcInst, WcRef, WcType } from "../../src/webview/wireContractTypes";
@@ -215,5 +216,59 @@ describe("edge cases: samples and file names (#229)", () => {
     assert.strictEqual(notebookFileName("POST", "/discounts"), "edge-cases-POST-discounts.bynknb");
     assert.strictEqual(notebookFileName("GET", "/items/:id/tags"), "edge-cases-GET-items-by-id-tags.bynknb");
     assert.strictEqual(notebookFileName("GET", "/"), "edge-cases-GET.bynknb");
+  });
+});
+
+describe("edge cases: the scenario for the route's own refusal (#229)", () => {
+  const valid = new Map<string, string | number>([["Name", "ab"], ["Percent", 50]]);
+  const fields = refinedFields(route().model).fields;
+  const byType = new Map<string, TypeVerdicts>([
+    ["Name", { type: "Name", verdicts: [v('""', "refused"), v('"a"', "accepted"), v('"aaaaaa"', "refused")] }],
+    ["Percent", { type: "Percent", verdicts: [v("-1", "refused"), v("0", "accepted"), v("101", "refused")] }],
+  ]);
+  const make = (over: Partial<Parameters<typeof buildScenario>[0]> = {}) => buildScenario({ unit: "shop", route: route(), fields, byType, valid, credentialed: false, ...over });
+
+  it("sends each refused value raw, with the others valid, and expects the boundary's 400", () => {
+    const sc = make()!;
+    assert.strictEqual(sc.steps, 4);
+    assert.ok(sc.text.startsWith("@context shop\n\n### body_name_refused\nPOST /discounts\nContent-Type: application/json\n\n"), sc.text);
+    assert.ok(sc.text.includes('{"name":"","pct":50,"note":"sample"}\n\n? status == 400'), sc.text);
+    assert.ok(sc.text.includes('{"name":"ab","pct":101,"note":"sample"}'), sc.text);
+    assert.ok(!sc.text.includes('"name":"a"'), "an accepted value is not a step");
+  });
+  it("is a scenario the extension reads back, one step a refused value", () => {
+    const parsed = parseScenario(make()!.text);
+    assert.deepStrictEqual(parsed.problems, []);
+    assert.deepStrictEqual(parsed.steps.map((s) => [s.name, s.method, s.path, s.expects.length]), [
+      ["body_name_refused", "POST", "/discounts", 1],
+      ["body_name_refused_2", "POST", "/discounts", 1],
+      ["body_pct_refused", "POST", "/discounts", 1],
+      ["body_pct_refused_2", "POST", "/discounts", 1],
+    ]);
+  });
+  it("saves a credential as an environment variable, never as written", () => {
+    const sc = make({ credentialed: true })!;
+    assert.ok(sc.text.includes("Authorization: {{env.AUTHORIZATION}}"), sc.text);
+    assert.ok(!sc.text.includes("Bearer"), sc.text);
+  });
+  it("puts a refused path parameter in the path, and cannot send an empty one", () => {
+    const r = route({ method: "GET", path: "/p/:pct", model: { envelope: { kind: "Keyed", params: [{ name: "pct", shape: { kind: "Named", name: "Percent" } }] }, types: [PERCENT], instantiations: [], success: null } });
+    const f = refinedFields(r.model).fields;
+    const bt = new Map<string, TypeVerdicts>([["Percent", { type: "Percent", verdicts: [v("-1", "refused"), v("101", "refused")] }]]);
+    const sc = buildScenario({ unit: "shop", route: r, fields: f, byType: bt, valid, credentialed: false })!;
+    assert.ok(sc.text.includes("GET /p/-1\n") && sc.text.includes("GET /p/101\n"), sc.text);
+    const str = new Map<string, TypeVerdicts>([["Percent", { type: "Percent", verdicts: [v('""', "refused")] }]]);
+    assert.strictEqual(buildScenario({ unit: "shop", route: r, fields: f, byType: str, valid, credentialed: false }), undefined);
+  });
+  it("writes nothing when no value is refused, and names the file after the route", () => {
+    assert.strictEqual(make({ byType: new Map([["Name", { type: "Name", verdicts: [v('"a"', "accepted")] }], ["Percent", { type: "Percent", verdicts: [] }]]) }), undefined);
+    assert.strictEqual(scenarioFileName("POST", "/discounts"), "edge-cases-POST-discounts.bynk-http");
+  });
+  it("says a field it cannot send raw is left out", () => {
+    const r = route({ model: { envelope: { kind: "Keyed", params: [{ name: "body", shape: { kind: "Named", name: "Discount" } }, { name: "query", shape: { kind: "Named", name: "Discount" } }] }, types: [DISCOUNT, NAME, PERCENT], instantiations: [], success: null } });
+    const f = refinedFields(r.model).fields;
+    const sc = buildScenario({ unit: "shop", route: r, fields: f, byType, valid, credentialed: false })!;
+    assert.strictEqual(sc.steps, 4);
+    assert.match(sc.leftOut[0], /query\.name.*only a path parameter or the one body/);
   });
 });

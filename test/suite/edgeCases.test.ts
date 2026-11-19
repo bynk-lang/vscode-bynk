@@ -120,6 +120,12 @@ describe("Generate Edge Cases… (#229)", () => {
     assert.ok(handlers.includes('// @handler\nlet response <- api.POST("/discounts", Discount { name: "aaaaa", pct: 0 }) by Visitor\nexpect response is Created(_)'), handlers.join("\n--\n"));
     assert.ok(said.some((m) => /8 cases for `POST \/discounts` \(4 accepted, 4 refused/.test(m)), said.join("; "));
 
+    // The route's own refusal: the refused values sent raw, expecting the boundary's 400 (run against `bynk dev`, not here).
+    const scenario = fs.readFileSync(path.join(dir, "edge-cases", "edge-cases-POST-discounts.bynk-http"), "utf8");
+    assert.ok(scenario.startsWith("@context shop\n\n"), scenario);
+    assert.strictEqual(scenario.split("\n? status == 400").length - 1, 4, scenario);
+    assert.ok(scenario.includes('{"name":"ab","pct":101,"note":') || scenario.includes('"pct":101'), scenario);
+
     // Run every cell in the notebook's own controller: each passes its `expect`.
     const notebook = await vscode.workspace.openNotebookDocument(written);
     await vscode.window.showNotebookDocument(notebook);
