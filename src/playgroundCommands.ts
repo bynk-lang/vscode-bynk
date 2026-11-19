@@ -10,7 +10,7 @@
 
 import * as vscode from "vscode";
 
-import { missingUses, playgroundLink } from "./playgroundLink";
+import { lacksPlaygroundService, missingUses, playgroundLink } from "./playgroundLink";
 import { projectRootFor } from "./projectRoots";
 
 /** The link for the active editor, or `undefined` after telling the user why not. */
@@ -47,6 +47,11 @@ async function linkForActiveEditor(): Promise<string | undefined> {
         "once compressed). Select less code.",
     );
     return undefined;
+  }
+  if (lacksPlaygroundService(source)) {
+    void vscode.window.showInformationMessage(
+      "Run in the playground calls only `service playground`; this code has none, so Run will have nothing to call.",
+    );
   }
   return link.url;
 }
