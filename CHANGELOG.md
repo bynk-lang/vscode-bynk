@@ -12,6 +12,10 @@ version).
 
 ## [Unreleased]
 
+## [0.639.5] - 2026-11-19
+
+Built against `bynk` v0.639.1. A timing diagram for request traces, a deploy readiness check, and edge-case tests generated from refined types.
+
 ### Added
 
 - **Generate Edge Cases… from Send Request and from a scenario step** (#233). The **Send Request** panel has a **Generate edge cases** button for the route it is showing, and a step of a `.bynk-http` scenario that resolves to a route (the one `Run step` would send to) has a **Generate edge cases for `METHOD /path`** code action (the lightbulb or `Ctrl+.` on the step; a step that resolves to no handler, or to several contexts' with none named, gets none, and no line is added to a scenario). Both run **Bynk: Generate Edge Cases…** itself with the route they resolved, so there is one generation path: the command now also takes a route reference (a file of the project, and the route's context, method, path and service) beside a file and a position, and looks the route up in the language server's listing of the project's handlers, so a reference that names nothing listed generates nothing. The panel's button posts only the shown route's key; the host rebuilds the reference from its own copy of the route, never from a route or file the page names.
