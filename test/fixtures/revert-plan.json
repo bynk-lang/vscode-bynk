@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "environment": "default",
+  "workers": [
+    {
+      "worker": "core",
+      "script": "acme-core",
+      "live_version": "v2",
+      "target_version": "v1",
+      "checks": [],
+      "ok": true,
+      "lock_changes": true
+    }
+  ],
+  "ok": true,
+  "notes": []
+}

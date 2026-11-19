@@ -321,6 +321,30 @@ if (args[0] === "--version") {
   // A real deploy is never something a test may run.
   process.stderr.write("fake bynk: refusing a real deploy in tests\n");
   process.exit(3);
+} else if (args[0] === "revert") {
+  // `bynk revert` (v0.639.1). `BYNK_FAKE_REVERT`: `refused` (a dry run that
+  // refuses: recorded from the real driver, whose Cloudflare read failed, exit 1),
+  // `credentials` (the missing-credentials message, recorded, exit 1); otherwise
+  // a dry run would revert (the same document, `ok: true`). The plan JSON for a
+  // passing run is written by hand to the same schema: a real one needs Cloudflare.
+  // A real revert (`--yes`) prints a line and exits 0; it never touches anything.
+  const path = require("path");
+  const fixture = (n) => fs.readFileSync(path.join(__dirname, "..", n), "utf8");
+  const mode = process.env.BYNK_FAKE_REVERT;
+  if (mode === "credentials") {
+    process.stderr.write(fixture("revert-credentials.stderr.txt"));
+    process.exit(1);
+  }
+  if (args.includes("--dry-run")) {
+    if (mode === "refused") {
+      process.stdout.write(fixture("revert-refused.json"));
+      process.exit(1);
+    }
+    process.stdout.write(fixture("revert-plan.json"));
+    process.exit(0);
+  }
+  process.stdout.write("fake bynk revert: reverted (no Cloudflare in tests)\n");
+  process.exit(0);
 } else if (args[0] === "tail") {
   // `bynk tail --help` is the extension's probe that the driver has `tail`; a real
   // tail would stream a deployed Worker's logs, so here it only prints a line.

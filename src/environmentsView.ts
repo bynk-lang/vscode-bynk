@@ -187,6 +187,17 @@ export function registerEnvironments(
     vscode.commands.registerCommand("bynk.environments.tail", (n?: EnvTreeNode) =>
       vscode.commands.executeCommand("bynk.tailLogs", { environment: env(n) }),
     ),
+    // #222: an environment reverts every recorded Worker, a Worker its group, a context its own Worker.
+    vscode.commands.registerCommand("bynk.environments.revert", (n?: EnvTreeNode) =>
+      vscode.commands.executeCommand(
+        "bynk.revert",
+        n?.data.kind === "workerGroup"
+          ? { environment: n.data.environment, worker: n.data.worker }
+          : n?.data.kind === "context"
+            ? { environment: n.data.environment, context: n.data.context }
+            : { environment: env(n), context: "" },
+      ),
+    ),
     vscode.commands.registerCommand("bynk.environments.sweep", async (n?: EnvTreeNode) =>
       vscode.commands.executeCommand("bynk.migrate.sweep", {
         root: provider.root ?? (await findProjectRoot()),

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "environment": "default",
+  "workers": [
+    {
+      "worker": "core",
+      "script": "acme-core",
+      "live_version": "",
+      "target_version": "",
+      "checks": [
+        {
+          "check": "history",
+          "code": "bynk.revert.history_unplaceable",
+          "subject": "core",
+          "verdict": "refused",
+          "detail": "could not read the deployments: GET /workers/scripts/acme-core/deployments?per_page=50&page=1: CONNECT proxy failed: proxy server responded 403/403"
+        }
+      ],
+      "ok": false,
+      "lock_changes": false
+    }
+  ],
+  "ok": false,
+  "notes": []
+}

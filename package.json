@@ -957,6 +957,17 @@
         "icon": "$(output)"
       },
       {
+        "command": "bynk.environments.revert",
+        "title": "Revert…",
+        "category": "Bynk",
+        "icon": "$(history)"
+      },
+      {
+        "command": "bynk.revert",
+        "title": "Revert Deployment…",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.environments.sweep",
         "title": "Sweep Migrations…",
         "category": "Bynk",
@@ -1245,6 +1256,10 @@
           "when": "(editorLangId == bynk || bynk.hasProject) && !isWeb"
         },
         {
+          "command": "bynk.revert",
+          "when": "(editorLangId == bynk || bynk.hasProject) && !isWeb"
+        },
+        {
           "command": "bynk.addDependency",
           "when": "(editorLangId == bynk || bynk.hasProject) && !isWeb"
         },
@@ -1330,6 +1345,10 @@
         },
         {
           "command": "bynk.environments.tail",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.revert",
           "when": "false"
         },
         {
@@ -1592,6 +1611,11 @@
           "command": "bynk.environments.showContractDiff",
           "when": "view == bynk.environments && !isWeb && viewItem =~ /^bynkEnv(Context|Worker)$/",
           "group": "inline"
+        },
+        {
+          "command": "bynk.environments.revert",
+          "when": "view == bynk.environments && !isWeb && viewItem =~ /^bynkEnv(ironment|Context|Worker)$/",
+          "group": "9_revert"
         }
       ]
     },
