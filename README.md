@@ -364,6 +364,43 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
     other on the same value (`expect a == 1`, then `expect a == 2`) don't compile
     (`bynk.codegen.tsc_failed`, shown on the second). A cell that took more than one
     run says so in its output. Refined-type cells have no `expect` lines.
+  - **Promote a cell to a test case** — **Bynk: Promote Cell to Test Case…** (the
+    beaker on a code cell) writes the cell as a `case` in the unit's unit-tier suite
+    (`tests/<unit>.bynk`, or the suite for that unit wherever it is), creating the suite
+    when there is none; **Bynk: Promote Notebook to Suite…** does the same for every
+    code cell of one unit, a case per cell. The suites are the source of truth: `bynk test`,
+    CI and the Test Explorer run what is written, and the notebook is not run by any of
+    them. It is a one-way copy.
+    - The cell's `stub` lines go to the case and its `consumes` to the suite; the earlier
+      cells' `let`s the cell uses are written ahead of it; its own `expect` lines are kept; a
+      handler cell's call is bound (`let response <- api.POST(…) by Visitor`).
+    - **The output is offered as assertions, never asserted unconfirmed.** If the cell has
+      no `expect` of its own and has run, a list of checks to tick is shown: for a response
+      `expect r is Created(_)` and its payload's fields, for a value its equality, its
+      variant or its fields, for a refined-type cell each candidate's accepted or refused
+      outcome. Only what is ticked is written. An output with no literal to compare with
+      (a value of a refined or opaque type, a list of records) is listed in the summary and
+      as a `// Not carried:` comment in the case. One equality is offered per value:
+      `expect a == 1` then `expect a == 2` on the same value doesn't compile
+      (`bynk.codegen.tsc_failed`, bynk-lang/bynk#3775).
+    - **The Markdown narrative comes along.** The Markdown cells directly above a code cell
+      become the case's doc comment (`--- text`); the nearest heading above is its name
+      (else the cell's first line), which you confirm or edit; the notebook's first heading
+      becomes the suite's doc comment when the suite is created.
+    - **Nothing existing is disturbed.** A case is added before the suite's closing brace,
+      in the suite's own indentation, with the `consumes` it lacks; a name already used in
+      the suite is refused. The result is checked with `bynk check` in a scratch copy of the
+      project, with your unsaved buffers, and **nothing is written if it doesn't check**
+      (the compiler's error is shown, and an assertion on a value the notebook can't type
+      is the usual cause: untick it). A summary says what was not carried before you write.
+    - A notebook with cells of several units writes each unit's cells to that unit's own
+      suite in one go: one summary lists the suites it will create or extend, and all of
+      them are checked together before any is written. A cell that has not run since it was
+      edited is promoted without assertions offered.
+    - This gives tests for cron, queue, event and `on call` handlers too: a cell may call
+      `sched.schedule(…)`, `q.message(…)` or `svc.call(…)` with `stub`s as a unit-tier
+      case does, and promoting it carries the call and its `expect`s (no assertion is
+      offered from the output of a call that is not an HTTP handler's).
   - **A cell runs only when you run it**, never on open, hover or save: it is
     your code, at the trust of `bynk test`. A notebook in an untrusted workspace
     won't run. A cell is stopped after `bynk.notebook.timeoutSeconds` (60).

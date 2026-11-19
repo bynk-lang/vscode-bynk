@@ -22,10 +22,15 @@ const SKIP = new Set(["node_modules", ".git", "out", ".bynk", "target", "dist", 
 
 /** `bynk check` of the project at `root` with `text` written at `relative` (a
  *  path under the root) in a scratch copy. */
-export async function checkSuiteInCopy(
+export function checkSuiteInCopy(root: string, relative: string, text: string, token: vscode.CancellationToken): Promise<CheckOutcome> {
+  return checkSuitesInCopy(root, [{ relative, text }], token);
+}
+
+/** The same with several files written into the one copy: all must check
+ *  together before any is written (#210). */
+export async function checkSuitesInCopy(
   root: string,
-  relative: string,
-  text: string,
+  files: readonly { relative: string; text: string }[],
   token: vscode.CancellationToken,
 ): Promise<CheckOutcome> {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "bynk-promote-check-"));
@@ -36,9 +41,11 @@ export async function checkSuiteInCopy(
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.writeFileSync(dest, content);
     }
-    const target = path.join(scratch, relative);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, text);
+    for (const f of files) {
+      const target = path.join(scratch, f.relative);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, f.text);
+    }
     const run = await runBynk(["check", scratch], scratch, token);
     if (token.isCancellationRequested) return { kind: "unavailable", reason: "the check was cancelled" };
     const verdict = compileVerdict(run.code, run.stdout.split(scratch).join(root), run.stderr.split(scratch).join(root));

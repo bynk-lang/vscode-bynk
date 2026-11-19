@@ -46,6 +46,8 @@ import {
   type ExpectOutcome,
 } from "./notebookCore";
 import { decodeResponse, handlerSource, noUnitSuite, renderResponse, responseJson, suiteNote, withCall } from "./notebookHandlerCore";
+import { registerNotebookPromote } from "./notebookPromote";
+import type { CellOutput } from "./notebookPromoteCore";
 import { registerNotebookSerializer } from "./notebookSerializer";
 import { activeProjectRoot, projectRootFor } from "./projectRoots";
 import { projectRoutes } from "./scenario";
@@ -69,6 +71,10 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
   const diagnostics = vscode.languages.createDiagnosticCollection("bynk-notebook");
   const output = vscode.window.createOutputChannel("Bynk Notebook");
   const ran = new Map<string, Ran>();
+  // What each cell showed when it last ran without a problem (#210): what a
+  // promoted case is offered assertions from. Kept only while the cell's source
+  // and unit are what ran.
+  const lastShown = new Map<string, { source: string; unit: string; output: CellOutput }>();
   context.subscriptions.push(diagnostics, output);
 
   context.subscriptions.push(
@@ -93,6 +99,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
       for (const c of nb.getCells()) {
         diagnostics.delete(c.document.uri);
         marks.delete(c.document.uri.toString());
+        lastShown.delete(c.document.uri.toString());
       }
     }),
   );
@@ -151,6 +158,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
 
   async function runCell(nb: vscode.NotebookDocument, cell: vscode.NotebookCell, execution: vscode.NotebookCellExecution): Promise<void> {
     diagnostics.delete(cell.document.uri);
+    lastShown.delete(cell.document.uri.toString());
     showMarks(cell, []);
     const fail = (message: string): void => {
       void execution.replaceOutput(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error(new Error(message))]));
@@ -253,8 +261,10 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     if (notes.length > 0) outputs.push(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain")]));
     await execution.replaceOutput(outputs);
     showMarks(cell, outcomes);
-    if (ok && placed.every((d) => d.severity !== "error")) mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit });
-    else mine.delete(cell.document.uri.toString());
+    if (ok && placed.every((d) => d.severity !== "error")) {
+      mine.set(cell.document.uri.toString(), { source: cell.document.getText(), unit });
+      if (result.kind === "value") lastShown.set(cell.document.uri.toString(), { source: cell.document.getText(), unit, output: { kind: "value", value: result.value, type: result.type } });
+    } else mine.delete(cell.document.uri.toString());
     execution.end(ok, Date.now());
   }
 
@@ -360,6 +370,11 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     if (notes.length > 0) outputs.push(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain")]));
     await execution.replaceOutput(outputs);
     showMarks(cell, outcomes);
+    if (ok && result.kind === "value") {
+      const response = observed.response ? decodeResponse(result.value) : undefined;
+      const output: CellOutput = response ? { kind: "response", response } : { kind: "value", value: result.value, type: result.type };
+      lastShown.set(cell.document.uri.toString(), { source, unit, output });
+    }
     // A handler cell binds nothing a later cell may use: its `let`s would send the
     // call again, in a cell that runs without the suite (and its stubs). It counts
     // as not run, so `buildSnippet` leaves it out.
@@ -458,6 +473,7 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     if (notes.length > 0) outputs.push(new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.text(notes.join("\n"), "text/plain")]));
     await execution.replaceOutput(outputs);
     // Nothing a later cell can use is bound here, but the cell counts as run.
+    if (ok && !failure) lastShown.set(cell.document.uri.toString(), { source, unit, output: { kind: "refined", type: refined.type, rows: mergeRows(rows, invalid) } });
     if (ok) r.remember();
     else r.forget();
     execution.end(ok, Date.now());
@@ -526,6 +542,16 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const where = d.file !== undefined ? `${d.file}:${d.line}:${d.col}` : d.cell !== undefined && d.cell !== index ? `cell ${(codeCells[d.cell]?.index ?? d.cell) + 1}, line ${(d.at ?? 0) + 1}` : `line ${d.line}`;
     return `${d.severity} in ${where}${d.code ? ` (${d.code})` : ""}: ${d.message}`;
   }
+
+  registerNotebookPromote(context, {
+    outputOf: (cell, unit) => {
+      const s = lastShown.get(cell.document.uri.toString());
+      return s && unit !== undefined && s.source === cell.document.getText() && s.unit === unit ? s.output : undefined;
+    },
+    resolveUnit,
+    chooseUnit,
+    output,
+  });
 
   controller.executeHandler = async (cells, nb) => {
     // Cells run one after another: a later cell reads the earlier one's `let`s.
