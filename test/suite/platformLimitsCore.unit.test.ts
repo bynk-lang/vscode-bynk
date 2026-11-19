@@ -37,7 +37,8 @@ describe("platform limits table (#225)", () => {
 
   it("reads the documented values", () => {
     assert.strictEqual(limitOf("subrequests", "free"), 50);
-    assert.strictEqual(limitOf("subrequests", "paid"), 1000);
+    assert.strictEqual(limitOf("subrequests", "paid"), 10_000);
+    assert.strictEqual(limitOf("durableObjectValue", "free"), 8 * 1024 * 1024);
     assert.strictEqual(limitOf("cpuTime", "free"), 10);
     assert.strictEqual(limitOf("cpuTime", "paid"), 30_000);
     assert.strictEqual(limitOf("queueMessage", "free"), 128 * 1024);
@@ -46,7 +47,8 @@ describe("platform limits table (#225)", () => {
   });
 
   it("formats a limit as Cloudflare writes it", () => {
-    assert.strictEqual(formatLimit("subrequests", "paid"), "1,000");
+    assert.strictEqual(formatLimit("subrequests", "paid"), "10,000");
+    assert.strictEqual(formatLimit("durableObjectValue", "paid"), "8 MB");
     assert.strictEqual(formatLimit("cpuTime", "free"), "10 ms");
     assert.strictEqual(formatLimit("cpuTime", "paid"), "30 s");
     assert.strictEqual(formatLimit("queueMessage", "free"), "128 KB");
