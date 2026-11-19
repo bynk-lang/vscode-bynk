@@ -14,9 +14,11 @@
 
 import * as vscode from "vscode";
 
+import { cpuNote } from "./cpuNoteCore";
 import { diagramMessages } from "./diagramHost";
 import { buildComparison, buildTimeline, type Comparison, type Timeline } from "./requestTimingCore";
 import { newestTraceId, onDidChangeRequestTraces, timingChoices, timingSource } from "./requestTraces";
+import { currentPlan } from "./platformLimits";
 import { isShowTiming } from "./sequenceMessages";
 import { getNonce, isRevealMessage, renderWebviewHtml, revealLocation } from "./webviewHost";
 import type { TimingPayload, TimingUpdate } from "./webview/timingTypes";
@@ -38,7 +40,8 @@ function payloadFor(id: string, compareId: string | undefined): TimingPayload | 
   const choices = timingChoices(id);
   // Only a trace of the same route and Worker is offered, and only one it can be compared with.
   const compare = compareId !== undefined && compareId !== id && choices.some((c) => c.id === compareId) ? timingSource(compareId) : undefined;
-  return { source, ...(compare ? { compare } : {}), choices };
+  const note = cpuNote(source.trace, currentPlan());
+  return { source, ...(compare ? { compare } : {}), choices, ...(note ? { cpuNote: note } : {}) };
 }
 
 /** Whether a comparison was asked for and refused: the other trace is not of
