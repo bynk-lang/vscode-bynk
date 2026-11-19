@@ -69,6 +69,31 @@ export function handlerSource(source: string): { text: string; cell: HandlerCell
   return { text: `${head}\n${observe(name)}`, cell: { response: name, rewritten, appendedFrom: tail.end + 1 } };
 }
 
+/** A name the source has not bound with `let` already: `base`, then `base2`, … */
+export function freshName(source: string, base: string): string {
+  const taken = new Set([...source.matchAll(new RegExp(`\\blet\\s+(${base}\\d*)\\b`, "g"))].map((m) => m[1]));
+  let name = base;
+  for (let n = 2; taken.has(name); n++) name = `${base}${n}`;
+  return name;
+}
+
+/** The cell as a case writes its call (#210): the same call `handlerSource`
+ *  finds, bound (a bare call is bound to a fresh `response`, since a case cannot
+ *  leave an effect's answer unbound), with no `match` appended: a promoted case
+ *  asserts on the response itself. `response` is what it is bound to; undefined
+ *  when the cell does not end in a call. */
+export function caseSource(source: string): { text: string; response?: string } {
+  const cell = analyseCell(source);
+  const last = [...cell.body].reverse().find((s) => !/^expect\b/.test(s.text));
+  const m = last ? HTTP_CALL.exec(last.text.trimStart()) : null;
+  if (!last || !m) return { text: source };
+  if (m[1] !== undefined) return { text: source, response: m[1] };
+  const name = freshName(source, "response");
+  const lines = source.split("\n");
+  lines[last.start] = `let ${name} <- ${lines[last.start]}`;
+  return { text: lines.join("\n"), response: name };
+}
+
 /** A `match` that answers `{"variant": …, "payload": …}` as JSON text for each
  *  `HttpResult` variant a case can name. A variant with a tuple payload (`Raw`,
  *  `Streaming`, …) has no payload to show: it falls to the last arm, which
@@ -144,9 +169,7 @@ export function withCall(source: string, call: string, kind: "expression" | "han
   const directive = kind === "handler" ? [] : ["// @handler"];
   const body = source.replace(/\s+$/, "");
   // A name the cell has not bound already: `response`, then `response2`, …
-  const taken = new Set([...source.matchAll(/\blet\s+(response\d*)\b/g)].map((m) => m[1]));
-  let name = "response";
-  for (let n = 2; taken.has(name); n++) name = `response${n}`;
+  const name = freshName(source, "response");
   if (body === "") return [...directive, "// Add a `stub Cap.op(_) returns …` line above the call for each capability the handler uses.", `let ${name} <- ${call}`, ""].join("\n");
   const lines = kind === "handler" ? body : [...directive, body].join("\n");
   return `${lines}\nlet ${name} <- ${call}\n`;

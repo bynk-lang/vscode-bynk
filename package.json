@@ -615,6 +615,18 @@
         "category": "Bynk"
       },
       {
+        "command": "bynk.notebook.promoteCell",
+        "title": "Promote Cell to Test Case…",
+        "category": "Bynk",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "bynk.notebook.promoteNotebook",
+        "title": "Promote Notebook to Suite…",
+        "category": "Bynk",
+        "icon": "$(beaker)"
+      },
+      {
         "command": "bynk.scenario.run",
         "title": "Run Scenario",
         "category": "Bynk",
@@ -943,6 +955,20 @@
           "group": "navigation@90"
         }
       ],
+      "notebook/cell/title": [
+        {
+          "command": "bynk.notebook.promoteCell",
+          "when": "!isWeb && notebookType == 'bynk-notebook' && notebookCellType == 'code'",
+          "group": "inline@90"
+        }
+      ],
+      "notebook/toolbar": [
+        {
+          "command": "bynk.notebook.promoteNotebook",
+          "when": "!isWeb && notebookType == 'bynk-notebook'",
+          "group": "navigation@90"
+        }
+      ],
       "commandPalette": [
         {
           "command": "bynk.notebook.new",
@@ -954,6 +980,14 @@
         },
         {
           "command": "bynk.notebook.insertHandlerCall",
+          "when": "!isWeb && notebookType == 'bynk-notebook'"
+        },
+        {
+          "command": "bynk.notebook.promoteCell",
+          "when": "!isWeb && notebookType == 'bynk-notebook'"
+        },
+        {
+          "command": "bynk.notebook.promoteNotebook",
           "when": "!isWeb && notebookType == 'bynk-notebook'"
         },
         {
