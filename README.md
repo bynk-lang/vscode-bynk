@@ -393,10 +393,10 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
       project, with your unsaved buffers, and **nothing is written if it doesn't check**
       (the compiler's error is shown, and an assertion on a value the notebook can't type
       is the usual cause: untick it). A summary says what was not carried before you write.
-    - A notebook with cells of several units asks which unit to write the suite for; the
-      cells of the others are left out and listed, and promoting again for each unit writes
-      its suite. A cell that has not run since it was edited is promoted without
-      assertions offered.
+    - A notebook with cells of several units writes each unit's cells to that unit's own
+      suite in one go: one summary lists the suites it will create or extend, and all of
+      them are checked together before any is written. A cell that has not run since it was
+      edited is promoted without assertions offered.
     - This gives tests for cron, queue, event and `on call` handlers too: a cell may call
       `sched.schedule(…)`, `q.message(…)` or `svc.call(…)` with `stub`s as a unit-tier
       case does, and promoting it carries the call and its `expect`s (no assertion is

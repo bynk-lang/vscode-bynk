@@ -253,6 +253,13 @@ describe("promote: a notebook as a suite (#210)", () => {
     assert.deepStrictEqual(s.skipped.map((x) => x.cell), [6]);
     assert.deepStrictEqual(unitsOf(cells), ["shop.money", "other.unit"]);
   });
+  it("gives each unit's cells to that unit's own suite, and skips a cell that runs in none", () => {
+    const mixed = [code("a()", undefined, "u.one"), code("b()", undefined, "u.two"), { ...code("c()"), unit: undefined }, code("d()", undefined, "u.one")];
+    assert.deepStrictEqual(planSuite(mixed, "u.one").cases.map((c) => c.cell), [0, 3]);
+    assert.deepStrictEqual(planSuite(mixed, "u.two").cases.map((c) => c.cell), [1]);
+    assert.deepStrictEqual(planSuite(mixed, "u.two").skipped.map((x) => x.cell), [2]);
+    assert.deepStrictEqual(unitsOf(mixed), ["u.one", "u.two"]);
+  });
   it("writes a suite with the first heading as its doc comment and the narrative as each case's", () => {
     const s = planSuite(cells, "shop.money");
     const text = newSuite("shop.money", suiteHeading(cells), "money.bynknb", [], s.cases.slice(1, 2).map((c) => renderCase(c, "Discount", all(c))));

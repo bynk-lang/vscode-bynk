@@ -660,7 +660,7 @@ export interface SuitePlan {
   skipped: { cell: number; reason: string }[];
   /** Cells that were promoted though they have not run (so no assertion is offered for them). */
   neverRan: number[];
-  /** Cells of other units: left out of this suite. */
+  /** Cells of other units: they go to their own suites. */
   otherUnits: { cell: number; unit: string }[];
 }
 
@@ -678,7 +678,11 @@ export function planSuite(cells: readonly PromoteCell[], unit: string): SuitePla
   cells.forEach((c, i) => {
     if (c.kind !== "code") return;
     if (c.source.trim() === "") return;
-    if (c.unit !== undefined && c.unit !== unit) {
+    if (c.unit === undefined) {
+      plan.skipped.push({ cell: i, reason: "it runs in no unit: name one with `// @unit` or choose the notebook's." });
+      return;
+    }
+    if (c.unit !== unit) {
       plan.otherUnits.push({ cell: i, unit: c.unit });
       return;
     }

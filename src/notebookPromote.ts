@@ -30,7 +30,7 @@ import {
   type PromoteCell,
 } from "./notebookPromoteCore";
 import { projectRootFor } from "./projectRoots";
-import { checkSuiteInCopy } from "./promoteCheck";
+import { checkSuitesInCopy } from "./promoteCheck";
 import { describeDiagnostic } from "./richDiagnostics";
 
 export interface PromoteDeps {
@@ -107,52 +107,32 @@ async function chooseAssertions(plan: CasePlan, label: string): Promise<Set<stri
 }
 
 export function registerNotebookPromote(context: vscode.ExtensionContext, deps: PromoteDeps): void {
-  /** The shared flow: `cellIndex` for one cell, undefined for the whole notebook.
-   *  Resolves to where it wrote, or undefined when it wrote nothing. */
-  async function promote(nb: vscode.NotebookDocument, cellIndex: number | undefined): Promise<vscode.Uri | undefined> {
-    const fail = (m: string): undefined => {
-      void vscode.window.showErrorMessage(`Bynk Notebook: ${m}`);
-      return undefined;
-    };
-    if (nb.notebookType !== NOTEBOOK_TYPE) return fail("this is not a Bynk notebook.");
-    if (nb.metadata?.invalid) return fail("this file is not a Bynk notebook; there is nothing to promote.");
-    const root = await projectRootFor(nb.uri);
-    if (!root) return fail("this notebook is not in a Bynk project (no `bynk.toml` above it). Save it inside the project first.");
+  interface Job {
+    unit: string;
+    target: vscode.Uri;
+    existing?: { uri: vscode.Uri; text: string; dirty: boolean };
+    edits?: { offset: number; text: string }[];
+    plans: CasePlan[];
+    names: string[];
+    accepted: Set<string>[];
+    text: string;
+    warnings: string[];
+  }
 
-    // The unit the suite is for.
-    let unit: string | undefined;
-    if (cellIndex !== undefined) {
-      unit = await deps.resolveUnit(nb, nb.cellAt(cellIndex), root);
-    } else {
-      const units = unitsOf(cellsOf(nb, deps));
-      const own = typeof nb.metadata?.unit === "string" ? nb.metadata.unit : undefined;
-      if (units.length === 0) unit = await deps.chooseUnit(nb, root);
-      else if (units.length === 1) unit = units[0];
-      else {
-        const pick = await vscode.window.showQuickPick(
-          units.map((u) => ({ label: u, description: u === own ? "the notebook's unit" : undefined })),
-          { title: "Promote Notebook to Suite: the unit to write the suite for", placeHolder: "Cells of the other units are left out; run this again for each", ignoreFocusOut: true },
-        );
-        unit = pick?.label;
-      }
-    }
-    if (!unit) return undefined;
-    if (!isUnitName(unit)) return fail(`\`${unit}\` is not a unit name.`);
-
-    const cells = cellsOf(nb, deps);
-    const label = cellIndex !== undefined ? `cell ${cellIndex + 1}` : "the notebook";
+  /** One unit's suite: what to write, the assertions and names the user chose.
+   *  A string is a reason it can't be written; undefined is the user cancelling. */
+  async function prepare(cells: PromoteCell[], unit: string, cellIndex: number | undefined, root: vscode.Uri, notebookName: string): Promise<Job | string | undefined> {
     let plans: CasePlan[];
     const warnings: string[] = [];
     if (cellIndex !== undefined) {
       const planned = planCase(cells, cellIndex, unit);
-      if (!planned.ok) return fail(`cell ${cellIndex + 1} can't be a case: ${planned.reason}`);
+      if (!planned.ok) return `cell ${cellIndex + 1} can't be a case: ${planned.reason}`;
       plans = [planned.plan];
     } else {
       const suite = planSuite(cells, unit);
       plans = suite.cases;
-      if (plans.length === 0) return fail(`no code cell of \`${unit}\` can be a case.${suite.skipped.length > 0 ? ` (cell ${suite.skipped[0].cell + 1}: ${suite.skipped[0].reason})` : ""}`);
-      for (const o of suite.otherUnits) warnings.push(`Cell ${o.cell + 1} runs in \`${o.unit}\`, so it is not in this suite: promote the notebook again for that unit.`);
-      for (const s of suite.skipped) warnings.push(`Cell ${s.cell + 1} was left out: ${s.reason}`);
+      if (plans.length === 0) return `no code cell of \`${unit}\` can be a case.${suite.skipped.length > 0 ? ` (cell ${suite.skipped[0].cell + 1}: ${suite.skipped[0].reason})` : ""}`;
+      for (const x of suite.skipped) warnings.push(`Cell ${x.cell + 1} was left out: ${x.reason}`);
       if (suite.neverRan.length > 0) warnings.push(`Cell${suite.neverRan.length === 1 ? "" : "s"} ${suite.neverRan.map((i) => i + 1).join(", ")} ${suite.neverRan.length === 1 ? "has" : "have"} not run since ${suite.neverRan.length === 1 ? "it was" : "they were"} last edited, so no assertion is offered for ${suite.neverRan.length === 1 ? "it" : "them"}. Run ${suite.neverRan.length === 1 ? "it" : "them"} first to be offered some.`);
     }
 
@@ -168,11 +148,10 @@ export function registerNotebookPromote(context: vscode.ExtensionContext, deps: 
       const ticked = await chooseAssertions(plan, cellLabel);
       if (!ticked) return undefined;
       accepted.push(ticked);
-      const suggested = uniqueName(plan.name, taken);
       const name = await vscode.window.showInputBox({
-        title: `Promote ${cellIndex !== undefined ? label : cellLabel}: the case's name`,
-        prompt: "A case name, unique within the suite. It is written as the `case` description.",
-        value: suggested,
+        title: `Promote ${cellLabel}: the case's name`,
+        prompt: `A case name, unique within the suite for ${unit}. It is written as the \`case\` description.`,
+        value: uniqueName(plan.name, taken),
         ignoreFocusOut: true,
         validateInput: (v) => (v.trim() === "" ? "A case needs a name." : /[\u0000-\u001f]/.test(v) ? "A name can't hold a control character." : taken.has(v) ? "A case of that name is already in the suite." : undefined),
       });
@@ -193,35 +172,67 @@ export function registerNotebookPromote(context: vscode.ExtensionContext, deps: 
         }
       }
     }
-
-    // The new text of the file.
-    const notebookName = vscode.workspace.asRelativePath(nb.uri, false);
-    let target: vscode.Uri;
-    let text: string;
-    let edits: { offset: number; text: string }[] | undefined;
     if (existing) {
       const r = insertCases(existing.text, unit, consumes, cases);
-      if (!r.ok) return fail(`can't add to ${vscode.workspace.asRelativePath(existing.uri, false)}: ${r.reason}.`);
-      target = existing.uri;
-      text = r.text;
-      edits = r.edits;
-    } else {
-      target = await newSuitePath(root, unit);
-      text = newSuite(unit, suiteHeading(cells), notebookName, consumes, cases);
+      if (!r.ok) return `can't add to ${vscode.workspace.asRelativePath(existing.uri, false)}: ${r.reason}.`;
+      return { unit, target: existing.uri, existing, edits: r.edits, plans, names, accepted, text: r.text, warnings };
     }
+    const target = await newSuitePath(root, unit);
+    return { unit, target, plans, names, accepted, text: newSuite(unit, suiteHeading(cells), notebookName, consumes, cases), warnings };
+  }
 
-    // The compiler checks it before anything is written; nothing is written otherwise.
-    const relative = path.relative(root.fsPath, target.fsPath);
+  /** The shared flow: `cellIndex` for one cell, undefined for the whole notebook,
+   *  which writes each unit's cells to that unit's own suite in one go. Resolves
+   *  to where it wrote (the first suite), or undefined when it wrote nothing. */
+  async function promote(nb: vscode.NotebookDocument, cellIndex: number | undefined): Promise<vscode.Uri | undefined> {
+    const fail = (m: string): undefined => {
+      void vscode.window.showErrorMessage(`Bynk Notebook: ${m}`);
+      return undefined;
+    };
+    if (nb.notebookType !== NOTEBOOK_TYPE) return fail("this is not a Bynk notebook.");
+    if (nb.metadata?.invalid) return fail("this file is not a Bynk notebook; there is nothing to promote.");
+    const root = await projectRootFor(nb.uri);
+    if (!root) return fail("this notebook is not in a Bynk project (no `bynk.toml` above it). Save it inside the project first.");
+
+    // The units to write suites for.
+    let units: string[];
+    if (cellIndex !== undefined) {
+      const u = await deps.resolveUnit(nb, nb.cellAt(cellIndex), root);
+      units = u ? [u] : [];
+    } else {
+      units = unitsOf(cellsOf(nb, deps));
+      if (units.length === 0) {
+        const u = await deps.chooseUnit(nb, root);
+        units = u ? [u] : [];
+      }
+    }
+    if (units.length === 0) return undefined;
+    const bad = units.find((u) => !isUnitName(u));
+    if (bad) return fail(`\`${bad}\` is not a unit name.`);
+
+    const cells = cellsOf(nb, deps);
+    const label = cellIndex !== undefined ? `cell ${cellIndex + 1}` : "the notebook";
+    const notebookName = vscode.workspace.asRelativePath(nb.uri, false);
+    const jobs: Job[] = [];
+    for (const unit of units) {
+      const job = await prepare(cells, unit, cellIndex, root, notebookName);
+      if (job === undefined) return undefined;
+      if (typeof job === "string") return fail(job);
+      jobs.push(job);
+    }
+    if (new Set(jobs.map((j) => j.target.fsPath)).size < jobs.length) return fail("two of the units' suites are in one file, which can't be edited in one go; promote them one at a time.");
+
+    // The compiler checks every suite, together, before anything is written; nothing is written otherwise.
     const verdict = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: "Checking the generated suite…", cancellable: true },
-      (_p, token) => checkSuiteInCopy(root.fsPath, relative, text, token),
+      (_p, token) => checkSuitesInCopy(root.fsPath, jobs.map((j) => ({ relative: path.relative(root.fsPath, j.target.fsPath), text: j.text })), token),
     );
     if (verdict.kind !== "ok") {
       deps.output.appendLine(`── promote ${notebookName} (${label}) ──`);
-      deps.output.appendLine(text);
+      for (const j of jobs) deps.output.appendLine(`// ${vscode.workspace.asRelativePath(j.target, false)}\n${j.text}`);
       if (verdict.kind === "errors") for (const d of verdict.errors) deps.output.appendLine(describeDiagnostic(d));
       deps.output.show(true);
-      const hint = plans.some((p, i) => accepted[i].size > 0) ? " An assertion on a value the notebook can't type (an opaque type, a Float shown as a whole number) is the usual cause: untick it." : "";
+      const hint = jobs.some((j) => j.accepted.some((a) => a.size > 0)) ? " An assertion on a value the notebook can't type (an opaque type, a Float shown as a whole number) is the usual cause: untick it." : "";
       return fail(
         verdict.kind === "errors"
           ? `the generated case doesn't check, so nothing was written (${verdict.errors[0] ? describeDiagnostic(verdict.errors[0]) : "see the Bynk Notebook output"}).${hint}`
@@ -231,35 +242,45 @@ export function registerNotebookPromote(context: vscode.ExtensionContext, deps: 
 
     const WRITE = "Write";
     const SHOW = "Show";
-    const where = vscode.workspace.asRelativePath(target, false);
+    const where = (j: Job): string => vscode.workspace.asRelativePath(j.target, false);
+    const detail = jobs
+      .map((j) => `${j.existing ? "Extends" : "Creates"} ${where(j)}:\n${summarise(j.plans, j.names, j.accepted, j.warnings)}`)
+      .join("\n\n");
     const pick = await vscode.window.showInformationMessage(
-      `${existing ? "Add to" : "Create"} ${where}?`,
-      { modal: true, detail: `${summarise(plans, names, accepted, warnings)}\n\nA one-way copy: the notebook is not kept in sync with it, and \`bynk test\` does not run the notebook.` },
+      jobs.length === 1 ? `${jobs[0].existing ? "Add to" : "Create"} ${where(jobs[0])}?` : `Write ${jobs.length} suites?`,
+      { modal: true, detail: `${detail}\n\nA one-way copy: the notebook is not kept in sync with it, and \`bynk test\` does not run the notebook.` },
       WRITE,
       SHOW,
     );
     if (pick === SHOW) {
-      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ language: "bynk", content: text }));
+      for (const j of jobs) await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ language: "bynk", content: j.text }), { preview: false });
       return undefined;
     }
     if (pick !== WRITE) return undefined;
 
-    if (existing && edits) {
-      const doc = await vscode.workspace.openTextDocument(existing.uri);
-      // The text was read from this buffer: if it changed while the user chose, the offsets are stale.
-      if (doc.getText() !== existing.text) return fail(`${where} changed while you were choosing; promote again.`);
-      const edit = new vscode.WorkspaceEdit();
-      for (const e of edits) edit.insert(existing.uri, doc.positionAt(e.offset), e.text);
-      if (!(await vscode.workspace.applyEdit(edit))) return fail(`couldn't edit ${where}.`);
-      // Save only what this wrote: a file with unsaved edits of the user's own stays unsaved.
-      if (!existing.dirty) await doc.save();
-      await vscode.window.showTextDocument(doc);
-      return existing.uri;
+    // Every buffer is checked as it was read before the first write.
+    for (const j of jobs) {
+      if (!j.existing) continue;
+      const doc = await vscode.workspace.openTextDocument(j.existing.uri);
+      if (doc.getText() !== j.existing.text) return fail(`${where(j)} changed while you were choosing; promote again.`);
     }
-    await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(target, ".."));
-    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(text));
-    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target));
-    return target;
+    const written: vscode.Uri[] = [];
+    for (const j of jobs) {
+      if (j.existing && j.edits) {
+        const doc = await vscode.workspace.openTextDocument(j.existing.uri);
+        const edit = new vscode.WorkspaceEdit();
+        for (const e of j.edits) edit.insert(j.existing.uri, doc.positionAt(e.offset), e.text);
+        if (!(await vscode.workspace.applyEdit(edit))) return fail(`couldn't edit ${where(j)}${written.length > 0 ? ` (${written.length} suite${written.length === 1 ? "" : "s"} already written)` : ""}.`);
+        // Save only what this wrote: a file with unsaved edits of the user's own stays unsaved.
+        if (!j.existing.dirty) await doc.save();
+      } else {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(j.target, ".."));
+        await vscode.workspace.fs.writeFile(j.target, new TextEncoder().encode(j.text));
+      }
+      written.push(j.target);
+    }
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(written[0]));
+    return written[0];
   }
 
   /** The cell a command was invoked on: a cell menu passes it, else the selection. */

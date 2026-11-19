@@ -222,6 +222,49 @@ describe("Promote a notebook cell to a test case (#210)", () => {
     assert.match(result.stdout, /(\d+) passed, 0 failed/);
   });
 
+  it("writes each unit's cells to that unit's own suite in one go", async function () {
+    this.timeout(300_000);
+    const bynk = findBynk();
+    assert.ok(bynk, "`bynk` is not on PATH (npm run fetch:toolchain)");
+    fs.writeFileSync(
+      path.join(dir, "both.bynknb"),
+      JSON.stringify({
+        version: 1,
+        cells: [
+          { kind: "markdown", source: ["## Mailing a todo's owner"] },
+          { kind: "code", source: ["// @unit todos", "// @handler", "stub Mailer.send(_) returns true", TODO_CALL] },
+          { kind: "markdown", source: ["## Pinging someone"] },
+          { kind: "code", source: ["// @unit plain", "// @handler", "stub Notifier.ping(_) returns true", 'let r <- api.POST("/ping/:who", "cy") by Visitor'] },
+        ],
+      }),
+    );
+    const doc = await vscode.workspace.openNotebookDocument(vscode.Uri.file(path.join(dir, "both.bynknb")));
+    const todosBefore = fs.readFileSync(path.join(dir, "tests", "todos.bynk"), "utf8");
+    const plainBefore = fs.readFileSync(path.join(dir, "tests", "plain.bynk"), "utf8");
+    // The cells have not run, so no assertion is offered; the summary says so, for both suites.
+    const target = await waitFor(
+      () => vscode.commands.executeCommand<vscode.Uri | undefined>("bynk.notebook.promoteNotebook", { notebook: doc }),
+      (t) => t !== undefined,
+      "the suites to be written",
+      120_000,
+    ).catch((e: unknown) => {
+      throw new Error(`${String(e)}${refusals.length > 0 ? `; promote said: ${refusals[refusals.length - 1]}` : ""}`);
+    });
+    assert.ok(target);
+    assert.match(summary, /Extends .*todos\.bynk/);
+    assert.match(summary, /Extends .*plain\.bynk/);
+    const todos = fs.readFileSync(path.join(dir, "tests", "todos.bynk"), "utf8");
+    const plain = fs.readFileSync(path.join(dir, "tests", "plain.bynk"), "utf8");
+    assert.ok(todos.startsWith(todosBefore.slice(0, todosBefore.lastIndexOf("}"))) && todos.includes('case "Mailing a todo\'s owner" {'), todos);
+    assert.ok(plain.startsWith(plainBefore.slice(0, plainBefore.lastIndexOf("}"))) && plain.includes('case "Pinging someone" {'), plain);
+    const check = spawnSync(bynk, ["check", dir], { encoding: "utf8" });
+    assert.strictEqual(check.status, 0, check.stdout + check.stderr);
+    const result = spawnSync(bynk, ["test", dir, "--no-install"], { encoding: "utf8", timeout: 250_000 });
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /✓ Mailing a todo's owner/);
+    assert.match(result.stdout, /✓ Pinging someone/);
+  });
+
   it("writes nothing when the generated case doesn't check", async function () {
     this.timeout(300_000);
     const before = fs.readFileSync(path.join(dir, "tests", "todos.bynk"), "utf8");
