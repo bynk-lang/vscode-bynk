@@ -141,7 +141,7 @@ export const DIAGRAM_CSS = `
 .bynk-diagram .bynk-frag--folded .bynk-frag-box { stroke-dasharray: 2 3; }
 
 /* #218: the request timing diagram. Failing is red and pending amber, as on the
-   sequence overlay; the critical path is outlined; words are on the accessible
+   sequence overlay; the longest chain is outlined; words are on the accessible
    names, so colour is never the only signal. */
 .bynk-diagram .bynk-taxis-rule, .bynk-diagram .bynk-ttick { stroke: var(--vscode-descriptionForeground); }
 .bynk-diagram .bynk-taxis-title, .bynk-diagram .bynk-ttick-label, .bynk-diagram .bynk-tfooter { font-size: 11px; fill: var(--vscode-descriptionForeground); }

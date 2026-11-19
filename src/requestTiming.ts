@@ -1,6 +1,6 @@
 // #218: "Bynk: Show Request Timing" — a UML timing diagram of one request: a
 // lifeline per participant, a shared time axis, nested cross-Worker calls, the
-// critical path, and a second trace of the same route stacked under it.
+// longest chain, and a second trace of the same route stacked under it.
 //
 // It is reached from the sequence page's trace picker (its **Show Request
 // Timing** button), from the information message **Show Last Request Trace**
@@ -16,7 +16,7 @@ import * as vscode from "vscode";
 
 import { diagramMessages } from "./diagramHost";
 import { buildComparison, buildTimeline, type Comparison, type Timeline } from "./requestTimingCore";
-import { newestTraceId, timingChoices, timingSource } from "./requestTraces";
+import { newestTraceId, onDidChangeRequestTraces, timingChoices, timingSource } from "./requestTraces";
 import { isShowTiming } from "./sequenceMessages";
 import { getNonce, isRevealMessage, renderWebviewHtml, revealLocation } from "./webviewHost";
 import type { TimingPayload, TimingUpdate } from "./webview/timingTypes";
@@ -41,6 +41,12 @@ function payloadFor(id: string, compareId: string | undefined): TimingPayload | 
   return { source, ...(compare ? { compare } : {}), choices };
 }
 
+/** Whether a comparison was asked for and refused: the other trace is not of
+ *  this route in this Worker, or is no longer held. */
+function refused(compareId: string | undefined, payload: TimingPayload): boolean {
+  return compareId !== undefined && compareId !== payload.source.trace.id && payload.compare === undefined;
+}
+
 export function registerRequestTiming(context: vscode.ExtensionContext): void {
   const shared = diagramMessages(context, "request timing diagram");
   let panel: vscode.WebviewPanel | undefined;
@@ -60,6 +66,11 @@ export function registerRequestTiming(context: vscode.ExtensionContext): void {
       return undefined;
     }
     shown = payload;
+    if (refused(compareId, payload)) {
+      void vscode.window.showInformationMessage(
+        "Bynk: that request can't be compared: the other trace is of a different route or Worker, or is no longer held. Showing this request alone.",
+      );
+    }
     const title = `Bynk: Request Timing — ${payload.source.trace.route}`;
     if (!panel) {
       const created = (panel = vscode.window.createWebviewPanel(
@@ -97,14 +108,32 @@ export function registerRequestTiming(context: vscode.ExtensionContext): void {
       created.reveal(vscode.ViewColumn.Beside, true);
     } else {
       panel.title = title;
+      // Bring it forward: it may be behind another tab, and this was asked for.
+      panel.reveal(undefined, true);
       const update: TimingUpdate = { type: "timing", payload };
       void panel.webview.postMessage(update);
     }
     return snapshot(payload);
   };
 
+  // A request arrived (or the store was cleared) while the page is open: its
+  // pickers list the route's current traces, so refresh them. Coalesced, like
+  // the sequence page's overlay, so a burst of requests redraws once.
+  let refresh: ReturnType<typeof setTimeout> | undefined;
   context.subscriptions.push(
-    { dispose: () => panel?.dispose() },
+    { dispose: () => { if (refresh) clearTimeout(refresh); panel?.dispose(); } },
+    onDidChangeRequestTraces(() => {
+      if (!panel || !shown || refresh) return;
+      refresh = setTimeout(() => {
+        refresh = undefined;
+        if (!panel || !shown) return;
+        const fresh = payloadFor(shown.source.trace.id, shown.compare?.trace.id);
+        if (!fresh) return; // the request on show was evicted: leave it drawn
+        shown = fresh;
+        const update: TimingUpdate = { type: "timing", payload: fresh };
+        void panel.webview.postMessage(update);
+      }, 200);
+    }),
     // `id`, when given (from a message or a test), is a request id; the palette gives none.
     vscode.commands.registerCommand("bynk.showRequestTiming", (id?: unknown, compareId?: unknown) =>
       show(typeof id === "string" ? id : undefined, typeof compareId === "string" ? compareId : undefined),

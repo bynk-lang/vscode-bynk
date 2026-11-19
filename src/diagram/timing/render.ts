@@ -37,7 +37,7 @@ function describe(p: PlacedBar): string {
   const what = bar.kind === "request" ? `Request ${bar.label}` : `${bar.kind === "call" ? "Call" : bar.kind === "agent" ? "Agent call" : "Capability call"} ${bar.label}`;
   const delta = p.delta ? `, ${p.delta.text} against the other trace` : "";
   const only = p.only ? ", in this trace only" : "";
-  const crit = bar.critical ? ", on the critical path" : "";
+  const crit = bar.critical ? ", on the longest chain" : "";
   return `${what}: ${formatMs(bar.ms)}${outcome}${crit}${delta}${only}`;
 }
 

@@ -114,7 +114,7 @@ function renderLegend(r: TimingRender): void {
   for (const [cls, text] of [
     ["bynk-key-fault", "red: failed"],
     ["bynk-key-pending", "amber, dashed: still pending"],
-    ["bynk-key-critical", "outlined: critical path"],
+    ["bynk-key-critical", "outlined: longest chain"],
   ]) {
     const span = document.createElement("span");
     span.className = `bynk-key ${cls}`;

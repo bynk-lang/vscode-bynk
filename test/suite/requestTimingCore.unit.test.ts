@@ -1,5 +1,5 @@
 // #218: the request timing diagram's core — timelines from a trace and the
-// callees it joins, the critical path, the comparison, the axis, and the Mermaid
+// callees it joins, the longest chain, the comparison, the axis, and the Mermaid
 // `gantt` export. Durations only: the data has no start offsets, so steps are
 // laid end to end, and these tests pin that.
 
@@ -12,6 +12,7 @@ import {
   collectNested,
   CRITICAL_NOTE,
   formatDelta,
+  ganttAxisFormat,
   layoutSteps,
   niceStep,
   participantOf,
@@ -169,7 +170,7 @@ describe("buildTimeline", () => {
     assert.strictEqual(t.unjoined, 0);
   });
 
-  it("takes the critical path through the heaviest step at each level, into the callee", () => {
+  it("takes the longest chain through the heaviest step at each level, into the callee", () => {
     const labels = t.critical.map((id) => t.bars.find((b) => b.id === id)?.label);
     // root request; its heaviest step (other.authorise, 6); the callee request;
     // its heaviest (deep.fetch, 3); the deep request; its only step.
@@ -261,7 +262,7 @@ describe("Copy as Mermaid: a gantt chart", () => {
   const { root, all } = tree();
   const src = collectNested(root, (id) => all[id]);
 
-  it("writes a gantt of the timeline with the caveat, outcomes and the critical path", () => {
+  it("writes a gantt of the timeline with the caveat, outcomes and the longest chain", () => {
     const text = toMermaidGantt(buildTimeline(src));
     const lines = text.split("\n");
     assert.strictEqual(lines[0], "gantt");
@@ -295,7 +296,17 @@ describe("Copy as Mermaid: a gantt chart", () => {
     assert.ok(text.includes("Db.query 3.5 ms +1.5 ms :done"), text);
   });
 
-  it("says what the critical path is", () => {
+  it("chooses an axis that does not wrap past a second", () => {
+    assert.strictEqual(ganttAxisFormat(999), "%L ms");
+    assert.strictEqual(ganttAxisFormat(1500), "%S.%L s");
+    assert.strictEqual(ganttAxisFormat(90_000), "%M:%S.%L");
+    const slow = buildTimeline({ trace: view({ id: "s", durationMs: 2500 }), nested: {} });
+    assert.ok(toMermaidGantt(slow).includes("axisFormat %S.%L s"));
+    assert.ok(toMermaidGantt(buildTimeline({ trace: view({ id: "f", durationMs: 5 }), nested: {} })).includes("axisFormat %L ms"));
+  });
+
+  it("says what the longest chain is", () => {
     assert.ok(CRITICAL_NOTE.includes("longest step at each level"));
+    assert.ok(CRITICAL_NOTE.includes("every step runs in turn"), "and why it is not called the critical path");
   });
 });

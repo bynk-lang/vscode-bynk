@@ -128,13 +128,13 @@ describe("the request timing page", () => {
     return dom;
   }
 
-  it("draws a bar per step with the outcome, critical path and caveat on it", () => {
+  it("draws a bar per step with the outcome, longest chain and caveat on it", () => {
     const d = open(payload());
     const bars = d.root.querySelectorAll("[data-bynk-ref]");
     assert.ok(bars.length >= 6, "request, the call, its callee request and step, two more steps");
     assert.ok(d.root.querySelector(".bynk-tbar--fault"), "a failing step");
     assert.ok(d.root.querySelector(".bynk-tbar--pending"), "a pending step");
-    assert.ok(d.root.querySelector(".bynk-tbar--critical"), "the critical path");
+    assert.ok(d.root.querySelector(".bynk-tbar--critical"), "the longest chain");
     const legend = d.root.querySelector(".bynk-timing-legend")?.textContent ?? "";
     assert.ok(legend.includes("Durations only; start times not reported"), legend);
     assert.ok((d.root.textContent ?? "").includes("Durations only; start times not reported"), "also inside the drawing, so an export says it");

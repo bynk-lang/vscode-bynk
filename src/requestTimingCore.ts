@@ -28,12 +28,14 @@ import {
 export const TIMING_NOTE =
   "Durations only; start times not reported. Steps are drawn end to end in the order they ran, so overlap and gaps between them are not shown. Per-step start times are proposed in bynk-lang/bynk#3787.";
 
-/** The critical path's definition, for the legend. With durations only every
- *  step of a request runs one after another, so the chain that matters is the
- *  heaviest: the longest step at each level, followed into its callee when the
- *  callee was traced too. */
+/** The longest chain's definition, for the legend. With durations only every
+ *  step of a request runs one after another, so every step is on the true
+ *  critical path; what is outlined is where most of the time went: the longest
+ *  step at each level, followed into its callee when the callee was traced too.
+ *  Not called the critical path, which a per-step start time (bynk-lang/bynk#3787)
+ *  would make computable. */
 export const CRITICAL_NOTE =
-  "Critical path: the longest step at each level, followed into the callee where it was traced.";
+  "Longest chain (outlined): the longest step at each level, followed into the callee where it was traced. With durations only every step runs in turn, so this is where most of the time went.";
 
 /** The most requests one diagram nests: a trace's callees, transitively. */
 export const MAX_NESTED_REQUESTS = 40;
@@ -66,7 +68,7 @@ export interface TimingBar {
   outcome: StepOutcome;
   /** The `.bynk` call site, when the step has one; what click opens. */
   at: TraceLocation | null;
-  /** On the critical path. */
+  /** On the longest chain. */
   critical: boolean;
   /** For a call step whose callee was traced: that request's id. */
   callee?: string;
@@ -83,7 +85,7 @@ export interface Timeline {
   bars: TimingBar[];
   /** The time the diagram runs to: the latest end of anything on it. */
   end: number;
-  /** Bar ids on the critical path, outermost first. */
+  /** Bar ids on the longest chain, outermost first. */
   critical: string[];
   /** Calls whose callee request was not seen (not traced, or already evicted). */
   unjoined: number;
@@ -238,7 +240,7 @@ export function buildTimeline(source: TimingSource, prefix = ""): Timeline {
 
   const root = place(source.trace, 0, 0, `${prefix}r`);
 
-  // The critical path: walk from the root through each level's heaviest step.
+  // The longest chain: walk from the root through each level's heaviest step.
   const path: string[] = [root.nestedBar];
   let level: Placed = root;
   for (let guard = 0; guard <= MAX_NESTED_REQUESTS; guard++) {
@@ -378,6 +380,14 @@ function ganttText(text: string): string {
   return text.replace(/[:;#]/g, "·").replace(/\s+/g, " ").trim();
 }
 
+/** Mermaid's `%L` is the millisecond within the current second, so it wraps at
+ *  1 s: a longer request needs seconds too (`%S`), and a minute-long one minutes. */
+export function ganttAxisFormat(endMs: number): string {
+  if (endMs < 1000) return "%L ms";
+  if (endMs < 60_000) return "%S.%L s";
+  return "%M:%S.%L";
+}
+
 function wholeMs(ms: number): number {
   return Math.max(1, Math.round(ms));
 }
@@ -407,9 +417,9 @@ export function toMermaidGantt(timeline: Timeline, comparison?: Comparison): str
     "gantt",
     `  title ${ganttText(comparison ? `${timeline.route}: two requests` : `${timeline.route} → ${timeline.status}, ${formatMs(timeline.durationMs)}`)}`,
     "  dateFormat x",
-    "  axisFormat %L ms",
+    `  axisFormat ${ganttAxisFormat(comparison ? comparison.end : timeline.end)}`,
     `  %% ${TIMING_NOTE}`,
-    "  %% Times are rounded to whole milliseconds. ★ marks the critical path; a red bar failed, an active one was still pending.",
+    "  %% Times are rounded to whole milliseconds. ★ marks the longest chain; a red bar failed, an active one was still pending.",
   ];
   const ids = { n: 0 };
   if (comparison) {

@@ -187,7 +187,7 @@ describe("Bynk dev server (#2094)", () => {
   });
 
   // #218: the request timing diagram, from the same stand-in's events.
-  it("shows a request's timing: nested callee, critical path, outcomes, comparison (#218)", async function () {
+  it("shows a request's timing: nested callee, longest chain, outcomes, comparison (#218)", async function () {
     if (process.platform === "win32") this.skip();
     this.timeout(45_000);
     interface Bar {
