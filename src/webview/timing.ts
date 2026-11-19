@@ -106,7 +106,9 @@ function para(text: string, cls?: string): HTMLParagraphElement {
 function renderLegend(r: TimingRender): void {
   legend.replaceChildren();
   const t = r.timeline;
-  legend.append(para(TIMING_NOTE, "bynk-timing-note"));
+  const note = para(TIMING_NOTE, "bynk-timing-note");
+  note.title = "A step's duration is reported, not its start. A start time per step is proposed in bynk-lang/bynk#3787.";
+  legend.append(note);
   const key = document.createElement("p");
   key.className = "bynk-timing-key";
   for (const [cls, text] of [

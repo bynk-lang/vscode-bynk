@@ -26,7 +26,7 @@ import {
 
 /** The truthful-timing caveat, shown in the legend and written into exports. */
 export const TIMING_NOTE =
-  "Durations only; start times not reported. Steps are drawn end to end in the order they ran, so overlap and gaps between them are not shown.";
+  "Durations only; start times not reported. Steps are drawn end to end in the order they ran, so overlap and gaps between them are not shown. Per-step start times are proposed in bynk-lang/bynk#3787.";
 
 /** The critical path's definition, for the legend. With durations only every
  *  step of a request runs one after another, so the chain that matters is the
