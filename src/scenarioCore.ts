@@ -718,6 +718,24 @@ export interface RouteInfo {
   identities?: Record<string, string>;
 }
 
+/** A handler of a unit that is not an HTTP route, as a notebook's handler cell
+ *  calls it (#213): the kind says which unit-tier address drives it. */
+export interface HandlerInfo {
+  unit: string;
+  /** The service the handler is in, what a test case addresses. */
+  service: string;
+  /** `websocket` covers `open`, `message` and `close` of a `from websocket`
+   *  service: listed, not callable from a cell yet. */
+  kind: "call" | "cron" | "queue" | "event" | "websocket";
+  /** A cron handler's schedule, exactly as declared. */
+  expr?: string;
+  model: Pick<WcModel, "envelope" | "types" | "instantiations">;
+  /** The actors the handler's header names (`by c: Clock`). */
+  actors: string[];
+  /** Each actor's identity type, from its declaration. */
+  identities: Record<string, string>;
+}
+
 /** Whether a scenario path (its `{{…}}` segments stand for anything) is a
  *  request for `route`'s path. */
 export function pathMatches(route: string, scenarioPath: string): boolean {

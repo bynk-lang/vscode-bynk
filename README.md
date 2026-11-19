@@ -326,8 +326,14 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
     `let r <- api.POST("/todos", Todo { title: "a", done: false }) by User(UserId.unsafe("bob"))`.
     The output is the response, as the `HttpResult` variant, its status and its payload
     (`Created({ done: false, title: "a" })`), with the JSON as an alternate output.
-    **Bynk: Insert Handler Call…** picks one of the unit's HTTP routes and writes the
-    call with placeholder arguments of the right types and the `by` clause. The cell
+    **Bynk: Insert Handler Call…** picks one of the unit's handlers, grouped by kind
+    (HTTP routes, `on call`, cron, queue and event handlers), and writes the call for
+    it with placeholder arguments of the right types: `svc.call(…)`,
+    `svc.schedule("<expr>")`, `svc.message(…)` or `svc.event(…)`, and the `by` clause where
+    the handler runs as an actor with an identity. Only HTTP responses are read with a
+    `match`; other kinds show their value as an expression does (a `QueueResult` has none
+    to show: `bynk eval` cannot report it, bynk-lang/bynk#3700), and promoting offers checks that follow the
+    result type (`is Ok(_)`, `is Ack`, …). WebSocket handlers are not offered yet. The cell
     runs inside the unit's own unit-tier suite when it has one (`bynk eval --suite`),
     so its `stub`s, `fn`s and fixtures apply (where the suite and the cell stub the
     same operation, the suite's answers), and on its own otherwise; the output says

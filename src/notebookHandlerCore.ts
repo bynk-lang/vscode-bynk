@@ -18,6 +18,16 @@
 // is something else (a `match` of the user's own, a field of the response) is
 // run as written and shown as an expression is.
 //
+// A handler of another kind (#213) is called by its own address (`svc.call(…)`,
+// `svc.schedule("<expr>")`, `svc.message(m)`, `svc.event(e)`) and answers a value
+// of its own type, which `bynk eval` reports as it does for an expression: a
+// `call` its handler's type, a `schedule` a `Result[(), String]`, an `event`
+// `()`. For those the call's binding is appended as the last expression so the
+// value is returned. A `QueueResult` has no wire shape (`bynk eval` v0.639.1:
+// "the snippet ran, but its value, of type `QueueResult`, has no wire shape to
+// report"): the cell says so plainly and shows no value. No `match` is
+// appended to read it: that workaround is for `HttpResult` (bynk#3700) only.
+//
 // `trace(Cap.op)` records are not shown: a snippet can read them (`trace(Cap.op)
 // .length()` is a value) but cannot return the list, whose element type
 // (`__Cap_op_Call`) has no wire shape either (bynk-lang/bynk#3699, #3700).
@@ -28,12 +38,27 @@ import { analyseCell, renderValue } from "./notebookCore";
 const HTTP_METHODS = "GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS";
 /** The last statement as a call to a service's HTTP surface, bound or bare. */
 const HTTP_CALL = new RegExp(`^(?:let\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?::[^<]*?)?<-\\s*)?[A-Za-z_][A-Za-z0-9_]*\\.(?:${HTTP_METHODS})\\s*\\(`);
+/** The last statement as a call to a service's other unit-tier addresses (#213). */
+const OTHER_CALL = /^(?:let\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^<]*?)?<-\s*)?[A-Za-z_][A-Za-z0-9_]*\.(?:schedule|message|event|call)\s*\(/;
 /** What a bare call is bound to, so the response can be read. */
 const BOUND = "response__";
+
+/** The call a handler cell ends in: an `HttpResult` one (its response is read
+ *  with a `match`) or any other kind (its value is returned as it is). */
+function callOf(text: string): { binding: string | undefined; http: boolean } | undefined {
+  const t = text.trimStart();
+  const h = HTTP_CALL.exec(t);
+  if (h) return { binding: h[1], http: true };
+  const o = OTHER_CALL.exec(t);
+  return o ? { binding: o[1], http: false } : undefined;
+}
 
 export interface HandlerCell {
   /** What the response is bound to; undefined when the cell ends in something else. */
   response?: string;
+  /** What a call that is not an HTTP one is bound to: it is appended as the
+   *  cell's last expression, so `bynk eval` returns the call's value. */
+  value?: string;
   /** Zero-based line of a bare call that was given a binding (its columns shift). */
   rewritten?: number;
   /** Zero-based line the appended `match` starts on: a diagnostic at or after it
@@ -53,10 +78,10 @@ export function handlerSource(source: string): { text: string; cell: HandlerCell
   const tail = cell.body[cell.body.length - 1];
   const last = [...cell.body].reverse().find((s) => !/^expect\b/.test(s.text));
   if (!last || !tail) return { text: source, cell: {} };
-  const m = HTTP_CALL.exec(last.text.trimStart());
+  const m = callOf(last.text);
   if (!m) return { text: source, cell: {} };
   const lines = source.split("\n");
-  let name = m[1];
+  let name = m.binding;
   let rewritten: number | undefined;
   if (name === undefined) {
     name = BOUND;
@@ -66,6 +91,7 @@ export function handlerSource(source: string): { text: string; cell: HandlerCell
   // Up to the end of the last statement (the `expect`s after the call included):
   // lines after it (comments) stay out of the way.
   const head = lines.slice(0, tail.end + 1).join("\n");
+  if (!m.http) return { text: `${head}\n${name}`, cell: { value: name, rewritten, appendedFrom: tail.end + 1 } };
   return { text: `${head}\n${observe(name)}`, cell: { response: name, rewritten, appendedFrom: tail.end + 1 } };
 }
 
@@ -80,18 +106,20 @@ export function freshName(source: string, base: string): string {
 /** The cell as a case writes its call (#210): the same call `handlerSource`
  *  finds, bound (a bare call is bound to a fresh `response`, since a case cannot
  *  leave an effect's answer unbound), with no `match` appended: a promoted case
- *  asserts on the response itself. `response` is what it is bound to; undefined
- *  when the cell does not end in a call. */
-export function caseSource(source: string): { text: string; response?: string } {
+ *  asserts on the response itself. `response` is what an HTTP call is bound to,
+ *  `value` what a call of another kind (#213) is; neither when the cell does not
+ *  end in a call. */
+export function caseSource(source: string): { text: string; response?: string; value?: string } {
   const cell = analyseCell(source);
   const last = [...cell.body].reverse().find((s) => !/^expect\b/.test(s.text));
-  const m = last ? HTTP_CALL.exec(last.text.trimStart()) : null;
+  const m = last ? callOf(last.text) : undefined;
   if (!last || !m) return { text: source };
-  if (m[1] !== undefined) return { text: source, response: m[1] };
+  const bound = (name: string): { response?: string; value?: string } => (m.http ? { response: name } : { value: name });
+  if (m.binding !== undefined) return { text: source, ...bound(m.binding) };
   const name = freshName(source, "response");
   const lines = source.split("\n");
   lines[last.start] = `let ${name} <- ${lines[last.start]}`;
-  return { text: lines.join("\n"), response: name };
+  return { text: lines.join("\n"), ...bound(name) };
 }
 
 /** A `match` that answers `{"variant": …, "payload": …}` as JSON text for each
@@ -174,3 +202,26 @@ export function withCall(source: string, call: string, kind: "expression" | "han
   const lines = kind === "handler" ? body : [...directive, body].join("\n");
   return `${lines}\nlet ${name} <- ${call}\n`;
 }
+
+/** What a value of a type with no wire shape stands for in a cell's output
+ *  (`result.value`): the run completed, but `bynk eval` has no value to report. */
+export const NO_VALUE: unique symbol = Symbol("no wire shape");
+
+/** `bynk eval`'s refusal to report a value (v0.639.1): the snippet ran, but its
+ *  type has no wire shape. The type it names, or undefined for any other result. */
+export function noWireShape(message: string): string | undefined {
+  const m = /^the snippet ran, but its value, of type `([^`]+)`, has no wire shape to report/.exec(message);
+  return m ? m[1] : undefined;
+}
+
+/** What the output of a call whose value cannot be shown says. */
+export function renderNoValue(type: string): string {
+  return `The call ran. Its value, of type \`${type}\`, has no wire shape for \`bynk eval\` to report, so there is no value to show.`;
+}
+
+/** The variants of the types a handler answers with that `bynk eval` cannot
+ *  report, as a case writes them (`testing.md`): a queue handler's verdict. */
+export const QUEUE_RESULT_VARIANTS: readonly { name: string; payload: boolean }[] = [
+  { name: "Ack", payload: false },
+  { name: "Retry", payload: true },
+];

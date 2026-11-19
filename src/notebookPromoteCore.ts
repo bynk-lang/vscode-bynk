@@ -27,7 +27,7 @@
 
 import { HTTP_VARIANTS } from "./scenarioPromoteCore";
 import { analyseCell, buildSnippet, cellKindOf, expectations, splitStatements, unitFor, type CandidateRow, type CellInput } from "./notebookCore";
-import { caseSource, freshName, type Response } from "./notebookHandlerCore";
+import { QUEUE_RESULT_VARIANTS, caseSource, freshName, type Response } from "./notebookHandlerCore";
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -36,6 +36,8 @@ import { caseSource, freshName, type Response } from "./notebookHandlerCore";
 export type CellOutput =
   | { kind: "value"; value: unknown; type: string }
   | { kind: "response"; response: Response }
+  /** A call that ran whose value `bynk eval` cannot report (#213), by its type. */
+  | { kind: "none"; type: string }
   | { kind: "refined"; type: string; rows: readonly CandidateRow[] };
 
 export interface PromoteCell {
@@ -266,7 +268,7 @@ function valueOffers(value: unknown, type: string | undefined, bind: string, sco
 
 /** What the output of a cell offers to assert. `response` and `payload` name the
  *  bindings a handler cell's response and its payload are written under. */
-function offersFor(kind: "expression" | "handler" | "refined", output: CellOutput | undefined, names: { result: string; response?: string; payload: string }): { offers: Offer[]; left: string[] } {
+function offersFor(kind: "expression" | "handler" | "refined", output: CellOutput | undefined, names: { result: string; response?: string; payload: string; bound?: boolean }): { offers: Offer[]; left: string[] } {
   const raw: Found = { offers: [], left: [] };
   if (output?.kind === "response" && names.response) {
     const r = output.response;
@@ -287,9 +289,15 @@ function offersFor(kind: "expression" | "handler" | "refined", output: CellOutpu
       }
     }
   } else if (output?.kind === "value" && kind !== "refined") {
-    const found = valueOffers(output.value, output.type, names.result, "top", undefined, true);
+    // A call of another kind (#213) is bound by the case already: its checks are on that binding.
+    const found = valueOffers(output.value, output.type, names.result, "top", undefined, !names.bound);
     raw.offers.push(...found.offers);
     raw.left.push(...found.left);
+  } else if (output?.kind === "none" && names.bound) {
+    // `bynk eval` cannot say which verdict a queue handler gave, so each is offered and the user ticks the one they expect.
+    if (output.type === "QueueResult") {
+      for (const v of QUEUE_RESULT_VARIANTS) raw.offers.push({ label: `${names.result} is ${v.name}${v.payload ? "(_)" : ""}`, detail: "the verdict is not shown: tick the one you expect", line: `expect ${names.result} is ${v.name}${v.payload ? "(_)" : ""}`, scope: "top" });
+    } else raw.left.push(`the value is a ${output.type}, which \`bynk eval\` cannot report, so there is nothing to assert`);
   } else if (output?.kind === "refined") {
     for (const row of output.rows) {
       if (row.outcome === "accepted") raw.offers.push({ label: `${output.type}.of(${row.candidate.text}) is accepted`, line: `expect ${output.type}.of(${row.candidate.text}) is Ok(_)`, scope: "top" });
@@ -352,12 +360,15 @@ const mentions = (text: string, name: string): boolean => new RegExp(`(?<![A-Za-
  *  bindings it uses, not every `let` of the notebook. */
 function narrowEarlier(earlier: { index: number; source: string }[], currentBody: string): Map<number, string> {
   const out = new Map<number, string>();
-  let needed = currentBody;
+  // What the carried `let`s read, apart from what the promoted cell itself reads.
+  let carried = "";
+  const own = new Set(analyseCell(currentBody).body.flatMap((s) => bound(s.text)));
   for (const e of [...earlier].reverse()) {
     const cell = analyseCell(e.source);
-    const kept = cell.body.filter((s) => LET.test(s.text.trimStart()) && bound(s.text).some((n) => mentions(needed, n)));
+    // A name the cell being promoted binds itself is its own, not the earlier cell's (#213: every call cell binds `response`); a name a carried `let` reads is still needed.
+    const kept = cell.body.filter((s) => LET.test(s.text.trimStart()) && bound(s.text).some((n) => (mentions(currentBody, n) && !own.has(n)) || mentions(carried, n)));
     if (kept.length === 0) continue;
-    needed += `\n${kept.map((s) => s.text).join("\n")}`;
+    carried += `\n${kept.map((s) => s.text).join("\n")}`;
     out.set(e.index, [...cell.header, ...kept].map((s) => s.text).join("\n"));
   }
   return out;
@@ -375,10 +386,13 @@ export function planCase(cells: readonly PromoteCell[], index: number, unit: str
   const notCarried: string[] = [];
   let currentSource = cell.source;
   let response: string | undefined;
+  /** What a call that is not an HTTP one (#213) is bound to: its checks are on that binding. */
+  let called: string | undefined;
   if (kind.kind === "handler") {
     const rewritten = caseSource(cell.source);
     currentSource = rewritten.text;
     response = rewritten.response;
+    called = rewritten.value;
   }
   let refinedRows: readonly CandidateRow[] = [];
   if (kind.kind === "refined") {
@@ -418,7 +432,7 @@ export function planCase(cells: readonly PromoteCell[], index: number, unit: str
   const taken = body.join("\n");
   const resultName = freshName(taken, "result");
   const endsInValue = last !== undefined && !EXPECT.test(last.text) && !LET.test(last.text.trimStart()) && !HEADER.test(last.text.trimStart());
-  if (kind.kind !== "refined" && !response && endsInValue) bind = { line: last.start - built.body[0].start, name: resultName };
+  if (kind.kind !== "refined" && !response && !called && endsInValue) bind = { line: last.start - built.body[0].start, name: resultName };
 
   let offers: Offer[] = [];
   let left: string[] = [];
@@ -430,7 +444,7 @@ export function planCase(cells: readonly PromoteCell[], index: number, unit: str
   } else if (kind.kind === "refined" && refinedRows.length === 0) {
     notCarried.push("it showed no candidates to assert");
   } else {
-    const names = { result: bind?.name ?? resultName, response, payload: freshName(taken, "payload") };
+    const names = { result: called ?? bind?.name ?? resultName, response, payload: freshName(taken, "payload"), bound: called !== undefined };
     const found = offersFor(kind.kind, cell.output, names);
     offers = found.offers;
     left = found.left;
