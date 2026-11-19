@@ -149,13 +149,11 @@ class RouteIndex implements vscode.Disposable {
       const wc = await requestWireContract(client, { uri: doc.uri.toString(), position: { line: position.line, character: position.character } });
       const kind = wc?.model.kind;
       if (!wc) {
-        // An HTTP handler (by its header) with no wire contract yet: the server
-        // has not analysed the project. Say so rather than drop the route. A
-        // handler of another kind with none is left out without a word: an
-        // agent's `on call` has no wire contract, ever, and is no handler a
-        // cell can call (`complete` is the scenarios' too, so it is not made
-        // false by a handler they do not use).
-        if (http) complete = false;
+        // A handler with no wire contract yet: the server has not analysed the
+        // project. Say so rather than drop it (a set built too early is kept
+        // as complete until a file changes, #213). An agent's `on call` has
+        // none, ever, and is no handler a cell can call; it does not count.
+        if (http || new RegExp(`\\bservice\\s+${h.owner}\\b`).test(text)) complete = false;
         continue;
       }
       const r = h.symbol.range;
