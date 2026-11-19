@@ -182,15 +182,18 @@ if (args[0] === "--version") {
         });
         // `BYNK_FAKE_TRACE_SECOND=1` (#218): a second request of the same
         // route, quicker and clean, for the timing diagram's comparison.
+        // Later, so it is strictly the newest: the events above share a millisecond.
         if (process.env.BYNK_FAKE_TRACE_SECOND === "1") {
-          emit({
-            event: "request", context: name, id: "r2", parent: null, route: "GET /a", status: 200, duration_ms: 3.5,
-            steps: [
-              { kind: "call", target: "other.authorise", span, ms: 2.4, outcome: "ok" },
-              { kind: "agent", target: "Ledger.tally", span: null, ms: 0.4, outcome: "ok" },
-            ],
-            truncated: false, fault: null,
-          });
+          setTimeout(() => {
+            emit({
+              event: "request", context: name, id: "r2", parent: null, route: "GET /a", status: 200, duration_ms: 3.5,
+              steps: [
+                { kind: "call", target: "other.authorise", span, ms: 2.4, outcome: "ok" },
+                { kind: "agent", target: "Ledger.tally", span: null, ms: 0.4, outcome: "ok" },
+              ],
+              truncated: false, fault: null,
+            });
+          }, 100);
         }
       }, 500);
     }
