@@ -4,7 +4,7 @@
 
 import * as assert from "assert";
 
-import { blankExpects, buildSnippet, decodeExpectFailure, expectDiagnostics, expectJson, expectations, matchFailure, renderExpectations, runWithExpectations, type EvalResult } from "../../src/notebookCore";
+import { blankExpects, buildSnippet, rerunNote, decodeExpectFailure, expectDiagnostics, expectJson, expectations, matchFailure, renderExpectations, runWithExpectations, type EvalResult } from "../../src/notebookCore";
 import { handlerSource } from "../../src/notebookHandlerCore";
 
 const CELL = ["let a = discount(2000, 25)", "expect a == 1500", "expect a > 99999", "expect a", "  >= 3", "a"].join("\n");
@@ -100,6 +100,7 @@ describe("expect lines: running until every one has an outcome (#209)", () => {
     const run = await runWithExpectations(es, attempt);
     assert.ok(run !== "cancelled");
     assert.deepStrictEqual(calls, [[]]);
+    assert.strictEqual(rerunNote(run.runs), undefined);
     assert.deepStrictEqual(run.outcomes.map((o) => o.status), ["passed", "passed", "passed"]);
     assert.deepStrictEqual(run.last.result, value(1500));
   });
@@ -117,6 +118,8 @@ describe("expect lines: running until every one has an outcome (#209)", () => {
     const run = await runWithExpectations(es, attempt);
     assert.ok(run !== "cancelled");
     assert.deepStrictEqual(calls, [[], [0], [0, 2]]);
+    assert.strictEqual(run.runs, 3);
+    assert.match(rerunNote(run.runs) ?? "", /^Ran 3 times: .*stops at the first failed/);
     assert.deepStrictEqual(run.outcomes.map((o) => o.status), ["failed", "passed", "failed"]);
   });
   it("leaves the expects it never reached as not run when the cell then fails for its own reason", async () => {

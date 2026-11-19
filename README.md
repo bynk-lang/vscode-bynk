@@ -360,7 +360,10 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
     (a handler cell still shows its response), so put the expression last to see it.
     Earlier cells' `let`s carry forward, but their `expect` lines don't. A failure is
     matched to its line by the text of the `expect`, so the same `expect` written twice
-    in a cell may be marked on the wrong one. Refined-type cells have no `expect` lines.
+    in a cell may be marked on the wrong one, and two `expect`s that contradict each
+    other on the same value (`expect a == 1`, then `expect a == 2`) don't compile
+    (`bynk.codegen.tsc_failed`, shown on the second). A cell that took more than one
+    run says so in its output. Refined-type cells have no `expect` lines.
   - **A cell runs only when you run it**, never on open, hover or save: it is
     your code, at the trust of `bynk test`. A notebook in an untrusted workspace
     won't run. A cell is stopped after `bynk.notebook.timeoutSeconds` (60).

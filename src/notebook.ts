@@ -30,6 +30,7 @@ import {
   refinedJson,
   refinedSource,
   renderExpectations,
+  rerunNote,
   renderRefinedTable,
   renderValue,
   runWithExpectations,
@@ -219,6 +220,8 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     // Problems that can't sit on this cell's lines are listed here instead.
     const elsewhere = placed.filter((d) => d.cell === undefined || d.cell !== index);
     for (const d of elsewhere) notes.push(describe(d, codeCells, index));
+    const again = rerunNote(run.runs);
+    if (again) notes.push(again);
 
     let ok = false;
     switch (result.kind) {
@@ -316,6 +319,8 @@ export function registerNotebook(context: vscode.ExtensionContext): void {
     const notes: string[] = snippetNotes(snippet, (i) => `cell ${codeCells[i].index + 1}`);
     for (const d of shifted.filter((x) => x.cell === undefined || x.cell !== index)) notes.push(describe(d, codeCells, index));
     for (const d of shifted.filter(inAppended)) notes.push(`The extension's \`match\` over the response didn't check (${d.code || d.severity}): ${d.message} End the cell with a \`match\` of your own to show the response.`);
+    const again = rerunNote(run.runs);
+    if (again) notes.push(again);
     const hasStubs = snippet.stubs.length > 0 || analyseCell(source).header.some((h) => h.text.trimStart().startsWith("stub"));
     if (result.kind !== "diagnostics") notes.push(suiteNote(unit, usedSuite, hasStubs));
 

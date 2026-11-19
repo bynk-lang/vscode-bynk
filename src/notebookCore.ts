@@ -714,7 +714,7 @@ export interface ExpectOutcome {
  *  with the expectations it is given blanked out and answers the run (its
  *  `result` is what `bynk eval` returned) or `"cancelled"`. The run that
  *  completes, or fails for a reason other than an `expect`, is returned
- *  as `last`.
+ *  as `last`. At most one run per expectation, plus one.
  *
  *  An expectation before the one that failed passed in that run. When the last
  *  run completed, all the rest passed; when it did not (a cell that does not
@@ -722,7 +722,7 @@ export interface ExpectOutcome {
 export async function runWithExpectations<R extends { result: EvalResult }>(
   expects: readonly Expectation[],
   attempt: (blank: readonly Expectation[]) => Promise<R | "cancelled">,
-): Promise<{ last: R; outcomes: ExpectOutcome[] } | "cancelled"> {
+): Promise<{ last: R; outcomes: ExpectOutcome[]; runs: number } | "cancelled"> {
   const failed = new Map<Expectation, string>();
   const passed = new Set<Expectation>();
   let after = -1;
@@ -741,8 +741,14 @@ export async function runWithExpectations<R extends { result: EvalResult }>(
     }
     const completed = res.kind === "value";
     const outcomes = expects.map<ExpectOutcome>((x) => (failed.has(x) ? { expectation: x, status: "failed", detail: failed.get(x) } : completed || passed.has(x) ? { expectation: x, status: "passed" } : { expectation: x, status: "not-run" }));
-    return { last: r, outcomes };
+    return { last: r, outcomes, runs: round + 1 };
   }
+}
+
+/** The note for a cell that took more than one run: `bynk eval` stops at the
+ *  first failed `expect`, so the others were checked by running the cell again. */
+export function rerunNote(runs: number): string | undefined {
+  return runs > 1 ? `Ran ${runs} times: \`bynk eval\` stops at the first failed \`expect\`, so the cell was run again with each failed one left out, to check the expects after it and reach the value.` : undefined;
 }
 
 /** One line for an expectation: where it is and what it says. */
