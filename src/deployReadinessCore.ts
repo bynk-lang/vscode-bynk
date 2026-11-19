@@ -558,6 +558,33 @@ export function cacheKey(target: DeployTarget): string {
 }
 
 // ---------------------------------------------------------------------------
+// Plan runs and the lock events they cause
+
+/** Runs tasks one at a time, in order. Every dry run goes through one of these:
+ *  two overlapping runs would each snapshot and restore `bynk.schema.lock`
+ *  around the other's rewrite. A failed task does not stop the ones queued behind. */
+export class SerialQueue {
+  private tail: Promise<unknown> = Promise.resolve();
+
+  run<T>(task: () => Promise<T>): Promise<T> {
+    const result = this.tail.then(task, task);
+    this.tail = result.catch(() => undefined);
+    return result;
+  }
+}
+
+/** How long after a plan run the driver's own write to `bynk.schema.lock` may
+ *  still be reported by a file watcher. */
+export const LOCK_ECHO_MS = 1500;
+
+/** Whether a change to `bynk.schema.lock` is the echo of a plan run (the driver's
+ *  rewrite, or this extension putting the file back) rather than a change someone
+ *  else made (`bynk check` in a terminal) that the schema check must see. */
+export function isOwnLockEvent(now: number, planRunning: boolean, lastPlanEnded: number): boolean {
+  return planRunning || now - lastPlanEnded < LOCK_ECHO_MS;
+}
+
+// ---------------------------------------------------------------------------
 // The panel's markup
 
 const STATUS_LABEL: Record<CheckStatus, string> = {

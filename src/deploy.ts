@@ -262,7 +262,8 @@ class DeployView implements vscode.Disposable {
         });
         if (!picked?.[0]) return;
         // Only the path is kept: the driver reads the file, the editor never does.
-        await this.showPlan({ ...current, target: { ...current.target, secretsFile: picked[0].fsPath } });
+        // The readiness line described the target without the file: drop it, not show it stale.
+        await this.showPlan({ ...current, readiness: undefined, target: { ...current.target, secretsFile: picked[0].fsPath } });
         break;
       }
       case "readiness":
@@ -272,7 +273,7 @@ class DeployView implements vscode.Disposable {
         );
         break;
       case "deploy":
-        if (current.canDeploy) await runDeploy(current, this.readiness);
+        if (current.canDeploy) await runDeploy(current, this.readiness, (plan) => this.showPlan(current, plan));
         break;
     }
   }
@@ -446,7 +447,11 @@ async function pickScope(
 /** Run the real deploy in a terminal, with exactly the previewed arguments
  *  minus `--dry-run --format json`. `bynk` itself is the terminal's process, so
  *  its confirmation prompts are answered there. */
-async function runDeploy(current: PlanState, readiness: DeployReadiness): Promise<void> {
+async function runDeploy(
+  current: PlanState,
+  readiness: DeployReadiness,
+  showPlan: (plan: PlanOutcome | undefined) => Promise<void>,
+): Promise<void> {
   const env = current.target.environment;
   // #221: a refusal `bynk` would itself make blocks the editor's Deploy; a
   // warning is the user's to accept, by name, with an explicit "Deploy anyway".
@@ -460,7 +465,7 @@ async function runDeploy(current: PlanState, readiness: DeployReadiness): Promis
       open,
     );
     if (choice === open) {
-      await readiness.show({ root: current.root, target: current.target, canDeploy: true, continueTo: () => undefined });
+      await readiness.show({ root: current.root, target: current.target, canDeploy: true, continueTo: showPlan });
     }
     return;
   }

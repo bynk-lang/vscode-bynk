@@ -8,8 +8,9 @@ export interface TestRunSummary {
   passed: number;
   failed: number;
   skipped: number;
-  /** When the run finished (`Date.now()`). */
-  at: number;
+  /** When the run started (`Date.now()`): a source saved after this may not be
+   *  what the run tested, even if it was saved before the run finished. */
+  startedAt: number;
 }
 
 const last = new Map<string, TestRunSummary>();
@@ -22,6 +23,12 @@ export function recordTestRun(root: string, summary: TestRunSummary): void {
 /** The last whole-project run of `root`, if there was one this session. */
 export function lastTestRun(root: string): TestRunSummary | undefined {
   return last.get(root);
+}
+
+/** Forget the run of `root`: a later run did not complete (the runner crashed,
+ *  the project did not compile), so what an earlier one found says nothing now. */
+export function forgetTestRun(root: string): void {
+  last.delete(root);
 }
 
 /** Forget every run (a test seam). */

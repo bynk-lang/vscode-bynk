@@ -27,11 +27,13 @@ import {
   type FixTarget,
   gateFor,
   type Gate,
+  isOwnLockEvent,
   READINESS_CSS,
   ReadinessCache,
   type ReadinessInput,
   type ReadinessReport,
   renderReadinessHtml,
+  SerialQueue,
   verdictLine,
 } from "./deployReadinessCore";
 import { sharedMigrationsStore } from "./migrationsView";
@@ -48,15 +50,43 @@ export interface ReadinessEntry {
 
 const SCHEMA_LOCK = "bynk.schema.lock";
 
+/** Every plan runs through here, one at a time (see `SerialQueue`). */
+const planQueue = new SerialQueue();
+let plansRunning = 0;
+let lastPlanEnded = 0;
+
+/** Whether a change to `bynk.schema.lock` now is the echo of a plan run. */
+export function isPlanLockEvent(now = Date.now()): boolean {
+  return isOwnLockEvent(now, plansRunning > 0, lastPlanEnded);
+}
+
+/** Whether a terminal the extension opened to deploy or build is open: it may be
+ *  rewriting the lock for real, and a stale snapshot must not be put over that. */
+function deployTerminalOpen(): boolean {
+  return vscode.window.terminals.some((t) => /^Bynk (Deploy|Dev)\b/.test(t.name));
+}
+
 /** Run the deploy plan (`bynk deploy --dry-run --format json`) and leave
  *  `bynk.schema.lock` as it found it. The driver records the build's schema there
  *  even on a dry run and even when it then refuses (bynk v0.639.1); a preview
  *  must not leave a committed file changed. */
-export async function runPlanReadOnly(
+export function runPlanReadOnly(
   root: vscode.Uri,
   args: string[],
   token?: vscode.CancellationToken,
 ): Promise<BynkResult> {
+  return planQueue.run(async () => {
+    plansRunning++;
+    try {
+      return await runPlanOnce(root, args, token);
+    } finally {
+      plansRunning--;
+      lastPlanEnded = Date.now();
+    }
+  });
+}
+
+async function runPlanOnce(root: vscode.Uri, args: string[], token?: vscode.CancellationToken): Promise<BynkResult> {
   const lock = vscode.Uri.joinPath(root, SCHEMA_LOCK);
   let before: Uint8Array | undefined;
   try {
@@ -73,8 +103,10 @@ export async function runPlanReadOnly(
         () => undefined,
       );
       // Byte for byte, and only a file that existed before: a lock the run
-      // creates is the driver's, and is left alone.
-      if (before !== undefined && (after === undefined || !sameBytes(before, after))) {
+      // creates is the driver's, and is left alone. Not while a deploy or dev
+      // terminal is open: it may have rewritten the lock for real, and the
+      // snapshot would undo that.
+      if (!deployTerminalOpen() && before !== undefined && (after === undefined || !sameBytes(before, after))) {
         await vscode.workspace.fs.writeFile(lock, before);
       }
     } catch {
@@ -108,17 +140,38 @@ export class DeployReadiness implements vscode.Disposable {
     private readonly hub: ViewRefresh,
     private readonly client: () => LanguageClient | undefined,
   ) {
-    const changed = (): void => {
-      this.lastSourceChange = Date.now();
+    const invalidate = (): void => {
       this.cache.invalidate();
       this.scheduleRecheck();
     };
-    // A save of a `.bynk` file or the manifest, once per real change.
-    this.disposables.push(hub.onDidChangeSource(changed));
-    // What is live changes after a deploy. (Not `bynk.schema.lock`: the driver
-    // rewrites it itself, and a check must not retrigger on its own run.)
-    const watcher = vscode.workspace.createFileSystemWatcher("**/bynk.deploy.lock");
-    this.disposables.push(watcher, watcher.onDidChange(changed), watcher.onDidCreate(changed), watcher.onDidDelete(changed));
+    // A save of a `.bynk` file or the manifest, once per real change: the only
+    // thing that makes the last test run stale.
+    this.disposables.push(
+      hub.onDidChangeSource(() => {
+        this.lastSourceChange = Date.now();
+        invalidate();
+      }),
+    );
+    // The locks the checks read: what is live changes after a deploy, and the
+    // schema lock when `bynk check` or a build records a change. Neither is a
+    // source change. The schema lock's events that a plan run itself causes
+    // (the driver's rewrite, and this extension putting it back) are skipped, or
+    // a check would retrigger on its own run.
+    const deployLock = vscode.workspace.createFileSystemWatcher("**/bynk.deploy.lock");
+    const schemaLock = vscode.workspace.createFileSystemWatcher("**/bynk.schema.lock");
+    const onSchemaLock = (): void => {
+      if (!isPlanLockEvent()) invalidate();
+    };
+    this.disposables.push(
+      deployLock,
+      schemaLock,
+      deployLock.onDidChange(invalidate),
+      deployLock.onDidCreate(invalidate),
+      deployLock.onDidDelete(invalidate),
+      schemaLock.onDidChange(onSchemaLock),
+      schemaLock.onDidCreate(onSchemaLock),
+      schemaLock.onDidDelete(onSchemaLock),
+    );
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration("bynk.bynkPath")) this.cache.invalidate();
@@ -191,7 +244,7 @@ export class DeployReadiness implements vscode.Disposable {
       lock,
       groups,
       tests: run
-        ? { kind: "ran", passed: run.passed, failed: run.failed, skipped: run.skipped, stale: run.at < this.lastSourceChange }
+        ? { kind: "ran", passed: run.passed, failed: run.failed, skipped: run.skipped, stale: run.startedAt < this.lastSourceChange }
         : { kind: "none" },
     };
     const entry: ReadinessEntry = {

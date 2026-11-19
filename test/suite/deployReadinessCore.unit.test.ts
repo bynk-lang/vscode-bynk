@@ -13,13 +13,17 @@ import {
   gateFor,
   isAgentMoveRefusal,
   parseAgentMoves,
+  isOwnLockEvent,
+  LOCK_ECHO_MS,
   ReadinessCache,
   renderReadinessHtml,
+  SerialQueue,
   verdictLine,
   type ReadinessCheck,
   type ReadinessInput,
 } from "../../src/deployReadinessCore";
 import { parseMigrateStatus } from "../../src/migrationsCore";
+import { clearTestRuns, forgetTestRun, lastTestRun, recordTestRun } from "../../src/testResults";
 import type { CdModel, CdService } from "../../src/webview/contractDiffTypes";
 
 const fixture = (name: string) => fs.readFileSync(path.resolve(__dirname, "../../../test/fixtures", name), "utf8");
@@ -308,6 +312,45 @@ describe("deploy readiness core (#221)", () => {
       assert.match(html, /Not checked/);
       assert.ok(!renderReadinessHtml(r).includes('data-action="continue"'));
       assert.ok(html.includes("blocked"));
+    });
+  });
+
+  describe("plan runs and the lock events they cause", () => {
+    it("runs queued tasks one at a time, in order, and carries on after a failure", async () => {
+      const q = new SerialQueue();
+      const log: string[] = [];
+      const slow = q.run(async () => {
+        log.push("a start");
+        await new Promise((r) => setTimeout(r, 20));
+        log.push("a end");
+        return 1;
+      });
+      const failing = q.run(async () => {
+        log.push("b");
+        throw new Error("boom");
+      });
+      const last = q.run(async () => (log.push("c"), 3));
+      assert.strictEqual(await slow, 1);
+      await assert.rejects(failing, /boom/);
+      assert.strictEqual(await last, 3);
+      assert.deepStrictEqual(log, ["a start", "a end", "b", "c"]);
+    });
+    it("treats a schema-lock change during or just after a plan run as its own, and a later one as someone else's", () => {
+      assert.strictEqual(isOwnLockEvent(1000, true, 0), true);
+      assert.strictEqual(isOwnLockEvent(5000, false, 5000 - LOCK_ECHO_MS + 1), true);
+      assert.strictEqual(isOwnLockEvent(5000, false, 5000 - LOCK_ECHO_MS), false);
+      assert.strictEqual(isOwnLockEvent(5000, false, 0), false);
+    });
+  });
+
+  describe("the last test run", () => {
+    it("is kept per project with its start time, and forgotten when a later run did not complete", () => {
+      clearTestRuns();
+      recordTestRun("file:///p", { passed: 3, failed: 0, skipped: 0, startedAt: 10 });
+      assert.deepStrictEqual(lastTestRun("file:///p"), { passed: 3, failed: 0, skipped: 0, startedAt: 10 });
+      assert.strictEqual(lastTestRun("file:///other"), undefined);
+      forgetTestRun("file:///p");
+      assert.strictEqual(lastTestRun("file:///p"), undefined);
     });
   });
 });
