@@ -1,0 +1,62 @@
+{
+  "environment": "default",
+  "orphans": {
+    "kv": [],
+    "workers": [
+      "acme-core"
+    ],
+    "worker_contexts": {
+      "acme-core": [
+        "shop.orders",
+        "shop.catalogue"
+      ]
+    },
+    "queues": []
+  },
+  "order": [
+    "shop-catalogue",
+    "shop-orders",
+    "shop-payment"
+  ],
+  "contexts": [
+    {
+      "worker": "shop-catalogue",
+      "kv": [],
+      "queues": [],
+      "durable_objects": [],
+      "secrets": [],
+      "secrets_complete": true,
+      "action": "deploy",
+      "binds_to": [],
+      "foreign_services": []
+    },
+    {
+      "worker": "shop-orders",
+      "kv": [],
+      "queues": [],
+      "durable_objects": [
+        {
+          "class": "Counter",
+          "storage": "sqlite",
+          "reconciled_by": "Cloudflare"
+        }
+      ],
+      "secrets": [],
+      "secrets_complete": true,
+      "action": "deploy",
+      "binds_to": [],
+      "foreign_services": []
+    },
+    {
+      "worker": "shop-payment",
+      "kv": [],
+      "queues": [],
+      "durable_objects": [],
+      "secrets": [],
+      "secrets_complete": true,
+      "action": "redeploy",
+      "binds_to": [],
+      "foreign_services": []
+    }
+  ]
+}

@@ -30,6 +30,7 @@ import { offersSkipUnsupported, targetDetail, DEV_TARGET } from "./testTargets";
 import { rememberSeeds, suiteFingerprint, type SeedState } from "./testSeedState";
 import type { RunEnv } from "./testEnv";
 import { runBynkcTest, runBynkcTestStream } from "./testDriver";
+import { forgetTestRun, recordTestRun } from "./testResults";
 import { applyDocument, coverageDetail, placeHandlers } from "./testReport";
 import {
   forEachCase,
@@ -193,6 +194,9 @@ export async function runInProject(
   const noted = new Set<string>();
   let crashShown = false;
   let coverageDoc: TestRun | undefined;
+  // #221: what the project's steps found, for the deploy readiness check.
+  const found = { passed: 0, failed: 0, skipped: 0 };
+  let finishedSteps = 0;
 
   for (const step of plan.steps) {
     if (token.isCancellationRequested) break;
@@ -260,6 +264,7 @@ export async function runInProject(
         say("Bynk: this `bynk` cannot run several tests in one process; running them one at a time.\r\n");
         return "retry";
       }
+      if (!against && !plan.narrowed) forgetTestRun(root.toString());
       say(`Bynk: could not run tests — ${String(e)}\r\n`);
       // #2095: `bynk` missing is the one gap the Doctor can't diagnose; any
       // other failure to run is most likely a missing test tool.
@@ -274,6 +279,7 @@ export async function runInProject(
     // A compile failure has no test outcomes: route the diagnostics to the
     // Problems panel (the `bynkc` shape) and stop. These are not test results.
     if (doc.error?.kind === "compile") {
+      if (!against && !plan.narrowed) forgetTestRun(root.toString());
       routeCompileDiagnostics(problems, root, doc.error.diagnostics ?? []);
       say(
         "Bynk: the project did not compile — see the Problems panel.\r\n",
@@ -324,6 +330,21 @@ export async function runInProject(
       }
     }
     coverageDoc = doc;
+    // A step that crashed (or could not measure) reports only the cases before it
+    // stopped, so it is not a result the project passed.
+    if (!doc.error) {
+      found.passed += doc.passed;
+      found.failed += doc.failed;
+      found.skipped += doc.skipped ?? 0;
+      finishedSteps++;
+    }
+  }
+
+  // #221: only a run of the whole project, to its end, says whether the project's tests pass.
+  // One that did not complete forgets the earlier run instead: it would read as current.
+  if (!token.isCancellationRequested && !against && !plan.narrowed) {
+    if (finishedSteps === plan.steps.length) recordTestRun(root.toString(), { ...found, startedAt });
+    else forgetTestRun(root.toString());
   }
 
   // A requested item no result reached: say so, rather than leave it queued.
