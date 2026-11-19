@@ -81,6 +81,11 @@ const NOTEBOOK = {
     { kind: "code", source: ["// @unit plain", "// @handler", 'let r <- api.POST("/ping/:who", "ann") by Visitor'] },
     // A handler cell's call is not sent again ahead of a later cell.
     { kind: "code", source: ["// @unit plain", '"later"'] },
+    // `expect` lines (#209): one cell where every expect holds, one where two fail
+    // (the value is still shown), and a handler cell in a suite whose response and trace are checked.
+    { kind: "code", source: ["let kept = discount(2000, 25)", "expect kept == 1500", "expect kept > 5", "kept"] },
+    { kind: "code", source: ["let off = discount(2000, 25)", "expect off == 1500", "expect off > 99999", "expect off < 5", "expect off >= 1", "off"] },
+    { kind: "code", source: ["// @unit todos", "// @handler", "stub Mailer.send(_) returns false", TODO_CALL, "expect r is Created(_)", "expect r is NotFound", "expect trace(Mailer.send).length() == 1"] },
   ],
 };
 
@@ -119,6 +124,9 @@ describe("Bynk notebooks (#151)", () => {
     assert.strictEqual(doc.notebookType, "bynk-notebook");
     assert.deepStrictEqual(doc.getCells().map((c) => [c.kind, c.document.languageId]), [
       [vscode.NotebookCellKind.Markup, "markdown"],
+      [vscode.NotebookCellKind.Code, "bynk"],
+      [vscode.NotebookCellKind.Code, "bynk"],
+      [vscode.NotebookCellKind.Code, "bynk"],
       [vscode.NotebookCellKind.Code, "bynk"],
       [vscode.NotebookCellKind.Code, "bynk"],
       [vscode.NotebookCellKind.Code, "bynk"],
@@ -181,6 +189,40 @@ describe("Bynk notebooks (#151)", () => {
     // With no stub the handler's capability is unstubbed, and that is the cell's error, not a tick.
     assert.ok(cells[8].outputs.some((o) => o.items.some((i) => i.mime === "application/vnd.code.notebook.error")), JSON.stringify(text(cells[8])));
     assert.deepStrictEqual(text(cells[9]), ['"later"\n: String']);
+    // `expect` lines (#209). All hold: a pass, the value is shown, nothing is marked as a problem.
+    assert.ok(text(cells[10])[0].startsWith("1500\n: Int"), JSON.stringify(text(cells[10])));
+    assert.ok(text(cells[10]).some((t) => t.startsWith("Expectations: 2 passed\n") && /✓ line 2 {2}expect kept == 1500/.test(t)), JSON.stringify(text(cells[10])));
+    assert.strictEqual(cells[10].executionSummary?.success, true);
+    assert.deepStrictEqual(vscode.languages.getDiagnostics(cells[10].document.uri), []);
+    // Two fail: each is a problem on its own line, with the values compared; the
+    // expects after them still ran, the value is still shown, and the run fails.
+    assert.strictEqual(cells[11].executionSummary?.success, false);
+    assert.ok(text(cells[11])[0].startsWith("1500\n: Int"), JSON.stringify(text(cells[11])));
+    const expectations = text(cells[11]).find((t) => t.startsWith("Expectations:")) ?? "";
+    assert.match(expectations, /^Expectations: 2 passed, 2 failed/);
+    assert.match(expectations, /✓ line 2 {2}expect off == 1500/);
+    assert.match(expectations, /✗ line 3 {2}expect off > 99999\n {4}expected: off > 99999\n {4}actual: {3}1500 > 99999/);
+    assert.match(expectations, /✗ line 4 {2}expect off < 5/);
+    assert.match(expectations, /✓ line 5 {2}expect off >= 1/);
+    const failed = await waitFor(
+      () => vscode.languages.getDiagnostics(cells[11].document.uri),
+      (d) => d.length > 0,
+      "the failed expects' diagnostics",
+      30_000,
+    );
+    assert.deepStrictEqual(failed.map((d) => [d.range.start.line, d.source, d.severity]), [
+      [2, "bynk expect", vscode.DiagnosticSeverity.Error],
+      [3, "bynk expect", vscode.DiagnosticSeverity.Error],
+    ]);
+    assert.match(failed[0].message, /actual: {3}1500 > 99999/);
+    // A handler cell: the response is shown as before, and its failed `expect` is marked.
+    assert.strictEqual(cells[12].executionSummary?.success, false);
+    assert.ok(text(cells[12])[0].startsWith('Created({ done: false, title: "a" })\n: HttpResult · 201'), JSON.stringify(text(cells[12])));
+    const handlerExpects = text(cells[12]).find((t) => t.startsWith("Expectations:")) ?? "";
+    assert.match(handlerExpects, /^Expectations: 2 passed, 1 failed/);
+    assert.match(handlerExpects, /✗ line 6 {2}expect r is NotFound/);
+    const handlerDiagnostics = vscode.languages.getDiagnostics(cells[12].document.uri);
+    assert.deepStrictEqual(handlerDiagnostics.map((d) => d.range.start.line), [5]);
     // Nothing from the notebook's last run is saved with it.
     await vscode.commands.executeCommand("workbench.action.files.save");
     assert.ok(!fs.readFileSync(uri.fsPath, "utf8").includes("2000\\n: Int"));

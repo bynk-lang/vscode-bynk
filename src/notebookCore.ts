@@ -624,6 +624,171 @@ export function placeDiagnostics(diagnostics: readonly EvalDiagnostic[], origins
 }
 
 // ---------------------------------------------------------------------------
+// `expect` lines (#209)
+//
+// `bynk eval` runs the snippet as a synthetic unit-tier case, so a top-level
+// `expect` is legal in a cell. What the pinned toolchain (v0.639.1) does with a
+// failed one, found by running it:
+//
+//   - the run stops at the first failure: `error.kind` is `runtime`, there is no
+//     `value`, and no later `expect` is evaluated;
+//   - the message is the expect's own text, then the values compared, then where:
+//
+//         expect a > 10000
+//           expected: a > 10000
+//           actual:   1500 > 10000
+//           at src/shop/money.eval.bynk:2:8
+//
+//     (an `expect x is Variant(_)` has no `expected`/`actual` lines);
+//   - the `at` position is in the synthetic file the snippet was spliced into,
+//     not in the snippet: it is the cell's line only with no `--suite`, and
+//     moves by the suite's own lines with one. So the failure is matched to its
+//     `expect` by the text the message starts with, never by that line;
+//   - a passing run reports the value as ever (`()` when the snippet ends in an
+//     `expect`).
+//
+// So one call gives only the first failure and loses the value. To show every
+// expectation and the value, a cell with a failure is run again with the failed
+// `expect` blanked out (its lines kept, so every other line stays where it was)
+// until a run completes: one call per failure, plus one.
+
+export interface Expectation {
+  /** The statement as written. */
+  text: string;
+  /** Zero-based first and last line within the cell. */
+  line: number;
+  end: number;
+}
+
+/** The cell's top-level `expect` statements. One that is indented (inside a
+ *  block of another statement) belongs to that statement and is not listed. */
+export function expectations(source: string): Expectation[] {
+  return analyseCell(source)
+    .body.filter((s) => /^expect\b/.test(s.text))
+    .map((s) => ({ text: s.text, line: s.start, end: s.end }));
+}
+
+/** The cell with the given `expect`s blanked out, line for line. */
+export function blankExpects(source: string, blank: readonly Expectation[]): string {
+  if (blank.length === 0) return source;
+  const lines = source.split("\n");
+  for (const e of blank) for (let l = e.line; l <= e.end; l++) lines[l] = "";
+  return lines.join("\n");
+}
+
+export interface ExpectFailure {
+  /** The expect as the message quotes it (its first line, or all of them when it spans several). */
+  header: string;
+  /** What was compared, from the lines after it, without the `at` position. */
+  detail: string;
+}
+
+/** The failed `expect` a `bynk eval` runtime error describes; undefined for any other error. */
+export function decodeExpectFailure(message: string): ExpectFailure | undefined {
+  if (!/^expect\b/.test(message)) return undefined;
+  const lines = message.split("\n");
+  const marker = lines.findIndex((l, i) => i > 0 && /^ {2}(?:expected: |actual: |at \S)/.test(l));
+  const header = (marker < 0 ? lines : lines.slice(0, marker)).join("\n");
+  const rest = marker < 0 ? [] : lines.slice(marker).filter((l) => !/^ {2}at \S/.test(l));
+  return { header, detail: rest.map((l) => l.trim()).join("\n") };
+}
+
+/** The live `expect` a failure is about: the first one after the line the
+ *  previous failure was on (an `expect` before it already passed in that run)
+ *  whose text is the one the message quotes. */
+export function matchFailure(failure: ExpectFailure, live: readonly Expectation[], after: number): Expectation | undefined {
+  const want = squash(failure.header);
+  return live.find((e) => e.line > after && squash(e.text) === want);
+}
+
+export type ExpectStatus = "passed" | "failed" | "not-run";
+
+export interface ExpectOutcome {
+  expectation: Expectation;
+  status: ExpectStatus;
+  /** For a failure: the values compared, as `bynk eval` gave them. */
+  detail?: string;
+}
+
+/** Run a cell until every expectation has an outcome. `attempt` runs the cell
+ *  with the expectations it is given blanked out and answers the run (its
+ *  `result` is what `bynk eval` returned) or `"cancelled"`. The run that
+ *  completes, or fails for a reason other than an `expect`, is returned
+ *  as `last`.
+ *
+ *  An expectation before the one that failed passed in that run. When the last
+ *  run completed, all the rest passed; when it did not (a cell that does not
+ *  check, an error of its own), those not yet known are `not-run`. */
+export async function runWithExpectations<R extends { result: EvalResult }>(
+  expects: readonly Expectation[],
+  attempt: (blank: readonly Expectation[]) => Promise<R | "cancelled">,
+): Promise<{ last: R; outcomes: ExpectOutcome[] } | "cancelled"> {
+  const failed = new Map<Expectation, string>();
+  const passed = new Set<Expectation>();
+  let after = -1;
+  // Each round that fails removes one expectation, so there are at most N + 1 rounds.
+  for (let round = 0; ; round++) {
+    const r = await attempt([...failed.keys()]);
+    if (r === "cancelled") return "cancelled";
+    const res = r.result;
+    const failure = res.kind === "error" && res.errorKind === "runtime" ? decodeExpectFailure(res.message) : undefined;
+    const e = failure ? matchFailure(failure, expects.filter((x) => !failed.has(x)), after) : undefined;
+    if (failure && e && round < expects.length) {
+      for (const x of expects) if (!failed.has(x) && x.line < e.line) passed.add(x);
+      failed.set(e, failure.detail);
+      after = e.line;
+      continue;
+    }
+    const completed = res.kind === "value";
+    const outcomes = expects.map<ExpectOutcome>((x) => (failed.has(x) ? { expectation: x, status: "failed", detail: failed.get(x) } : completed || passed.has(x) ? { expectation: x, status: "passed" } : { expectation: x, status: "not-run" }));
+    return { last: r, outcomes };
+  }
+}
+
+/** One line for an expectation: where it is and what it says. */
+const expectLabel = (o: ExpectOutcome): string => {
+  const first = squash(o.expectation.text);
+  return `line ${o.expectation.line + 1}  ${first.length > 60 ? first.slice(0, 59) + "…" : first}`;
+};
+
+/** The expectations as the cell's text output: a count, then a line each, a
+ *  failure followed by the values compared. Empty when none ran. */
+export function renderExpectations(outcomes: readonly ExpectOutcome[]): string {
+  if (outcomes.every((o) => o.status === "not-run")) return "";
+  const n = (s: ExpectStatus): number => outcomes.filter((o) => o.status === s).length;
+  const head = [`${n("passed")} passed`, ...(n("failed") > 0 ? [`${n("failed")} failed`] : []), ...(n("not-run") > 0 ? [`${n("not-run")} not run`] : [])];
+  const body = outcomes.flatMap((o) => {
+    const mark = o.status === "passed" ? "✓" : o.status === "failed" ? "✗" : "–";
+    const lines = [`${mark} ${expectLabel(o)}${o.status === "not-run" ? "  (not reached)" : ""}`];
+    if (o.detail) lines.push(...o.detail.split("\n").map((d) => `    ${d}`));
+    return lines;
+  });
+  return [`Expectations: ${head.join(", ")}`, "", ...body].join("\n");
+}
+
+/** The expectations as an `application/json` output. */
+export function expectJson(outcomes: readonly ExpectOutcome[]): unknown {
+  return {
+    expectations: outcomes.map((o) => ({ line: o.expectation.line + 1, text: squash(o.expectation.text), status: o.status, ...(o.detail ? { detail: o.detail } : {}) })),
+  };
+}
+
+/** The failures as problems on the cell's own lines, to show as diagnostics. */
+export function expectDiagnostics(outcomes: readonly ExpectOutcome[], cell: number): CellDiagnostic[] {
+  return outcomes
+    .filter((o) => o.status === "failed")
+    .map((o) => ({
+      line: o.expectation.line + 1,
+      col: 1,
+      severity: "error" as const,
+      code: "expect",
+      message: `${o.expectation.text.split("\n")[0]} failed${o.detail ? `:\n${o.detail}` : ""}`,
+      cell,
+      at: o.expectation.line,
+    }));
+}
+
+// ---------------------------------------------------------------------------
 // Showing a value
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
