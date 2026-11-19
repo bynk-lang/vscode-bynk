@@ -44,6 +44,7 @@ import { registerNotebook } from "./notebook";
 import { registerOpenapi } from "./openapi";
 import { registerPlaygroundCommands } from "./playgroundCommands";
 import { registerRefinedExplorer } from "./refinedExplorer";
+import { registerRevert } from "./revert";
 import { registerScenario } from "./scenario";
 import { registerTasks } from "./tasks";
 import { registerTomlRecommendation } from "./tomlRecommendation";
@@ -112,6 +113,8 @@ export const FEATURES: readonly ((env: FeatureEnv) => void)[] = [
   ({ context }) => registerPlaygroundCommands(context),
   // #2470: the "Refined Type" explorer.
   ({ context, client }) => registerRefinedExplorer(context, client),
+  // #222: "Revert…", a dry run, a confirmation, then `bynk revert`.
+  ({ context }) => registerRevert(context),
   // #149: request scenarios (`.bynk-http`), checked against the wire contract.
   ({ context, viewRefresh }) => registerScenario(context, viewRefresh),
   // B-2: the `bynkc: check` build task (errors → Problems via `$bynkc`).

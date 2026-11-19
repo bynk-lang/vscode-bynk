@@ -214,6 +214,18 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   Diff for a context. Everything is read locally; nothing contacts Cloudflare.
   A **Worker group** (`[deploy.workers.<key>]` in `bynk.toml`, which deploys
   several contexts as one Worker) is one node holding its member contexts.
+- **Revert…** — right-click an environment, a Worker group or a context in the
+  Environments view (or **Bynk: Revert Deployment…**) to make the previous
+  deployment live again with `bynk revert`. It first runs `bynk revert --dry-run`
+  and shows its verdict, or each refusal and why, in the **Bynk Revert** output
+  channel; only if nothing is refused does a confirmation naming the environment
+  and Worker(s) appear (a production-like environment also asks you to type its
+  name), and then `bynk revert --yes` runs with its output streamed there. A Worker
+  group goes back as one (`--worker <key>`). `bynk revert` reads Cloudflare even on
+  a dry run, so it needs `CLOUDFLARE_API_TOKEN` (with D1 read access) and
+  `CLOUDFLARE_ACCOUNT_ID` in the environment VS Code runs in; the extension never
+  stores, reads or asks for them, and never passes the flags that override a refusal
+  (`--accept-schema-ahead`, `--accept-secret-changes`).
 - **Worker groups** — a context in a `[deploy.workers.<key>]` group runs, deploys
   and reverts as part of that group's one Worker, which `bynk` names by the
   group's key. The extension reads the groups from `bynk.toml` and follows them:

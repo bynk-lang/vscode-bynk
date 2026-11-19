@@ -5,7 +5,9 @@
 // Local only: the lock file, `bynk migrate status` (through the store the
 // Project tree shares) and the language server's `bynk/contractDiff`. The
 // actions reuse the existing commands, which keep their own confirmation flows
-// (ADR 0510; `migrationsCore.ts` DECISION C), and the view never passes `--yes`.
+// (ADR 0510; `migrationsCore.ts` DECISION C), and the view never passes `--yes` itself.
+// The one exception is Revert…, which confirms after its own dry run and then runs
+// `bynk revert --yes` as a child (`revertCore.ts` DECISION C).
 
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
@@ -186,6 +188,17 @@ export function registerEnvironments(
     ),
     vscode.commands.registerCommand("bynk.environments.tail", (n?: EnvTreeNode) =>
       vscode.commands.executeCommand("bynk.tailLogs", { environment: env(n) }),
+    ),
+    // #222: an environment reverts every recorded Worker, a Worker its group, a context its own Worker.
+    vscode.commands.registerCommand("bynk.environments.revert", (n?: EnvTreeNode) =>
+      vscode.commands.executeCommand(
+        "bynk.revert",
+        n?.data.kind === "workerGroup"
+          ? { environment: n.data.environment, worker: n.data.worker, contexts: n.data.contexts }
+          : n?.data.kind === "context"
+            ? { environment: n.data.environment, context: n.data.context }
+            : { environment: env(n), context: "" },
+      ),
     ),
     vscode.commands.registerCommand("bynk.environments.sweep", async (n?: EnvTreeNode) =>
       vscode.commands.executeCommand("bynk.migrate.sweep", {

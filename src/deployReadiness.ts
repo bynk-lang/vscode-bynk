@@ -55,6 +55,13 @@ const planQueue = new SerialQueue();
 let plansRunning = 0;
 let lastPlanEnded = 0;
 
+/** Run `task` when no plan is running, and let none start until it is done (#222):
+ *  a real revert rewrites the ledger and may touch `bynk.schema.lock`, and a plan's
+ *  snapshot must not be put back over it. */
+export function runExclusiveWithPlans<T>(task: () => Promise<T>): Promise<T> {
+  return planQueue.run(task);
+}
+
 /** Whether a change to `bynk.schema.lock` now is the echo of a plan run. */
 export function isPlanLockEvent(now = Date.now()): boolean {
   return isOwnLockEvent(now, plansRunning > 0, lastPlanEnded);
