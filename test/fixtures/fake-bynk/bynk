@@ -347,6 +347,16 @@ if (args[0] === "--version") {
     process.stdout.write(JSON.stringify(plan, null, 2) + "\n");
     process.exit(0);
   }
+  // `run-fails`: a real revert that fails (exit 1, a message on stderr);
+  // `run-credentials`: one that finds no credentials (the recorded message).
+  if (mode === "run-fails") {
+    process.stderr.write("bynk: revert of `core` failed: the Cloudflare rollback was refused\n");
+    process.exit(1);
+  }
+  if (mode === "run-credentials") {
+    process.stderr.write(fixture("revert-credentials.stderr.txt"));
+    process.exit(1);
+  }
   process.stdout.write("fake bynk revert: reverted (no Cloudflare in tests)\n");
   process.exit(0);
 } else if (args[0] === "tail") {

@@ -108,6 +108,32 @@ describe("Bynk revert (#222)", () => {
     assert.strictEqual(typedPrompts, 0, "staging is not production");
   });
 
+  for (const [mode, want] of [
+    ["run-fails", /`bynk revert` failed \(exit 1\)/],
+    ["run-credentials", /CLOUDFLARE_API_TOKEN/],
+  ] as const) {
+    it(`a confirmed revert that fails (${mode}) says so, and the Environments view still refreshes`, async function () {
+      if (process.platform === "win32") this.skip();
+      this.timeout(60_000);
+      process.env.BYNK_FAKE_REVERT = mode; // dry runs are clean in these modes; only the real run fails
+      answer = "Revert";
+      const refreshes: string[] = [];
+      const exec = vscode.commands.executeCommand;
+      (vscode.commands as unknown as { executeCommand: unknown }).executeCommand = (c: string, ...a: unknown[]) => (
+        c === "bynk.environments.refresh" && refreshes.push(c), (exec as (...x: unknown[]) => unknown)(c, ...a)
+      );
+      try {
+        await revert({ environment: "staging", worker: "core" });
+        await waitFor(() => errors.length, (n) => n > 0, "the failure message");
+      } finally {
+        (vscode.commands as unknown as { executeCommand: unknown }).executeCommand = exec;
+      }
+      assert.match(errors[0], want);
+      assert.strictEqual(real().length, 1);
+      assert.strictEqual(refreshes.length, 1, "the view refreshes whatever happened");
+    });
+  }
+
   it("a production-like environment needs its name typed too", async function () {
     if (process.platform === "win32") this.skip();
     this.timeout(60_000);
@@ -132,6 +158,15 @@ describe("Bynk revert (#222)", () => {
     await revert({ environment: "staging", context: "shop.orders" });
     await waitFor(() => runs().length, (n) => n === 1, "the dry run");
     assert.deepStrictEqual(runs()[0].argv, ["revert", "--dry-run", "--format", "json", "--env", "staging", "--worker", "core"]);
+  });
+
+  it("a Worker the manifest does not name is still reverted with --worker (a ledger-only group)", async function () {
+    if (process.platform === "win32") this.skip();
+    this.timeout(60_000);
+    process.env.BYNK_FAKE_REVERT = "refused";
+    await revert({ environment: "staging", worker: "retired", contexts: ["old.a", "old.b"] });
+    await waitFor(() => runs().length, (n) => n === 1, "the dry run");
+    assert.deepStrictEqual(runs()[0].argv, ["revert", "--dry-run", "--format", "json", "--env", "staging", "--worker", "retired"]);
   });
 
   it("missing credentials are the CLI's to report: the extension says so and runs nothing more", async function () {

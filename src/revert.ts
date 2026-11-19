@@ -13,7 +13,7 @@ import * as vscode from "vscode";
 
 import { BynkNotFoundError, findProjectRoot, projectContexts, spawnBynk } from "./cli";
 import { lockEnvironments, validContextName, validEnvironmentName } from "./deployPlan";
-import { runPlanReadOnly } from "./deployReadiness";
+import { runExclusiveWithPlans, runPlanReadOnly } from "./deployReadiness";
 import { reportBynkNotFound } from "./doctor";
 import { type RevertTarget, confirmation, credentialsMessage, formatRevertPlan, mentionsMissingCredentials, refusalSummary, revertArgs, revertOutcome, revertScopeFor } from "./revertCore";
 import { bynkPath } from "./tasks";
@@ -26,6 +26,9 @@ interface Preset {
   environment?: string;
   context?: string;
   worker?: string;
+  /** The members of the Worker group `worker` names, when the view knows them:
+   *  a group only the ledger records is not in `bynk.toml`. */
+  contexts?: string[];
 }
 
 let channel: vscode.OutputChannel | undefined;
@@ -89,12 +92,20 @@ async function revertFlow(preset?: Preset): Promise<void> {
   }
   const environment = preset?.environment ?? (await pickEnvironment(root));
   if (!environment) return;
-  const groups = await readWorkerGroups(root);
+  const manifestGroups = await readWorkerGroups(root);
+  // A group only the ledger records (not in bynk.toml) is known from the node's members.
+  const groups =
+    preset?.worker && preset.contexts?.length && !manifestGroups.some((g) => g.key === preset.worker)
+      ? [...manifestGroups, { key: preset.worker, contexts: preset.contexts }]
+      : manifestGroups;
 
   // The scope: the preset's, else a pick. A member of a group is its group's Worker.
   let scope: { context?: string; worker?: string } = {};
-  const named = preset?.worker || preset?.context;
-  if (named) {
+  if (preset?.worker) {
+    // A Worker is a Worker: `--worker`, whether or not the manifest names its group.
+    scope = { worker: preset.worker };
+  } else if (preset?.context) {
+    const named = preset.context;
     const s = revertScopeFor(named, groups);
     scope = s.target;
     if (s.member && s.group) {
@@ -102,7 +113,7 @@ async function revertFlow(preset?: Preset): Promise<void> {
         `Bynk: ${named} is in the Worker group \`${s.group.key}\`, which runs as one Worker, so the whole group (${s.group.contexts.join(", ")}) goes back together.`,
       );
     }
-  } else if (preset?.context === undefined && preset?.worker === undefined) {
+  } else if (preset?.context === undefined) {
     const choices = workerScopes(await projectContexts(root), groups);
     if (choices.length > 1) {
       const picked = await vscode.window.showQuickPick(
@@ -153,13 +164,13 @@ async function revertFlow(preset?: Preset): Promise<void> {
       outcome.kind === "credentials"
         ? credentialsMessage()
         : `Bynk: \`bynk revert --dry-run\` could not check ${environment}. Nothing was changed.`;
-    void vscode.window.showErrorMessage(msg, "Show Output");
+    void vscode.window.showErrorMessage(msg, "Show Output").then((c) => c && out.show());
     return;
   }
   for (const line of formatRevertPlan(outcome.plan)) out.appendLine(line);
   out.show(true);
   if (outcome.kind === "refused") {
-    void vscode.window.showErrorMessage(`Bynk: ${refusalSummary(outcome.plan)}`, "Show Output");
+    void vscode.window.showErrorMessage(`Bynk: ${refusalSummary(outcome.plan)}`, "Show Output").then((c) => c && out.show());
     return;
   }
 
@@ -185,8 +196,9 @@ async function revertFlow(preset?: Preset): Promise<void> {
   try {
     code = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `Bynk: reverting ${environment}…` },
+      // Alone with the plan runs (readiness, deploy plan): see runExclusiveWithPlans.
       () =>
-        new Promise<number | null>((resolve, reject) => {
+        runExclusiveWithPlans(() => new Promise<number | null>((resolve, reject) => {
           const child = spawnBynk(runArgs, root.fsPath, {
             output: {
               append: (t) => {
@@ -197,7 +209,7 @@ async function revertFlow(preset?: Preset): Promise<void> {
           });
           child.once("error", (e) => reject((e as { code?: unknown }).code === "ENOENT" ? new BynkNotFoundError(bynkPath(), e) : e));
           child.once("close", resolve);
-        }),
+        })),
     );
   } catch (e) {
     if (e instanceof BynkNotFoundError) await reportBynkNotFound();
@@ -214,6 +226,6 @@ async function revertFlow(preset?: Preset): Promise<void> {
     void vscode.window.showErrorMessage(
       mentionsMissingCredentials(text) ? credentialsMessage() : `Bynk: \`bynk revert\` failed (exit ${code ?? "signal"}). See the output for what it changed, if anything.`,
       "Show Output",
-    );
+    ).then((c) => c && out.show());
   }
 }

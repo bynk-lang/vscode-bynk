@@ -11,6 +11,12 @@
 // environment and the Workers (and a typed one for a production-like
 // environment); then the real revert, streamed to an output channel.
 //
+// DECISION C (differs from Deploy and Sweep, which open a terminal and never pass
+//   `--yes`): the real revert runs as a child process with its output streamed to
+//   the "Bynk Revert" channel, so `--yes` is needed. The gate is the one the user
+//   has just passed: the dry run's verdict, shown in full, then a modal naming the
+//   environment and Worker(s) (a typed name for production). `--yes` "never
+//   overrides a refusal", and bynk re-checks before it changes anything.
 // DECISION A: the arguments are built here and nowhere else. They never carry
 //   `--accept-schema-ahead` or `--accept-secret-changes` (the CLI's own override
 //   of a refusal: the editor never makes that call for the user), and `--to` is
