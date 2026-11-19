@@ -32,6 +32,7 @@
     "src/liveFlow.ts",
     "src/logChannelWindow.ts",
     "src/deployPlan.ts",
+    "src/deployReadinessCore.ts",
     "src/dependenciesCore.ts",
     "src/migrationsCore.ts",
     "src/doctorReport.ts",

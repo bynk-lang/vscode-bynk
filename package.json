@@ -787,6 +787,11 @@
         "category": "Bynk"
       },
       {
+        "command": "bynk.checkDeployReadiness",
+        "title": "Check Deploy Readiness…",
+        "category": "Bynk"
+      },
+      {
         "command": "bynk.tailLogs",
         "title": "Tail Deployed Logs…",
         "category": "Bynk"
@@ -932,6 +937,12 @@
         "title": "Show Deploy Plan",
         "category": "Bynk",
         "icon": "$(checklist)"
+      },
+      {
+        "command": "bynk.environments.checkReadiness",
+        "title": "Check Deploy Readiness",
+        "category": "Bynk",
+        "icon": "$(shield)"
       },
       {
         "command": "bynk.environments.deploy",
@@ -1226,6 +1237,10 @@
           "when": "(editorLangId == bynk || bynk.hasProject) && !isWeb"
         },
         {
+          "command": "bynk.checkDeployReadiness",
+          "when": "(editorLangId == bynk || bynk.hasProject) && !isWeb"
+        },
+        {
           "command": "bynk.tailLogs",
           "when": "(editorLangId == bynk || bynk.hasProject) && !isWeb"
         },
@@ -1303,6 +1318,10 @@
         },
         {
           "command": "bynk.environments.showPlan",
+          "when": "false"
+        },
+        {
+          "command": "bynk.environments.checkReadiness",
           "when": "false"
         },
         {
@@ -1543,6 +1562,11 @@
           "command": "bynk.project.sendRequest",
           "when": "view == bynk.project && viewItem == bynkHttpHandler && !isWeb",
           "group": "bynk@3"
+        },
+        {
+          "command": "bynk.environments.checkReadiness",
+          "when": "view == bynk.environments && !isWeb && viewItem == bynkEnvironment",
+          "group": "inline@0"
         },
         {
           "command": "bynk.environments.showPlan",

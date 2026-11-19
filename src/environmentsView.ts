@@ -178,6 +178,9 @@ export function registerEnvironments(
     vscode.commands.registerCommand("bynk.environments.showPlan", (n?: EnvTreeNode) =>
       vscode.commands.executeCommand("bynk.showDeployPlan", { environment: env(n), context: "" }),
     ),
+    vscode.commands.registerCommand("bynk.environments.checkReadiness", (n?: EnvTreeNode) =>
+      vscode.commands.executeCommand("bynk.checkDeployReadiness", { environment: env(n), context: "" }),
+    ),
     vscode.commands.registerCommand("bynk.environments.deploy", (n?: EnvTreeNode) =>
       vscode.commands.executeCommand("bynk.deploy", { environment: env(n), context: "" }),
     ),

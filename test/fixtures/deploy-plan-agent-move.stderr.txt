@@ -1,0 +1,2 @@
+bynk: bynk.deploy.agent_move_refused: context `shop.orders` hosts agent `Counter` and would move from Worker script `acme-core` to `shop-orders`; an agent's state belongs to its script, so it would start empty there and the old data would stay behind.
+  Keep `shop.orders` on `acme-core`, or, if its state may be discarded, start it fresh with `--accept-fresh-agent shop.orders`.

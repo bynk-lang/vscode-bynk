@@ -6,7 +6,9 @@
 // creates, reuses or sets, the required secrets, and any orphans. Its Deploy
 // button runs the same `bynk deploy` in a terminal, without `--yes`, so the
 // driver's own confirmation stays the final gate (DECISION A). **Bynk: Show
-// Deploy Plan** is the preview alone and has no Deploy button.
+// Deploy Plan** is the preview alone and has no Deploy button. Both start with
+// **Ready to deploy?** (#221, deployReadiness.ts), and Deploy's button is gated
+// on it: a refusal `bynk` would make blocks it, a warning needs "Deploy anyway".
 //
 // The editor never offers `--prune` (DECISION B: orphans are shown with a
 // "prune from a terminal" hint) and never reads, stores or prompts for a secret
@@ -17,9 +19,12 @@ import * as vscode from "vscode";
 
 import type { ApprovalState } from "./approveRequirements";
 import type { WorkerGroup } from "./contextNames";
-import { BynkNotFoundError, findProjectRoot, projectContexts, runBynk } from "./cli";
+import type { LanguageClient } from "vscode-languageclient/node";
+
+import { BynkNotFoundError, type BynkResult, findProjectRoot, projectContexts, runBynk } from "./cli";
 import { isActionMessage, renderActionHtml } from "./cliView";
 import {
+  type PlanOutcome,
   DeployTarget,
   deployArgs,
   lockEnvironments,
@@ -31,8 +36,11 @@ import {
   renderPlanHtml,
   validEnvironmentName,
 } from "./deployPlan";
+import { DeployReadiness, runPlanReadOnly } from "./deployReadiness";
 import { reportBynkNotFound } from "./doctor";
 import { bynkPath } from "./tasks";
+import { type ReadinessReport, verdictLine } from "./deployReadinessCore";
+import type { ViewRefresh } from "./viewRefresh";
 import { resolveScope, workerScopes } from "./workerGroups";
 import { readWorkerGroups } from "./workerGroupsStore";
 
@@ -40,12 +48,29 @@ interface PlanState {
   root: vscode.Uri;
   target: DeployTarget;
   canDeploy: boolean;
+  /** #221: the readiness verdict to show above the plan. */
+  readiness?: ReadinessReport;
 }
 
-export function registerDeploy(context: vscode.ExtensionContext, approvals: ApprovalState): void {
-  const view = new DeployView(approvals);
+export function registerDeploy(
+  context: vscode.ExtensionContext,
+  approvals: ApprovalState,
+  hub: ViewRefresh,
+  client: () => LanguageClient | undefined,
+): void {
+  const view = new DeployView(approvals, new DeployReadiness(hub, client));
   context.subscriptions.push(
     view,
+    // #221: the check on its own, for a chosen environment.
+    vscode.commands.registerCommand("bynk.checkDeployReadiness", (preset?: Preset) => view.checkReadiness(preset)),
+    // Test seam (not contributed): the report for a target, without the panel.
+    vscode.commands.registerCommand("bynk._deployReadiness", async (preset?: Preset) => {
+      const root = await findProjectRoot();
+      if (!root || typeof preset?.environment !== "string") return undefined;
+      const groups = await readWorkerGroups(root);
+      const scope = presetScope(preset, groups, "deploy");
+      return (await view.readiness.check(root, { environment: preset.environment, ...scope }))?.report;
+    }),
     vscode.commands.registerCommand("bynk.deploy", (preset?: Preset) => view.start(true, preset)),
     vscode.commands.registerCommand("bynk.showDeployPlan", (preset?: Preset) => view.start(false, preset)),
     vscode.commands.registerCommand("bynk.tailLogs", (preset?: Preset) => tail(preset)),
@@ -101,9 +126,13 @@ class DeployView implements vscode.Disposable {
   private state: PlanState | undefined;
   private output: vscode.OutputChannel | undefined;
 
-  constructor(private readonly approvals: ApprovalState) {}
+  constructor(
+    private readonly approvals: ApprovalState,
+    readonly readiness: DeployReadiness,
+  ) {}
 
   dispose(): void {
+    this.readiness.dispose();
     this.panel?.dispose();
     this.output?.dispose();
   }
@@ -116,16 +145,42 @@ class DeployView implements vscode.Disposable {
     const scope = await scopeFor(root, groups, preset, "deploy");
     if (scope === undefined) return;
     const target: DeployTarget = { environment, ...scope };
-    await this.showPlan({ root, target, canDeploy });
+    // #221: "Ready to deploy?" first (a fresh check: this is an explicit
+    // request). Show Deploy Plan is a preview and always opens the plan, with the
+    // verdict above it. Deploy… opens the plan when there is nothing to say, and
+    // otherwise the readiness panel, with a way on to the plan.
+    const entry = await this.readiness.checkWithProgress(root, target, true);
+    if (!entry) return;
+    const next: PlanState = { root, target, canDeploy, readiness: entry.report };
+    if (!canDeploy || entry.report.verdict === "ready") {
+      await this.showPlan(next, entry.plan);
+      return;
+    }
+    await this.readiness.show({ root, target, canDeploy, continueTo: (plan) => this.showPlan(next, plan) });
+  }
+
+  /** #221: Bynk: Check Deploy Readiness, for a chosen environment and scope. */
+  async checkReadiness(preset?: Preset): Promise<void> {
+    const resolved = await resolveEnvironment(preset, pickEnvironment);
+    if (!resolved) return;
+    const { root, environment } = resolved;
+    const groups = await readWorkerGroups(root);
+    const scope = await scopeFor(root, groups, preset, "deploy");
+    if (scope === undefined) return;
+    const target: DeployTarget = { environment, ...scope };
+    const next: PlanState = { root, target, canDeploy: false };
+    await this.readiness.show({ root, target, canDeploy: false, continueTo: (plan) => this.showPlan(next, plan) }, true);
   }
 
   /** Run the dry run and show (or refresh) the plan view. */
-  async showPlan(next: PlanState): Promise<void> {
+  async showPlan(next: PlanState, prefetched?: PlanOutcome): Promise<void> {
     const args = deployArgs(next.target, "plan");
     let result;
     let cancelled = false;
     try {
-      result = await vscode.window.withProgress(
+      // The readiness check has just run this very dry run: show its answer.
+      if (prefetched) result = undefined;
+      else result = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
           title: `Bynk: planning a deploy to ${next.target.environment}…`,
@@ -133,7 +188,7 @@ class DeployView implements vscode.Disposable {
         },
         (_progress, token) => {
           token.onCancellationRequested(() => (cancelled = true));
-          return runBynk(args, next.root.fsPath, token);
+          return runPlanReadOnly(next.root, args, token);
         },
       );
     } catch (e) {
@@ -144,7 +199,7 @@ class DeployView implements vscode.Disposable {
       }
       return;
     }
-    const outcome = planOutcome(result, cancelled);
+    const outcome = prefetched ?? planOutcome(result as BynkResult, cancelled);
     this.state = settledState(this.state, next, outcome);
     if (outcome.kind === "cancelled") return; // the user pressed Cancel
     if (outcome.kind === "failed") {
@@ -182,7 +237,12 @@ class DeployView implements vscode.Disposable {
     panel.webview.html = renderActionHtml(
       panel.webview,
       title,
-      renderPlanHtml(plan, { target: next.target, canDeploy: next.canDeploy, warnings: outcome.warnings }),
+      renderPlanHtml(plan, {
+        target: next.target,
+        canDeploy: next.canDeploy,
+        warnings: outcome.warnings,
+        ...(next.readiness ? { readiness: { line: verdictLine(next.readiness), tone: next.readiness.verdict } } : {}),
+      }),
       PLAN_CSS,
     );
     panel.reveal();
@@ -202,11 +262,18 @@ class DeployView implements vscode.Disposable {
         });
         if (!picked?.[0]) return;
         // Only the path is kept: the driver reads the file, the editor never does.
-        await this.showPlan({ ...current, target: { ...current.target, secretsFile: picked[0].fsPath } });
+        // The readiness line described the target without the file: drop it, not show it stale.
+        await this.showPlan({ ...current, readiness: undefined, target: { ...current.target, secretsFile: picked[0].fsPath } });
         break;
       }
+      case "readiness":
+        await this.readiness.show(
+          { root: current.root, target: current.target, canDeploy: current.canDeploy, continueTo: (plan) => this.showPlan(current, plan) },
+          true,
+        );
+        break;
       case "deploy":
-        if (current.canDeploy) await runDeploy(current);
+        if (current.canDeploy) await runDeploy(current, this.readiness, (plan) => this.showPlan(current, plan));
         break;
     }
   }
@@ -380,14 +447,36 @@ async function pickScope(
 /** Run the real deploy in a terminal, with exactly the previewed arguments
  *  minus `--dry-run --format json`. `bynk` itself is the terminal's process, so
  *  its confirmation prompts are answered there. */
-async function runDeploy(current: PlanState): Promise<void> {
+async function runDeploy(
+  current: PlanState,
+  readiness: DeployReadiness,
+  showPlan: (plan: PlanOutcome | undefined) => Promise<void>,
+): Promise<void> {
   const env = current.target.environment;
-  const go = `Open Terminal and Deploy`;
+  // #221: a refusal `bynk` would itself make blocks the editor's Deploy; a
+  // warning is the user's to accept, by name, with an explicit "Deploy anyway".
+  const checked = await readiness.gate(current.root, current.target);
+  if (!checked) return; // cancelled
+  const { gate } = checked;
+  if (gate.kind === "block") {
+    const open = "Show Readiness";
+    const choice = await vscode.window.showErrorMessage(
+      `Bynk: deploying to "${env}" is blocked. bynk itself would refuse it: ${gate.failures.join("; ")}`,
+      open,
+    );
+    if (choice === open) {
+      await readiness.show({ root: current.root, target: current.target, canDeploy: true, continueTo: showPlan });
+    }
+    return;
+  }
+  const go = gate.kind === "confirm" ? "Deploy anyway" : `Open Terminal and Deploy`;
   const choice = await vscode.window.showWarningMessage(
-    `Deploy to "${env}"?`,
+    gate.kind === "confirm" ? `Deploy to "${env}" with warnings?` : `Deploy to "${env}"?`,
     {
       modal: true,
-      detail: `This runs \`bynk ${deployArgs(current.target, "deploy").join(" ")}\` in a terminal. bynk asks you to confirm there before it creates anything or publishes a Worker.`,
+      detail:
+        (gate.kind === "confirm" ? `Readiness warnings:\n- ${gate.warnings.join("\n- ")}\n\n` : "") +
+        `This runs \`bynk ${deployArgs(current.target, "deploy").join(" ")}\` in a terminal. bynk asks you to confirm there before it creates anything or publishes a Worker.`,
     },
     go,
   );

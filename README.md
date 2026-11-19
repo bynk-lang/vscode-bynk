@@ -187,6 +187,24 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
   creates or sets, required secrets, orphans), and only then runs `bynk deploy`
   in a terminal, where the driver asks you to confirm. The extension never passes
   `--yes` or `--prune`, and never handles a secret value.
+- **Deploy readiness** — **Bynk: Check Deploy Readiness…** gathers what can go
+  wrong in a deploy to one environment into one panel: breaking service
+  contracts against what is live and event or agent schema changes against
+  `bynk.schema.lock` (the contract diff), pending state migrations
+  (`bynk migrate status`), secrets the environment still needs and what the plan
+  would leave behind (the plan's `secrets` and `orphans`), a context that would
+  move Worker script so its agent state starts empty (`bynk` refuses that, and
+  the check says so), and the last test run. Each check is passed, a warning or
+  failed, and links to the view that fixes it. **Failed** is only a refusal
+  `bynk` itself would make: it blocks the extension's Deploy. A **warning** lets
+  you choose **Deploy anyway** after a confirmation that names it. **Deploy…**
+  and **Show Deploy Plan** run the check first. The Worker-size check shows
+  "not available with this bynk" until `bynk` reports Worker sizes
+  (bynk-lang/bynk#3792). Read-only: nothing is provisioned or deployed, and only
+  secret *names* are read, never a value. Answers are kept per environment and
+  source state, and the open panel refreshes on save. (`bynk deploy --dry-run`
+  records its schema in `bynk.schema.lock` even when it only plans; the editor
+  puts an existing file back byte for byte.)
 - **Environments** — the sidebar's **Environments** view has one node per
   environment in `bynk.deploy.lock`: each context's deployed service contract
   hashes, which contexts differ from the working tree (compatible or breaking),
@@ -692,6 +710,7 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Clear Worker Logs** | Empty the log buffer and the channel. |
 | **Bynk: Deploy…** | Pick an environment and a scope (the whole project, a Worker group or one context), review the dry-run plan, then deploy from the plan in a terminal. `bynk` asks you to confirm before it changes anything. |
 | **Bynk: Show Deploy Plan** | The same plan for review only. It never deploys. |
+| **Bynk: Check Deploy Readiness…** | Pick an environment and a scope and see every check that could stop or spoil a deploy: contract and schema changes, pending migrations, secrets, orphans, a context moving Worker script, tests. Read-only. **Deploy…** and **Show Deploy Plan** run it first. |
 | **Bynk: Tail Deployed Logs…** | Pick an environment (and a context or Worker group, when there are several) and stream the deployed Worker's logs with `bynk tail`, in a terminal, with stack frames at their `.bynk` lines. Needs a `bynk` with the command (v0.436.0 or newer). |
 | **Bynk: Copy Playground Link** / **Bynk: Open in Playground** | Share the selection (or a single-file program, whole) as a [playground](https://playground.bynk-lang.dev) link. The code is compressed into the URL fragment, so it never reaches a server; a snippet too large for a link is refused, not truncated. The link opens your code as it is; the playground's Run calls only the `on call` handler of a `service playground`, so code without one opens and shows diagnostics but Run has nothing to call (the command says so). Also in the editor context menu, and on the web. |
 | **Bynk: Export OpenAPI…** | Write an OpenAPI 3.1 document for the project's `from http` services (`bynk openapi`), as JSON or YAML by file name. |
