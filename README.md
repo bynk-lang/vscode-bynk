@@ -407,6 +407,29 @@ in the Problems panel, and a failing assertion links to its `.bynk` line.
       `sched.schedule(…)`, `q.message(…)` or `svc.call(…)` with `stub`s as a unit-tier
       case does, and promoting it carries the call and its `expect`s (no assertion is
       offered from the output of a call that is not an HTTP handler's).
+  - **Edge cases for a route** — **Bynk: Generate Edge Cases…** (palette, with the cursor on
+    an HTTP handler, or the opt-in `Edge cases` CodeLens, `bynk.edgeCases.codeLens`) writes
+    a notebook of boundary values for the route's refined inputs to `edge-cases/` in the
+    project, and opens it. Each refined field of the request (a body's record fields, a
+    path or query parameter) gets values from its type's predicates: at and just past each
+    `InRange` bound, `-1`/`0` for `NonNegative`, `0`/`1` for `Positive`, empty and one
+    character for `NonEmpty`, at and just past a `MaxLength` (just short of and at a
+    `MinLength`, around a `Length`), and the explorer's examples for a `Matches` pattern.
+    - **The compiler decides accept or refuse, never the predicate**: every value is run
+      through the real constructor, `Type.of(…)`, in one `bynk eval` (as a refined-type
+      cell does), and the cell is written from the answer.
+    - **One field at a time.** Each case holds the other fields at a value the compiler
+      accepted, so a failure names one field. An accepted value is a handler cell (the
+      typed call, with the route's success asserted by an `expect`); the notebook then
+      runs, and **Promote Notebook to Suite…** keeps it as a suite.
+    - **A refused value is asserted on the constructor** (`expect Percent.of(101) is
+      Err(_)`), not through the route: at the unit tier a value that breaks a refined type
+      does not compile as a call's argument, and the raw `Wire(…)` input that reaches the
+      route's own refusal is `system`-tier only, which `bynk eval` does not run (bynk
+      v0.639.1). The route's own refusal can be written by hand in a `system` suite.
+    - **Left out, and said so in the notebook:** a `Float` bound (no exact "just past"),
+      a bound beyond 2^53 or a length over 256, an opaque type, a refined type inside a
+      list, an option or a sum, and any predicate the extension does not read.
   - **A cell runs only when you run it**, never on open, hover or save: it is
     your code, at the trust of `bynk test`. A notebook in an untrusted workspace
     won't run. A cell is stopped after `bynk.notebook.timeoutSeconds` (60).
@@ -641,6 +664,7 @@ Available from the Command Palette under **Bynk**:
 | **Bynk: Show Component View** | One context opened up as a UML component diagram: its services, agents and providers as parts, with their operations (and each agent's key and state); a provided port for each service and a required port for each capability or consumed service it needs; and, in grey, who calls in and what satisfies its requirements. Follows the cursor's context. An operation's ↗ opens its sequence diagram. |
 | **Bynk: Show Wire Contract** | The JSON wire shape of the service handler at the cursor. Follows the cursor into other handlers unless pinned. |
 | **Bynk: Send Request** | Send the HTTP handler at the cursor a request on the dev server: path parameters, headers and a JSON body pre-filled from its type, then the response. Follows the cursor into other handlers unless pinned. |
+| **Bynk: Generate Edge Cases…** | With the cursor on an HTTP handler, write a notebook of boundary values for the route's refined inputs, with the accept or refuse of each asked of the compiler. See Notebooks. |
 | **Bynk: Run Scenario** | Run the `.bynk-http` scenario in the active editor on the dev server, with the results inline. Also a `Run scenario` / `Run step` CodeLens in the file. |
 | **Bynk: Promote Scenario to Test Suite** | Write the scenario as a `system`-tier test suite under `tests/`, listing what a suite cannot express, after the compiler has checked it. Also a `Promote to test suite` CodeLens. |
 | **Bynk: Run Scenario Against…** | Run the scenario against `dev` or a `[test.targets]` target from `bynk.toml`, confirming a deployed target first, refusing one marked `production = true`, and asking for the name of a production-named target before a write. Also a `Run against…` CodeLens. |
@@ -699,6 +723,7 @@ its own, and is restored after **Developer: Reload Window**.
 | `bynk.viewsCodeLens` | `false` | Show a `Wire contract` CodeLens above each service and agent handler, beside the `Show Sequence` lens. |
 | `bynk.scenario.codeLens` | `true` | Show `Run scenario` and `Run step` CodeLenses, and each step's last result, in `.bynk-http` scenario files. |
 | `bynk.sendRequest.codeLens` | `true` | Show a `Send request` CodeLens above each `from http` handler, opening **Bynk: Send Request**. |
+| `bynk.edgeCases.codeLens` | `false` | Show an `Edge cases` CodeLens above each `from http` handler, opening **Bynk: Generate Edge Cases…**. |
 | `bynk.fileDecorations.contextBadge` | `auto` | Two-letter Explorer badge naming each file's context (and each test file's), with the full name in the tooltip. Commons and adapters carry none. |
 | `bynk.fileDecorations.failedTests` | `true` | Tint a file red in the Explorer (and its folders) when a test in it failed in the last run. |
 | `bynk.fileDecorations.generatedClient` | `true` | Mark the TypeScript client `bynk client` writes (`[build.client] out`, even outside the project) with a `GN` badge, and warn once on the first edit to it. |
